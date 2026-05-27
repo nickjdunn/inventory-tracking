@@ -6,6 +6,7 @@ const PORT = process.env.PORT || 3000;
 let activeSearchEpc = null;
 
 app.use(express.json());
+// Serves index.html, mobile.html, and assets — no route conflict with /api/*
 app.use(express.static('public'));
 
 // 📡 The Endpoint: Processes bulk scans and updates item locations
