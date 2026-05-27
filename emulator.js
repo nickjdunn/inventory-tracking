@@ -205,9 +205,10 @@ async function simulateInventoryScan(containerEpc, totalTags) {
 
 async function findModePollTick() {
     try {
-        const { activeSearchEpc } = await get('/api/search/target');
+        const { activeSearchQueue } = await get('/api/search/target');
+        const queue = Array.isArray(activeSearchQueue) ? activeSearchQueue : [];
 
-        if (!activeSearchEpc) {
+        if (!queue.length) {
             if (lastHuntEpc) {
                 console.log('\n🔍 [Merlin Hardware] Find Mode idle — no dashboard target.\n');
                 lastHuntEpc = null;
@@ -216,8 +217,12 @@ async function findModePollTick() {
             return;
         }
 
-        if (activeSearchEpc !== lastHuntEpc) {
-            lastHuntEpc = activeSearchEpc;
+        const huntLabel = queue.length === 1
+            ? queue[0]
+            : `BATCH (${queue.length}): ${queue.join(', ')}`;
+
+        if (huntLabel !== lastHuntEpc) {
+            lastHuntEpc = huntLabel;
             rssiSimulation = 15 + Math.floor(Math.random() * 25);
         }
 
@@ -226,7 +231,7 @@ async function findModePollTick() {
         const proximity =
             rssi >= 75 ? 'VERY CLOSE' : rssi >= 50 ? 'NEARBY' : rssi >= 25 ? 'WEAK' : 'DISTANT';
 
-        console.log(`🔍 [Merlin Hardware] Hunting for target: ${activeSearchEpc}`);
+        console.log(`🔍 [Merlin Hardware] Hunting for target: ${huntLabel}`);
         console.log(`   RSSI ${bar}  (${proximity})`);
     } catch (err) {
         console.error(`🔍 [Merlin Hardware] Poll error: ${err.message}`);

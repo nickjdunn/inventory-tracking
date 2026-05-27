@@ -3,7 +3,7 @@ const db = require('./database'); // Import our database setup
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-let activeSearchEpc = null;
+let activeSearchQueue = [];
 
 app.use(express.json());
 // Serves index.html, mobile.html, and assets — no route conflict with /api/*
@@ -114,15 +114,32 @@ app.put('/api/containers/:epc_id', (req, res) => {
     });
 });
 
-// 🔍 Find Mode: Nordic scanner polls GET; dashboard sets/clears via POST
+// 🔍 Find Mode: Nordic scanner polls GET; dashboard sets batch queue via POST
 app.get('/api/search/target', (req, res) => {
-    res.json({ activeSearchEpc });
+    res.json({ activeSearchQueue });
 });
 
 app.post('/api/search/target', (req, res) => {
-    const { epc_id } = req.body;
-    activeSearchEpc = epc_id && String(epc_id).trim() ? String(epc_id).trim() : null;
-    res.json({ activeSearchEpc });
+    const { epc_ids } = req.body;
+
+    if (!epc_ids || !Array.isArray(epc_ids) || epc_ids.length === 0) {
+        activeSearchQueue = [];
+    } else {
+        activeSearchQueue = [...new Set(
+            epc_ids
+                .map((id) => (id == null ? '' : String(id).trim()))
+                .filter(Boolean)
+        )];
+    }
+
+    if (activeSearchQueue.length === 0) {
+        console.log('🔍 [Batch Hunt] Queue cleared.');
+    } else {
+        console.log(`🔍 [Batch Hunt] Queue updated (${activeSearchQueue.length} target(s)):`);
+        activeSearchQueue.forEach((epc, i) => console.log(`   ${i + 1}. ${epc}`));
+    }
+
+    res.json({ activeSearchQueue });
 });
 
 // 🌐 API to get all current inventory and history for the frontend dashboard

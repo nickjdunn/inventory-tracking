@@ -19,7 +19,7 @@
             background-color: var(--bg-color);
             color: var(--text-main);
             margin: 0;
-            padding: 20px;
+            padding: 20px 20px 100px;
         }
         .container {
             max-width: 1200px;
@@ -173,6 +173,58 @@
             padding: 10px 14px;
         }
         .find-banner.hidden { display: none; }
+        th.col-select, td.col-select {
+            padding: 12px 8px;
+            text-align: center;
+            width: 44px;
+        }
+        .row-select {
+            cursor: pointer;
+            height: 18px;
+            width: 18px;
+        }
+        #batch-action-bar {
+            align-items: center;
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 14px;
+            bottom: 24px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+            display: flex;
+            gap: 16px;
+            justify-content: space-between;
+            left: 50%;
+            max-width: 520px;
+            opacity: 0;
+            padding: 14px 20px;
+            pointer-events: none;
+            position: fixed;
+            transform: translateX(-50%) translateY(120%);
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            width: calc(100% - 48px);
+            z-index: 90;
+        }
+        #batch-action-bar.visible {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateX(-50%) translateY(0);
+        }
+        #batch-action-bar .batch-count {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        #batch-action-bar .batch-count strong {
+            color: var(--text-main);
+        }
+        .btn.hunt-batch {
+            background: #713f12;
+            border-color: var(--warning);
+            color: #fef08a;
+            font-size: 14px;
+            font-weight: 700;
+            padding: 10px 18px;
+        }
+        .btn.hunt-batch:hover { background: #92400e; }
     </style>
 </head>
 <body>
@@ -193,6 +245,9 @@
                 <table>
                     <thead>
                         <tr>
+                            <th class="col-select">
+                                <input type="checkbox" id="select-all-rows" class="row-select" title="Select all" aria-label="Select all items">
+                            </th>
                             <th>Item Name</th>
                             <th>Current Location / Bin</th>
                             <th>EPC Identifier</th>
@@ -201,7 +256,7 @@
                     </thead>
                     <tbody id="inventory-table">
                         <tr>
-                            <td colspan="4" style="text-align:center; color: var(--text-muted);">Waiting for scan stream data...</td>
+                            <td colspan="5" style="text-align:center; color: var(--text-muted);">Waiting for scan stream data...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -236,8 +291,14 @@
         </div>
     </div>
 
+    <div id="batch-action-bar" aria-hidden="true">
+        <span class="batch-count"><strong id="batch-selected-count">0</strong><span id="batch-count-label"> items selected</span></span>
+        <button type="button" class="btn hunt-batch" id="hunt-selected-btn">🔍 Hunt Selected Items</button>
+    </div>
+
     <script>
-        let activeSearchEpc = null;
+        let activeSearchQueue = [];
+        const selectedEpcs = new Set();
 
         function escapeHtml(str) {
             if (str == null) return '';
@@ -265,27 +326,85 @@
             modal.setAttribute('aria-hidden', 'true');
         }
 
-        async function setFindTarget(epcId) {
-            const next = activeSearchEpc === epcId ? null : epcId;
+        async function postSearchQueue(epcIds) {
             const response = await fetch('/api/search/target', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ epc_id: next })
+                body: JSON.stringify({ epc_ids: epcIds })
             });
             const data = await response.json();
-            activeSearchEpc = data.activeSearchEpc;
+            activeSearchQueue = data.activeSearchQueue || [];
             updateFindBanner();
+        }
+
+        async function setFindTarget(epcId) {
+            if (activeSearchQueue.includes(epcId)) {
+                await postSearchQueue(activeSearchQueue.filter((id) => id !== epcId));
+            } else {
+                await postSearchQueue([epcId]);
+            }
+            fetchDashboardData();
         }
 
         function updateFindBanner() {
             const banner = document.getElementById('find-banner');
-            if (!activeSearchEpc) {
+            if (!activeSearchQueue.length) {
                 banner.classList.add('hidden');
                 banner.textContent = '';
                 return;
             }
             banner.classList.remove('hidden');
-            banner.textContent = '🔍 Find Mode active — scanner hunting EPC: ' + activeSearchEpc;
+            if (activeSearchQueue.length === 1) {
+                banner.textContent = '🔍 Batch Hunt active — 1 target: ' + activeSearchQueue[0];
+            } else {
+                banner.textContent = '🔍 Batch Hunt active — ' + activeSearchQueue.length + ' targets queued';
+            }
+        }
+
+        function updateBatchBar() {
+            const bar = document.getElementById('batch-action-bar');
+            const count = selectedEpcs.size;
+            const countEl = document.getElementById('batch-selected-count');
+            const labelEl = document.getElementById('batch-count-label');
+            if (countEl) countEl.textContent = count;
+            if (labelEl) labelEl.textContent = count === 1 ? ' item selected' : ' items selected';
+            bar.classList.toggle('visible', count > 0);
+            bar.setAttribute('aria-hidden', count === 0 ? 'true' : 'false');
+        }
+
+        function syncMasterCheckbox() {
+            const master = document.getElementById('select-all-rows');
+            if (!master) return;
+            const rowChecks = document.querySelectorAll('.row-epc-select');
+            if (rowChecks.length === 0) {
+                master.checked = false;
+                master.indeterminate = false;
+                return;
+            }
+            const checkedCount = [...rowChecks].filter((cb) => cb.checked).length;
+            master.checked = checkedCount === rowChecks.length;
+            master.indeterminate = checkedCount > 0 && checkedCount < rowChecks.length;
+        }
+
+        function bindRowCheckboxes() {
+            document.querySelectorAll('.row-epc-select').forEach((cb) => {
+                cb.addEventListener('change', () => {
+                    if (cb.checked) selectedEpcs.add(cb.dataset.epc);
+                    else selectedEpcs.delete(cb.dataset.epc);
+                    updateBatchBar();
+                    syncMasterCheckbox();
+                });
+            });
+        }
+
+        async function huntSelectedItems() {
+            const epcIds = [...selectedEpcs];
+            if (epcIds.length === 0) return;
+            await postSearchQueue(epcIds);
+            selectedEpcs.clear();
+            updateBatchBar();
+            syncMasterCheckbox();
+            fetchDashboardData();
         }
 
         document.getElementById('edit-cancel').addEventListener('click', closeEditModal);
@@ -328,20 +447,24 @@
                 ]);
                 const data = await dashResponse.json();
                 const searchData = await searchResponse.json();
-                activeSearchEpc = searchData.activeSearchEpc;
+                activeSearchQueue = searchData.activeSearchQueue || [];
                 updateFindBanner();
 
                 const tableBody = document.getElementById('inventory-table');
                 if (data.items.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag to auto-discover.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag to auto-discover.</td></tr>`;
                 } else {
                     tableBody.innerHTML = data.items.map(item => {
-                        const isFindTarget = item.epc_id === activeSearchEpc;
+                        const isFindTarget = activeSearchQueue.includes(item.epc_id);
+                        const isChecked = selectedEpcs.has(item.epc_id);
                         const location = item.container_id
                             ? (item.container_name || item.container_id)
                             : '📍 Open/Unassigned Space';
                         return `
                         <tr class="${isFindTarget ? 'find-target' : ''}" data-epc="${escapeHtml(item.epc_id)}">
+                            <td class="col-select">
+                                <input type="checkbox" class="row-select row-epc-select" data-epc="${escapeHtml(item.epc_id)}" ${isChecked ? 'checked' : ''} aria-label="Select ${escapeHtml(item.name)}">
+                            </td>
                             <td>
                                 <button type="button" class="item-name-link edit-item-btn" data-epc="${escapeHtml(item.epc_id)}">${escapeHtml(item.name)}</button>
                             </td>
@@ -350,7 +473,7 @@
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="btn edit-item-btn" data-epc="${escapeHtml(item.epc_id)}">Edit</button>
-                                    <button type="button" class="btn find ${isFindTarget ? 'active' : ''}" data-find-epc="${escapeHtml(item.epc_id)}">${isFindTarget ? '✕ Clear Find' : '🔍 Find'}</button>
+                                    <button type="button" class="btn find ${isFindTarget ? 'active' : ''}" data-find-epc="${escapeHtml(item.epc_id)}">${isFindTarget ? '✕ In Hunt' : '🔍 Find'}</button>
                                 </div>
                             </td>
                         </tr>`;
@@ -368,6 +491,9 @@
                     tableBody.querySelectorAll('[data-find-epc]').forEach(btn => {
                         btn.addEventListener('click', () => setFindTarget(btn.dataset.findEpc));
                     });
+
+                    bindRowCheckboxes();
+                    syncMasterCheckbox();
                 }
 
                 const historyFeed = document.getElementById('history-feed');
@@ -398,6 +524,19 @@
                 document.getElementById('connection-status').className = 'badge warning';
             }
         }
+
+        document.getElementById('select-all-rows').addEventListener('change', (e) => {
+            const checked = e.target.checked;
+            document.querySelectorAll('.row-epc-select').forEach((cb) => {
+                cb.checked = checked;
+                if (checked) selectedEpcs.add(cb.dataset.epc);
+                else selectedEpcs.delete(cb.dataset.epc);
+            });
+            updateBatchBar();
+            syncMasterCheckbox();
+        });
+
+        document.getElementById('hunt-selected-btn').addEventListener('click', huntSelectedItems);
 
         fetchDashboardData();
         setInterval(fetchDashboardData, 2000);

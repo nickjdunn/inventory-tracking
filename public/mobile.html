@@ -265,6 +265,42 @@
             line-height: 1.6;
             margin-top: 12px;
         }
+        .batch-queue-title {
+            color: var(--warning);
+            font-size: 14px;
+            font-weight: 700;
+            margin: 0 0 12px;
+        }
+        .batch-queue-list {
+            list-style: none;
+            margin: 0 0 20px;
+            padding: 0;
+        }
+        .batch-queue-item {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-left: 4px solid var(--warning);
+            border-radius: 10px;
+            margin-bottom: 10px;
+            padding: 14px 16px;
+        }
+        .batch-queue-item .name {
+            font-size: 17px;
+            font-weight: 700;
+            margin: 0 0 4px;
+        }
+        .batch-queue-item .epc {
+            color: var(--muted);
+            font-family: ui-monospace, monospace;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .batch-queue-item .idx {
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
     </style>
 </head>
 <body>
@@ -300,6 +336,14 @@
             <div class="card" id="find-standby">
                 <h2>🔍 Find Mode</h2>
                 <p class="standby">Standby: No active hunt target selected from main dashboard.</p>
+            </div>
+            <div class="card" id="find-batch" style="display:none;">
+                <h2>🔍 Batch Hunt Queue</h2>
+                <p class="batch-queue-title" id="batch-queue-summary">0 items queued</p>
+                <ul class="batch-queue-list" id="batch-queue-list"></ul>
+                <button type="button" class="btn-giant btn-danger" id="clear-hunt-batch">
+                    ✓ CLEAR HUNT QUEUE
+                </button>
             </div>
             <div class="card" id="find-radar" style="display:none;">
                 <h2>🔍 Signal Proximity Radar</h2>
@@ -370,7 +414,8 @@
         let findPollTimer = null;
         let rssiAnimTimer = null;
         let simulatedRssi = 30;
-        let activeSearchEpc = null;
+        let activeSearchQueue = [];
+        let radarFocusEpc = null;
         let itemLookup = {};
 
         function pickRandomTags(min, max) {
@@ -478,37 +523,73 @@
 
         function showFindStandby() {
             document.getElementById('find-standby').style.display = 'block';
+            document.getElementById('find-batch').style.display = 'none';
             document.getElementById('find-radar').style.display = 'none';
             stopRssiAnimation();
+            radarFocusEpc = null;
+        }
+
+        function showFindBatch(queue) {
+            document.getElementById('find-standby').style.display = 'none';
+            document.getElementById('find-batch').style.display = 'block';
+            document.getElementById('find-radar').style.display = 'none';
+            stopRssiAnimation();
+
+            const n = queue.length;
+            document.getElementById('batch-queue-summary').textContent =
+                n + ' item' + (n === 1 ? '' : 's') + ' queued on system';
+
+            document.getElementById('batch-queue-list').innerHTML = queue.map((epc, i) => `
+                <li class="batch-queue-item">
+                    <div class="idx">#${i + 1}</div>
+                    <div class="name">${escapeHtml(resolveItemName(epc))}</div>
+                    <div class="epc">${escapeHtml(epc)}</div>
+                </li>
+            `).join('');
         }
 
         function showFindRadar(epc) {
             document.getElementById('find-standby').style.display = 'none';
+            document.getElementById('find-batch').style.display = 'none';
             document.getElementById('find-radar').style.display = 'block';
             document.getElementById('radar-name').textContent = resolveItemName(epc);
             document.getElementById('radar-epc').textContent = epc;
-            if (activeSearchEpc !== epc) {
-                activeSearchEpc = epc;
+            if (radarFocusEpc !== epc) {
+                radarFocusEpc = epc;
                 simulatedRssi = 12 + Math.random() * 28;
             }
             startRssiAnimation();
+        }
+
+        function renderFindView(queue) {
+            if (!queue.length) {
+                showFindStandby();
+                return;
+            }
+            if (queue.length === 1) {
+                showFindRadar(queue[0]);
+                return;
+            }
+            showFindBatch(queue);
         }
 
         async function pollSearchTarget() {
             try {
                 const res = await fetch('/api/search/target');
                 const data = await res.json();
-                const epc = data.activeSearchEpc;
+                const queue = Array.isArray(data.activeSearchQueue) ? data.activeSearchQueue : [];
 
-                if (!epc) {
-                    activeSearchEpc = null;
+                activeSearchQueue = queue;
+
+                if (!queue.length) {
                     if (activeView === 'find') showFindStandby();
                     return;
                 }
 
                 if (activeView === 'find') {
-                    if (!itemLookup[epc]) await refreshItemLookup();
-                    showFindRadar(epc);
+                    const needsLookup = queue.some((epc) => !itemLookup[epc]);
+                    if (needsLookup) await refreshItemLookup();
+                    renderFindView(queue);
                 }
             } catch (err) {
                 console.warn('Find poll failed:', err);
@@ -518,7 +599,7 @@
         function startRssiAnimation() {
             stopRssiAnimation();
             rssiAnimTimer = setInterval(() => {
-                if (activeView !== 'find' || !activeSearchEpc) return;
+                if (activeView !== 'find' || !radarFocusEpc) return;
                 updateRadarVisual(nextSimulatedRssi());
             }, RSSI_TICK_MS);
         }
@@ -549,9 +630,9 @@
                 await fetch('/api/search/target', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ epc_id: null }),
+                    body: JSON.stringify({ epc_ids: [] }),
                 });
-                activeSearchEpc = null;
+                activeSearchQueue = [];
                 showFindStandby();
             } catch (err) {
                 alert('Could not clear hunt: ' + err.message);
@@ -629,6 +710,7 @@
 
         document.getElementById('trigger-scan').addEventListener('click', triggerQuickScan);
         document.getElementById('clear-hunt').addEventListener('click', clearHuntTarget);
+        document.getElementById('clear-hunt-batch').addEventListener('click', clearHuntTarget);
 
         document.getElementById('bin-select').addEventListener('change', () => {
             document.getElementById('bin-epc-custom').value = '';
