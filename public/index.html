@@ -76,6 +76,103 @@
         }
         .history-item:last-child { border: none; }
         .timestamp { color: var(--text-muted); font-size: 12px; }
+        .item-name-link {
+            background: none;
+            border: none;
+            color: var(--accent);
+            cursor: pointer;
+            font: inherit;
+            font-weight: 600;
+            padding: 0;
+            text-align: left;
+            text-decoration: underline;
+        }
+        .item-name-link:hover { color: #7dd3fc; }
+        .row-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .btn {
+            background: #334155;
+            border: 1px solid #475569;
+            border-radius: 4px;
+            color: var(--text-main);
+            cursor: pointer;
+            font-size: 12px;
+            padding: 4px 10px;
+        }
+        .btn:hover { background: #475569; }
+        .btn.find { border-color: #ca8a04; color: var(--warning); }
+        .btn.find.active {
+            background: #713f12;
+            border-color: var(--warning);
+            color: #fef08a;
+        }
+        tr.find-target {
+            animation: find-pulse 1.2s ease-in-out infinite;
+            background: rgba(251, 191, 36, 0.15);
+            box-shadow: inset 0 0 0 2px var(--warning);
+        }
+        @keyframes find-pulse {
+            0%, 100% { background: rgba(251, 191, 36, 0.12); }
+            50% { background: rgba(251, 191, 36, 0.28); }
+        }
+        .modal-overlay {
+            align-items: center;
+            background: rgba(15, 23, 42, 0.85);
+            display: none;
+            inset: 0;
+            justify-content: center;
+            position: fixed;
+            z-index: 100;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            background: var(--card-bg);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            max-width: 420px;
+            padding: 24px;
+            width: 90%;
+        }
+        .modal h3 { margin: 0 0 16px 0; color: var(--accent); }
+        .modal label {
+            color: var(--text-muted);
+            display: block;
+            font-size: 12px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+        .modal input,
+        .modal textarea {
+            background: #0f172a;
+            border: 1px solid #475569;
+            border-radius: 4px;
+            box-sizing: border-box;
+            color: var(--text-main);
+            margin-bottom: 14px;
+            padding: 8px 10px;
+            width: 100%;
+        }
+        .modal textarea { min-height: 72px; resize: vertical; }
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 8px;
+        }
+        .btn.primary { background: #0369a1; border-color: var(--accent); }
+        .btn.primary:hover { background: #0284c7; }
+        .find-banner {
+            background: #713f12;
+            border-radius: 6px;
+            color: #fef08a;
+            font-size: 13px;
+            margin-bottom: 16px;
+            padding: 10px 14px;
+        }
+        .find-banner.hidden { display: none; }
     </style>
 </head>
 <body>
@@ -91,17 +188,19 @@
         <div class="grid">
             <div class="card">
                 <h2>📦 Registered Items Master List</h2>
+                <div id="find-banner" class="find-banner hidden"></div>
                 <table>
                     <thead>
                         <tr>
                             <th>Item Name</th>
                             <th>Current Location / Bin</th>
                             <th>EPC Identifier</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="inventory-table">
                         <tr>
-                            <td colspan="3" style="text-align:center; color: var(--text-muted);">Waiting for scan stream data...</td>
+                            <td colspan="4" style="text-align:center; color: var(--text-muted);">Waiting for scan stream data...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -116,27 +215,160 @@
         </div>
     </div>
 
+    <div id="edit-modal" class="modal-overlay" aria-hidden="true">
+        <div class="modal" role="dialog" aria-labelledby="edit-modal-title">
+            <h3 id="edit-modal-title">Edit Item</h3>
+            <form id="edit-item-form">
+                <input type="hidden" id="edit-epc-id" name="epc_id">
+                <label for="edit-name">Name</label>
+                <input type="text" id="edit-name" name="name" required>
+                <label for="edit-category">Category</label>
+                <input type="text" id="edit-category" name="category" placeholder="e.g. Tools, Electronics">
+                <label for="edit-description">Description</label>
+                <textarea id="edit-description" name="description" placeholder="Optional notes"></textarea>
+                <p id="edit-epc-display" style="font-family: monospace; font-size: 12px; color: var(--text-muted); margin: 0 0 12px 0;"></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn" id="edit-cancel">Cancel</button>
+                    <button type="submit" class="btn primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
+        let activeSearchEpc = null;
+
+        function escapeHtml(str) {
+            if (str == null) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function openEditModal(item) {
+            document.getElementById('edit-epc-id').value = item.epc_id;
+            document.getElementById('edit-name').value = item.name || '';
+            document.getElementById('edit-category').value = item.category || '';
+            document.getElementById('edit-description').value = item.description || '';
+            document.getElementById('edit-epc-display').textContent = 'EPC: ' + item.epc_id;
+            const modal = document.getElementById('edit-modal');
+            modal.classList.add('open');
+            modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeEditModal() {
+            const modal = document.getElementById('edit-modal');
+            modal.classList.remove('open');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
+        async function setFindTarget(epcId) {
+            const next = activeSearchEpc === epcId ? null : epcId;
+            const response = await fetch('/api/search/target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ epc_id: next })
+            });
+            const data = await response.json();
+            activeSearchEpc = data.activeSearchEpc;
+            updateFindBanner();
+        }
+
+        function updateFindBanner() {
+            const banner = document.getElementById('find-banner');
+            if (!activeSearchEpc) {
+                banner.classList.add('hidden');
+                banner.textContent = '';
+                return;
+            }
+            banner.classList.remove('hidden');
+            banner.textContent = '🔍 Find Mode active — scanner hunting EPC: ' + activeSearchEpc;
+        }
+
+        document.getElementById('edit-cancel').addEventListener('click', closeEditModal);
+        document.getElementById('edit-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'edit-modal') closeEditModal();
+        });
+
+        document.getElementById('edit-item-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const epcId = document.getElementById('edit-epc-id').value;
+            const payload = {
+                name: document.getElementById('edit-name').value.trim(),
+                category: document.getElementById('edit-category').value.trim() || null,
+                description: document.getElementById('edit-description').value.trim() || null
+            };
+            try {
+                const response = await fetch('/api/items/' + encodeURIComponent(epcId), {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert(err.error || 'Failed to save item');
+                    return;
+                }
+                closeEditModal();
+                fetchDashboardData();
+            } catch (err) {
+                console.error(err);
+                alert('Could not save item');
+            }
+        });
+
         async function fetchDashboardData() {
             try {
-                const response = await fetch('/api/dashboard');
-                const data = await response.json();
-                
-                // 1. Update Master Inventory Table
+                const [dashResponse, searchResponse] = await Promise.all([
+                    fetch('/api/dashboard'),
+                    fetch('/api/search/target')
+                ]);
+                const data = await dashResponse.json();
+                const searchData = await searchResponse.json();
+                activeSearchEpc = searchData.activeSearchEpc;
+                updateFindBanner();
+
                 const tableBody = document.getElementById('inventory-table');
                 if (data.items.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="3" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag to auto-discover.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag to auto-discover.</td></tr>`;
                 } else {
-                    tableBody.innerHTML = data.items.map(item => `
-                        <tr>
-                            <strong><td>${item.name}</td></strong>
-                            <td><span class="badge info">${item.container_id ? item.container_name || item.container_id : '📍 Open/Unassigned Space'}</span></td>
-                            <td style="font-family: monospace; color: var(--text-muted); font-size: 13px;">${item.epc_id}</td>
-                        </tr>
-                    `).join('');
+                    tableBody.innerHTML = data.items.map(item => {
+                        const isFindTarget = item.epc_id === activeSearchEpc;
+                        const location = item.container_id
+                            ? (item.container_name || item.container_id)
+                            : '📍 Open/Unassigned Space';
+                        return `
+                        <tr class="${isFindTarget ? 'find-target' : ''}" data-epc="${escapeHtml(item.epc_id)}">
+                            <td>
+                                <button type="button" class="item-name-link edit-item-btn" data-epc="${escapeHtml(item.epc_id)}">${escapeHtml(item.name)}</button>
+                            </td>
+                            <td><span class="badge info">${escapeHtml(location)}</span></td>
+                            <td style="font-family: monospace; color: var(--text-muted); font-size: 13px;">${escapeHtml(item.epc_id)}</td>
+                            <td>
+                                <div class="row-actions">
+                                    <button type="button" class="btn edit-item-btn" data-epc="${escapeHtml(item.epc_id)}">Edit</button>
+                                    <button type="button" class="btn find ${isFindTarget ? 'active' : ''}" data-find-epc="${escapeHtml(item.epc_id)}">${isFindTarget ? '✕ Clear Find' : '🔍 Find'}</button>
+                                </div>
+                            </td>
+                        </tr>`;
+                    }).join('');
+
+                    const itemByEpc = Object.fromEntries(data.items.map(i => [i.epc_id, i]));
+
+                    tableBody.querySelectorAll('.edit-item-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const item = itemByEpc[btn.dataset.epc];
+                            if (item) openEditModal(item);
+                        });
+                    });
+
+                    tableBody.querySelectorAll('[data-find-epc]').forEach(btn => {
+                        btn.addEventListener('click', () => setFindTarget(btn.dataset.findEpc));
+                    });
                 }
 
-                // 2. Update Live Stream Audit Log
                 const historyFeed = document.getElementById('history-feed');
                 if (data.history.length === 0) {
                     historyFeed.innerHTML = `<p style="text-align:center; color: var(--text-muted);">No active scanning history logged.</p>`;
@@ -145,7 +377,7 @@
                         let badgeClass = 'info';
                         if (log.action === 'MOVED') badgeClass = 'warning';
                         if (log.action === 'FOUND') badgeClass = 'success';
-                        
+
                         return `
                             <div class="history-item">
                                 <div>
@@ -166,7 +398,6 @@
             }
         }
 
-        // Run the fetch update instantly on mount, then poll every 2 seconds
         fetchDashboardData();
         setInterval(fetchDashboardData, 2000);
     </script>

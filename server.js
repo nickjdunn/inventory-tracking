@@ -3,6 +3,8 @@ const db = require('./database'); // Import our database setup
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+let activeSearchEpc = null;
+
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -57,6 +59,70 @@ app.post('/api/scan', (req, res) => {
     });
 });
 
+// ✏️ Update item metadata (name, description, category)
+app.put('/api/items/:epc_id', (req, res) => {
+    const { epc_id } = req.params;
+    const { name, description, category } = req.body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'name is required' });
+    }
+
+    db.run(
+        `UPDATE items SET name = ?, description = ?, category = ? WHERE epc_id = ?`,
+        [name.trim(), description ?? null, category ?? null, epc_id],
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: 'Item not found' });
+            res.json({ status: 'success', epc_id, name: name.trim(), description, category });
+        }
+    );
+});
+
+// 📦 Name or register a physical container (bin) by EPC
+app.put('/api/containers/:epc_id', (req, res) => {
+    const { epc_id } = req.params;
+    const { name, location_id } = req.body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'name is required' });
+    }
+
+    db.get(`SELECT epc_id FROM containers WHERE epc_id = ?`, [epc_id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        if (row) {
+            db.run(
+                `UPDATE containers SET name = ?, location_id = COALESCE(?, location_id) WHERE epc_id = ?`,
+                [name.trim(), location_id ?? null, epc_id],
+                function (updateErr) {
+                    if (updateErr) return res.status(500).json({ error: updateErr.message });
+                    res.json({ status: 'success', epc_id, name: name.trim(), location_id });
+                }
+            );
+        } else {
+            db.run(
+                `INSERT INTO containers (epc_id, name, location_id) VALUES (?, ?, ?)`,
+                [epc_id, name.trim(), location_id ?? null],
+                function (insertErr) {
+                    if (insertErr) return res.status(500).json({ error: insertErr.message });
+                    res.status(201).json({ status: 'success', epc_id, name: name.trim(), location_id });
+                }
+            );
+        }
+    });
+});
+
+// 🔍 Find Mode: Nordic scanner polls GET; dashboard sets/clears via POST
+app.get('/api/search/target', (req, res) => {
+    res.json({ activeSearchEpc });
+});
+
+app.post('/api/search/target', (req, res) => {
+    const { epc_id } = req.body;
+    activeSearchEpc = epc_id && String(epc_id).trim() ? String(epc_id).trim() : null;
+    res.json({ activeSearchEpc });
+});
 
 // 🌐 API to get all current inventory and history for the frontend dashboard
 app.get('/api/dashboard', (req, res) => {
