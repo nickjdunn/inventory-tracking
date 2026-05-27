@@ -4,6 +4,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+app.use(express.static('public'));
 
 // 📡 The Endpoint: Processes bulk scans and updates item locations
 app.post('/api/scan', (req, res) => {
@@ -53,6 +54,28 @@ app.post('/api/scan', (req, res) => {
     res.status(200).json({ 
         status: "success", 
         message: `Database processed ${scanned_tags.length} tags.` 
+    });
+});
+
+
+// 🌐 API to get all current inventory and history for the frontend dashboard
+app.get('/api/dashboard', (req, res) => {
+    const data = {};
+    
+    // Get all items and their current bin assignments
+    db.all(`SELECT items.*, containers.name AS container_name 
+            FROM items 
+            LEFT JOIN containers ON items.container_id = containers.epc_id`, [], (err, items) => {
+        if (err) return res.status(500).json({ error: err.message });
+        data.items = items;
+
+        // Get the latest 10 scans for the live history feed
+        db.all(`SELECT * FROM scan_history ORDER BY timestamp DESC LIMIT 10`, [], (err, history) => {
+            if (err) return res.status(500).json({ error: err.message });
+            data.history = history;
+            
+            res.json(data);
+        });
     });
 });
 

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📦 RFID Home Inventory Hub</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --success: #4ade80;
+            --warning: #fbbf24;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        h1 { margin: 0; font-size: 24px; color: var(--accent); }
+        .grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+        h2 { font-size: 18px; margin-top: 0; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #334155;
+        }
+        th { color: var(--text-muted); font-size: 14px; text-transform: uppercase; }
+        .badge {
+            background: #334155;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .badge.success { background: #064e3b; color: var(--success); }
+        .badge.warning { background: #78350f; color: var(--warning); }
+        .badge.info { background: #1e3a8a; color: var(--accent); }
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #334155;
+            font-size: 14px;
+        }
+        .history-item:last-child { border: none; }
+        .timestamp { color: var(--text-muted); font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>🧠 RFID Inventory Brain</h1>
+                <p style="color: var(--text-muted); margin: 5px 0 0 0;">Real-world physical asset synchronization mapping</p>
+            </div>
+            <div id="connection-status" class="badge success">● Live Sync Active</div>
+        </header>
+
+        <div class="grid">
+            <div class="card">
+                <h2>📦 Registered Items Master List</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item Name</th>
+                            <th>Current Location / Bin</th>
+                            <th>EPC Identifier</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-table">
+                        <tr>
+                            <td colspan="3" style="text-align:center; color: var(--text-muted);">Waiting for scan stream data...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <h2>📡 Real-time Scan Timeline</h2>
+                <div id="history-feed">
+                    <p style="text-align:center; color: var(--text-muted);">No recent hardware scan events logs.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchDashboardData() {
+            try {
+                const response = await fetch('/api/dashboard');
+                const data = await response.json();
+                
+                // 1. Update Master Inventory Table
+                const tableBody = document.getElementById('inventory-table');
+                if (data.items.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="3" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag to auto-discover.</td></tr>`;
+                } else {
+                    tableBody.innerHTML = data.items.map(item => `
+                        <tr>
+                            <strong><td>${item.name}</td></strong>
+                            <td><span class="badge info">${item.container_id ? item.container_name || item.container_id : '📍 Open/Unassigned Space'}</span></td>
+                            <td style="font-family: monospace; color: var(--text-muted); font-size: 13px;">${item.epc_id}</td>
+                        </tr>
+                    `).join('');
+                }
+
+                // 2. Update Live Stream Audit Log
+                const historyFeed = document.getElementById('history-feed');
+                if (data.history.length === 0) {
+                    historyFeed.innerHTML = `<p style="text-align:center; color: var(--text-muted);">No active scanning history logged.</p>`;
+                } else {
+                    historyFeed.innerHTML = data.history.map(log => {
+                        let badgeClass = 'info';
+                        if (log.action === 'MOVED') badgeClass = 'warning';
+                        if (log.action === 'FOUND') badgeClass = 'success';
+                        
+                        return `
+                            <div class="history-item">
+                                <div>
+                                    <span class="badge ${badgeClass}">${log.action}</span>
+                                    <span style="font-family: monospace; margin-left: 5px;">${log.scanned_epc.slice(-8)}</span>
+                                </div>
+                                <div class="timestamp">${new Date(log.timestamp).toLocaleTimeString()}</div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+                document.getElementById('connection-status').textContent = '● Live Sync Active';
+                document.getElementById('connection-status').className = 'badge success';
+            } catch (error) {
+                console.error("Dashboard connection dropped:", error);
+                document.getElementById('connection-status').textContent = '⚠️ Sync Connection Interrupted';
+                document.getElementById('connection-status').className = 'badge warning';
+            }
+        }
+
+        // Run the fetch update instantly on mount, then poll every 2 seconds
+        fetchDashboardData();
+        setInterval(fetchDashboardData, 2000);
+    </script>
+</body>
+</html>
