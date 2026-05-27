@@ -41,7 +41,9 @@ const virtualInventory = new Map();
 let findLoopTimer = null;
 let findLoopRunning = false;
 let rssiSimulation = 35;
-let lastHuntEpc = null;
+let lastPrimaryEpc = null;
+let itemNameLookup = {};
+const MOCK_LABEL_BY_EPC = Object.fromEntries(MOCK_EPC_POOL.map((t) => [t.epc, t.label]));
 
 // ─── HTTP helpers ───────────────────────────────────────────────────────────
 
@@ -201,7 +203,23 @@ async function simulateInventoryScan(containerEpc, totalTags) {
     }
 }
 
-// ─── Find Mode polling loop ──────────────────────────────────────────────────
+// ─── Find Mode polling loop (top-to-bottom: queue[0] is always primary) ─────
+
+async function refreshItemNameLookup() {
+    try {
+        const data = await get('/api/dashboard');
+        (data.items || []).forEach((item) => {
+            itemNameLookup[item.epc_id] = item.name;
+        });
+    } catch (_) {
+        /* keep cached names */
+    }
+}
+
+function formatHuntTarget(epc) {
+    const name = itemNameLookup[epc] || MOCK_LABEL_BY_EPC[epc];
+    return name ? `${name}  [${epc}]` : epc;
+}
 
 async function findModePollTick() {
     try {
@@ -209,20 +227,20 @@ async function findModePollTick() {
         const queue = Array.isArray(activeSearchQueue) ? activeSearchQueue : [];
 
         if (!queue.length) {
-            if (lastHuntEpc) {
+            if (lastPrimaryEpc) {
                 console.log('\n🔍 [Merlin Hardware] Find Mode idle — no dashboard target.\n');
-                lastHuntEpc = null;
+                lastPrimaryEpc = null;
                 rssiSimulation = 35;
             }
             return;
         }
 
-        const huntLabel = queue.length === 1
-            ? queue[0]
-            : `BATCH (${queue.length}): ${queue.join(', ')}`;
+        const primaryEpc = queue[0];
+        const onDeck = queue.slice(1);
 
-        if (huntLabel !== lastHuntEpc) {
-            lastHuntEpc = huntLabel;
+        if (primaryEpc !== lastPrimaryEpc) {
+            await refreshItemNameLookup();
+            lastPrimaryEpc = primaryEpc;
             rssiSimulation = 15 + Math.floor(Math.random() * 25);
         }
 
@@ -231,8 +249,18 @@ async function findModePollTick() {
         const proximity =
             rssi >= 75 ? 'VERY CLOSE' : rssi >= 50 ? 'NEARBY' : rssi >= 25 ? 'WEAK' : 'DISTANT';
 
-        console.log(`🔍 [Merlin Hardware] Hunting for target: ${huntLabel}`);
+        console.log(`🔍 [Merlin Hardware] Hunting for target: ${formatHuntTarget(primaryEpc)}`);
+        if (queue.length > 1) {
+            console.log(`   Batch position: 1 of ${queue.length} (focused slot)`);
+        }
         console.log(`   RSSI ${bar}  (${proximity})`);
+
+        if (onDeck.length > 0) {
+            console.log('   On Deck / Waiting:');
+            onDeck.forEach((epc, i) => {
+                console.log(`     ${i + 2}. ${formatHuntTarget(epc)}`);
+            });
+        }
     } catch (err) {
         console.error(`🔍 [Merlin Hardware] Poll error: ${err.message}`);
     }
@@ -257,7 +285,7 @@ function stopFindModeLoop() {
     clearInterval(findLoopTimer);
     findLoopTimer = null;
     findLoopRunning = false;
-    lastHuntEpc = null;
+    lastPrimaryEpc = null;
     console.log('\n⏹️  Find Mode polling stopped.\n');
 }
 
