@@ -72,7 +72,7 @@
             margin-bottom: 8px;
             text-transform: uppercase;
         }
-        select, input[type="text"] {
+        select, input[type="text"], textarea {
             background: #0f172a;
             border: 2px solid #475569;
             border-radius: 10px;
@@ -83,6 +83,36 @@
             padding: 12px 14px;
             width: 100%;
         }
+        textarea {
+            min-height: 72px;
+            resize: vertical;
+        }
+        .btn-secondary {
+            background: #334155;
+            border: none;
+            border-radius: 10px;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            min-height: 52px;
+            padding: 14px;
+            touch-action: manipulation;
+            width: 100%;
+        }
+        .upc-preview {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            margin-bottom: 14px;
+            padding: 12px;
+        }
+        .upc-preview img { border-radius: 6px; max-height: 64px; margin-bottom: 8px; }
+        .upc-preview .source { color: var(--muted); font-size: 11px; margin-top: 6px; }
+        .add-step.hidden { display: none; }
+        .nav-tab .icon { font-size: 20px; }
+        .nav-tab { font-size: 10px; }
         .btn-giant {
             background: linear-gradient(180deg, #0ea5e9 0%, #0369a1 100%);
             border: none;
@@ -422,6 +452,34 @@
             </div>
         </section>
 
+        <!-- Add Item -->
+        <section id="view-add" class="view">
+            <div class="card">
+                <h2>➕ Add Item</h2>
+                <div id="mobile-add-upc-step" class="add-step">
+                    <label for="mobile-upc">Scan UPC barcode</label>
+                    <input type="text" id="mobile-upc" placeholder="Barcode from gun" autocomplete="off" inputmode="numeric">
+                    <button type="button" class="btn-secondary" id="mobile-upc-lookup">Look up product</button>
+                    <button type="button" class="btn-secondary" id="mobile-skip-upc">Skip → manual entry</button>
+                </div>
+                <div id="mobile-add-details-step" class="add-step hidden">
+                    <div id="mobile-upc-preview" class="upc-preview hidden"></div>
+                    <label for="mobile-item-name">Product name</label>
+                    <input type="text" id="mobile-item-name">
+                    <label for="mobile-item-category">Category</label>
+                    <input type="text" id="mobile-item-category">
+                    <label for="mobile-item-desc">Description</label>
+                    <textarea id="mobile-item-desc"></textarea>
+                    <label for="mobile-item-epc">Scan RFID tag (EPC)</label>
+                    <input type="text" id="mobile-item-epc" placeholder="UHF tag EPC" autocomplete="off">
+                    <label for="mobile-item-home">Home bin (optional)</label>
+                    <select id="mobile-item-home"></select>
+                    <button type="button" class="btn-giant" id="mobile-item-save">✓ Create item</button>
+                    <div id="add-item-status" class="status-toast" style="display:none;"></div>
+                </div>
+            </div>
+        </section>
+
         <!-- Browse Bins -->
         <section id="view-bins" class="view">
             <div class="card">
@@ -438,13 +496,17 @@
             <span class="icon">📥</span>
             Quick Scan
         </button>
+        <button type="button" class="nav-tab" data-view="add">
+            <span class="icon">➕</span>
+            Add Item
+        </button>
         <button type="button" class="nav-tab" data-view="find">
             <span class="icon">🔍</span>
-            Find Mode
+            Find
         </button>
         <button type="button" class="nav-tab" data-view="bins">
             <span class="icon">📦</span>
-            Browse Bins
+            Bins
         </button>
     </nav>
 
@@ -475,6 +537,9 @@
         let lastUpNextKey = '';
         let isAdvancingQueue = false;
         let itemLookup = {};
+        let registeredContainers = [];
+        let rssiNearGate = -55;
+        let rssiFarGate = -85;
 
         function pickRandomTags(min, max) {
             const count = min + Math.floor(Math.random() * (max - min + 1));
@@ -534,10 +599,92 @@
             }
         }
 
-        function rssiZone(pct) {
-            if (pct > 75) return { cls: 'hot', label: 'CLOSE' };
-            if (pct >= 40) return { cls: 'warm', label: 'WARM' };
+        function rssiZoneFromDbm(dbm) {
+            if (dbm >= rssiNearGate) return { cls: 'hot', label: 'CLOSE' };
+            if (dbm >= rssiFarGate) return { cls: 'warm', label: 'WARM' };
             return { cls: 'cold', label: 'COLD' };
+        }
+
+        function rssiZone(pct) {
+            const dbm = -30 - (pct / 100) * 70;
+            return rssiZoneFromDbm(Math.round(dbm));
+        }
+
+        async function loadAdminSettings() {
+            try {
+                const res = await fetch('/api/admin/settings');
+                const s = await res.json();
+                if (res.ok) {
+                    rssiNearGate = parseInt(s.rssi_near_gate, 10) || -55;
+                    rssiFarGate = parseInt(s.rssi_far_gate, 10) || -85;
+                }
+            } catch (_) { /* defaults */ }
+        }
+
+        async function loadContainersForSelect() {
+            try {
+                const res = await fetch('/api/containers');
+                if (res.ok) registeredContainers = await res.json();
+                populateBinSelect();
+                populateMobileHomeBinSelect();
+            } catch (_) { /* keep existing */ }
+        }
+
+        function populateBinSelect() {
+            const sel = document.getElementById('bin-select');
+            if (!registeredContainers.length) return;
+            sel.innerHTML = registeredContainers.map((c) =>
+                `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`
+            ).join('');
+        }
+
+        function populateMobileHomeBinSelect() {
+            const sel = document.getElementById('mobile-item-home');
+            sel.innerHTML = '<option value="">— No home bin —</option>' +
+                registeredContainers.map((c) =>
+                    `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${escapeHtml(c.id)})</option>`
+                ).join('');
+        }
+
+        function resetMobileAddFlow() {
+            document.getElementById('mobile-add-upc-step').classList.remove('hidden');
+            document.getElementById('mobile-add-details-step').classList.add('hidden');
+            document.getElementById('mobile-upc').value = '';
+            document.getElementById('mobile-upc-preview').classList.add('hidden');
+            document.getElementById('add-item-status').style.display = 'none';
+        }
+
+        function showMobileAddDetails(lookup) {
+            document.getElementById('mobile-add-upc-step').classList.add('hidden');
+            document.getElementById('mobile-add-details-step').classList.remove('hidden');
+            const preview = document.getElementById('mobile-upc-preview');
+            if (lookup && lookup.found) {
+                preview.classList.remove('hidden');
+                let html = '';
+                if (lookup.image_url) html += `<img src="${escapeHtml(lookup.image_url)}" alt="">`;
+                html += `<strong>${escapeHtml(lookup.name)}</strong>`;
+                if (lookup.brand) html += `<br>${escapeHtml(lookup.brand)}`;
+                html += `<div class="source">${escapeHtml(lookup.source)}${lookup.cached ? ' (cached)' : ''}</div>`;
+                preview.innerHTML = html;
+                document.getElementById('mobile-item-name').value = lookup.name || '';
+                document.getElementById('mobile-item-category').value = lookup.category || '';
+                document.getElementById('mobile-item-desc').value = lookup.description || '';
+                document.getElementById('mobile-upc').dataset.bound = lookup.upc || '';
+            } else {
+                preview.classList.add('hidden');
+                document.getElementById('mobile-item-name').value = '';
+                document.getElementById('mobile-item-category').value = '';
+                document.getElementById('mobile-item-desc').value = '';
+            }
+            populateMobileHomeBinSelect();
+            document.getElementById('mobile-item-epc').focus();
+        }
+
+        function showAddItemStatus(msg, type) {
+            const el = document.getElementById('add-item-status');
+            el.style.display = 'block';
+            el.className = 'status-toast ' + type;
+            el.textContent = msg;
         }
 
         function clamp(n, lo, hi) {
@@ -812,6 +959,11 @@
             }
 
             if (view === 'bins') loadBins();
+            if (view === 'add') {
+                loadContainersForSelect();
+                resetMobileAddFlow();
+                document.getElementById('mobile-upc').focus();
+            }
         }
 
         document.querySelectorAll('.nav-tab').forEach((tab) => {
@@ -826,6 +978,70 @@
             document.getElementById('bin-epc-custom').value = '';
         });
 
+        document.getElementById('mobile-upc-lookup').addEventListener('click', async () => {
+            const code = document.getElementById('mobile-upc').value.trim();
+            if (!code) return showAddItemStatus('Enter or scan a UPC first', 'err');
+            const btn = document.getElementById('mobile-upc-lookup');
+            btn.disabled = true;
+            try {
+                const res = await fetch('/api/upc/lookup/' + encodeURIComponent(code));
+                const data = await res.json();
+                if (!data.found) {
+                    if (confirm((data.message || 'Not found') + '\n\nEnter manually?')) {
+                        showMobileAddDetails(null);
+                    }
+                } else {
+                    showMobileAddDetails(data);
+                }
+            } catch (err) {
+                showAddItemStatus('❌ ' + err.message, 'err');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('mobile-skip-upc').addEventListener('click', () => showMobileAddDetails(null));
+
+        document.getElementById('mobile-upc').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('mobile-upc-lookup').click();
+            }
+        });
+
+        document.getElementById('mobile-item-save').addEventListener('click', async () => {
+            const name = document.getElementById('mobile-item-name').value.trim();
+            const epc = document.getElementById('mobile-item-epc').value.trim();
+            if (!name) return showAddItemStatus('Product name required', 'err');
+            if (!epc) return showAddItemStatus('Scan RFID EPC required', 'err');
+            const upcEl = document.getElementById('mobile-upc');
+            const payload = {
+                epc_id: epc,
+                name,
+                category: document.getElementById('mobile-item-category').value.trim() || null,
+                description: document.getElementById('mobile-item-desc').value.trim() || null,
+                upc: upcEl.dataset.bound || upcEl.value.trim() || null,
+                home_container_id: document.getElementById('mobile-item-home').value || null,
+            };
+            try {
+                const res = await fetch('/api/items', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Create failed');
+                showAddItemStatus('✅ Item created: ' + name, 'ok');
+                upcEl.dataset.bound = '';
+                setTimeout(resetMobileAddFlow, 1500);
+                refreshItemLookup();
+            } catch (err) {
+                showAddItemStatus('❌ ' + err.message, 'err');
+            }
+        });
+
+        loadAdminSettings();
+        loadContainersForSelect();
         refreshItemLookup();
         startFindPolling();
     </script>
