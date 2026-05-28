@@ -21,6 +21,110 @@ function computeItemStatus(item) {
     return 'UNASSIGNED';
 }
 
+const ALLOWED_SETTING_KEYS = new Set([
+    'home_assistant_url',
+    'enable_ha_notifications',
+    'rssi_near_gate',
+    'rssi_far_gate',
+]);
+
+function getSystemSettings() {
+    return new Promise((resolve, reject) => {
+        db.all(`SELECT key, value FROM system_settings`, [], (err, rows) => {
+            if (err) return reject(err);
+            const settings = { ...DEFAULT_SYSTEM_SETTINGS_FALLBACK };
+            rows.forEach((row) => {
+                settings[row.key] = row.value;
+            });
+            resolve(settings);
+        });
+    });
+}
+
+const DEFAULT_SYSTEM_SETTINGS_FALLBACK = {
+    home_assistant_url: '',
+    enable_ha_notifications: 'false',
+    rssi_near_gate: '-55',
+    rssi_far_gate: '-85',
+};
+
+function sanitizeSettingsInput(raw) {
+    const sanitized = {};
+    if (!raw || typeof raw !== 'object') return sanitized;
+
+    if ('home_assistant_url' in raw) {
+        sanitized.home_assistant_url = String(raw.home_assistant_url ?? '').trim();
+    }
+    if ('enable_ha_notifications' in raw) {
+        const flag = String(raw.enable_ha_notifications).toLowerCase();
+        sanitized.enable_ha_notifications = flag === 'true' ? 'true' : 'false';
+    }
+    if ('rssi_near_gate' in raw) {
+        const n = parseInt(String(raw.rssi_near_gate), 10);
+        if (!Number.isNaN(n)) {
+            sanitized.rssi_near_gate = String(clamp(n, -70, -30));
+        }
+    }
+    if ('rssi_far_gate' in raw) {
+        const n = parseInt(String(raw.rssi_far_gate), 10);
+        if (!Number.isNaN(n)) {
+            sanitized.rssi_far_gate = String(clamp(n, -100, -71));
+        }
+    }
+    return sanitized;
+}
+
+function clamp(n, min, max) {
+    return Math.max(min, Math.min(max, n));
+}
+
+function maybeNotifyMisplaced(item, epc, scannedContainerId) {
+    const status = computeItemStatus({
+        container_id: scannedContainerId,
+        home_container_id: item.home_container_id,
+    });
+    if (status !== 'MISPLACED') return;
+
+    const payload = {
+        event: 'item_misplaced',
+        item_name: item.name,
+        epc,
+        current_container: scannedContainerId,
+        assigned_home: normalizeContainerId(item.home_container_id),
+    };
+
+    notifyHomeAssistant(payload).catch((err) => {
+        console.warn('[HA] Notification error:', err.message);
+    });
+}
+
+async function notifyHomeAssistant(payload) {
+    const settings = await getSystemSettings();
+    if (settings.enable_ha_notifications !== 'true') return;
+
+    const url = settings.home_assistant_url;
+    if (!url) return;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+        });
+        if (!res.ok) {
+            console.warn(`[HA] Webhook responded with HTTP ${res.status}`);
+        }
+    } catch (err) {
+        console.warn('[HA] Webhook failed:', err.message);
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 app.use(express.json());
 // Serves index.html, mobile.html, and assets — no route conflict with /api/*
 app.use(express.static('public'));
@@ -53,9 +157,11 @@ app.post('/api/scan', (req, res) => {
                         console.log(`📦 MOVED: '${item.name}' [${epc}] moved to bin [${target_container_epc}]`);
                         updateItemStmt.run(target_container_epc, epc);
                         logStmt.run(epc, target_container_epc, 'MOVED');
+                        maybeNotifyMisplaced(item, epc, target_container_epc);
                     } else {
                         console.log(`🎯 CONFIRMED: '${item.name}' is still in bin [${target_container_epc}]`);
                         logStmt.run(epc, target_container_epc, 'FOUND');
+                        maybeNotifyMisplaced(item, epc, target_container_epc);
                     }
                 } else {
                     // First time seeing this tag! Auto-register it as an Unnamed Item
@@ -242,6 +348,62 @@ app.get('/api/dashboard', (req, res) => {
 
                 res.json(data);
             });
+        });
+    });
+});
+
+// ⚙️ Admin: system settings
+app.get('/api/admin/settings', (req, res) => {
+    getSystemSettings()
+        .then((settings) => res.json(settings))
+        .catch((err) => res.status(500).json({ error: err.message }));
+});
+
+app.post('/api/admin/settings', (req, res) => {
+    const sanitized = sanitizeSettingsInput(req.body);
+    const keys = Object.keys(sanitized).filter((k) => ALLOWED_SETTING_KEYS.has(k));
+
+    if (keys.length === 0) {
+        return res.status(400).json({ error: 'No valid settings provided' });
+    }
+
+    const stmt = db.prepare(
+        `INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)`
+    );
+
+    db.serialize(() => {
+        keys.forEach((key) => stmt.run(key, sanitized[key]));
+        stmt.finalize((finalizeErr) => {
+            if (finalizeErr) return res.status(500).json({ error: finalizeErr.message });
+            getSystemSettings()
+                .then((settings) => res.json({ status: 'success', settings }))
+                .catch((e) => res.status(500).json({ error: e.message }));
+        });
+    });
+});
+
+app.post('/api/admin/purge-unknown', (req, res) => {
+    db.run(
+        `DELETE FROM items WHERE name LIKE 'Unknown RFID Tag%'`,
+        [],
+        function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({
+                status: 'success',
+                deleted_count: this.changes,
+                message: `Removed ${this.changes} unassigned ghost tag(s).`,
+            });
+        }
+    );
+});
+
+app.post('/api/admin/clear-history', (req, res) => {
+    db.run(`DELETE FROM scan_history`, [], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({
+            status: 'success',
+            deleted_count: this.changes,
+            message: `Purged ${this.changes} scan history record(s).`,
         });
     });
 });

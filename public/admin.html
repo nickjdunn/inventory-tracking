@@ -5,6 +5,101 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>⚙️ Admin Settings</title>
     <link rel="stylesheet" href="/app.css">
+    <style>
+        .admin-card { margin-bottom: 24px; }
+        .admin-card h3 { margin-bottom: 18px; }
+        .toggle-row {
+            align-items: center;
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .toggle-row label { margin: 0; text-transform: none; font-size: 15px; color: var(--text-main); }
+        .toggle-switch {
+            appearance: none;
+            background: #334155;
+            border-radius: 999px;
+            cursor: pointer;
+            height: 28px;
+            position: relative;
+            transition: background 0.2s ease;
+            width: 52px;
+        }
+        .toggle-switch::after {
+            background: #fff;
+            border-radius: 50%;
+            content: '';
+            height: 22px;
+            left: 3px;
+            position: absolute;
+            top: 3px;
+            transition: transform 0.2s ease;
+            width: 22px;
+        }
+        .toggle-switch:checked { background: #0369a1; }
+        .toggle-switch:checked::after { transform: translateX(24px); }
+        .slider-field { margin-bottom: 20px; }
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .slider-header span { color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
+        .slider-value {
+            color: var(--accent);
+            font-family: ui-monospace, monospace;
+            font-size: 15px;
+            font-weight: 700;
+        }
+        input[type="range"] {
+            accent-color: var(--accent);
+            width: 100%;
+        }
+        .hygiene-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .btn.warning {
+            background: #78350f;
+            border-color: #fbbf24;
+            color: #fef08a;
+        }
+        .btn.warning:hover { background: #92400e; }
+        .btn.danger {
+            background: #7f1d1d;
+            border-color: #f87171;
+            color: #fecaca;
+        }
+        .btn.danger:hover { background: #991b1b; }
+        .toast-container {
+            bottom: 24px;
+            position: fixed;
+            right: 24px;
+            z-index: 200;
+        }
+        .toast {
+            background: #064e3b;
+            border: 1px solid #4ade80;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+            color: #d1fae5;
+            margin-top: 10px;
+            opacity: 0;
+            padding: 14px 18px;
+            transform: translateY(8px);
+            transition: opacity 0.35s ease, transform 0.35s ease;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .toast.err {
+            background: #7f1d1d;
+            border-color: #f87171;
+            color: #fecaca;
+        }
+    </style>
 </head>
 <body>
     <div class="app-shell">
@@ -27,19 +122,166 @@
             <header class="page-header">
                 <div>
                     <h2>⚙️ Admin Settings</h2>
-                    <p>System configuration and integrations</p>
+                    <p>System configuration, Home Assistant bridge, and database maintenance</p>
                 </div>
             </header>
 
             <div class="container">
-                <section class="card">
-                    <h3>System Configuration</h3>
-                    <p class="admin-placeholder">
-                        ⚙️ System Configuration &amp; Home Assistant Admin Panel (Hardware Setup Pending)
+                <section class="card admin-card">
+                    <h3>🤖 Home Assistant Automation Bridge</h3>
+                    <div class="form-field">
+                        <label for="ha-url">Webhook URL</label>
+                        <input type="url" id="ha-url" placeholder="http://homeassistant.local:8123/api/webhook/..." autocomplete="off">
+                    </div>
+                    <div class="toggle-row">
+                        <input type="checkbox" id="ha-enabled" class="toggle-switch" aria-label="Enable push notifications">
+                        <label for="ha-enabled">Enable misplaced-item push notifications</label>
+                    </div>
+                    <button type="button" class="btn primary" id="save-ha-btn">💾 Save Connection</button>
+                </section>
+
+                <section class="card admin-card">
+                    <h3>📶 Proximity Calibration Zones</h3>
+                    <div class="slider-field">
+                        <div class="slider-header">
+                            <span>Near Threshold</span>
+                            <span class="slider-value" id="near-value">-55 dBm</span>
+                        </div>
+                        <input type="range" id="rssi-near" min="-70" max="-30" step="1" value="-55">
+                    </div>
+                    <div class="slider-field">
+                        <div class="slider-header">
+                            <span>Far Threshold</span>
+                            <span class="slider-value" id="far-value">-85 dBm</span>
+                        </div>
+                        <input type="range" id="rssi-far" min="-100" max="-71" step="1" value="-85">
+                    </div>
+                    <button type="button" class="btn primary" id="save-gates-btn">💾 Save Gates</button>
+                </section>
+
+                <section class="card admin-card">
+                    <h3>🧹 Database Hygiene &amp; Maintenance</h3>
+                    <p style="color: var(--text-muted); font-size: 14px; margin: 0 0 16px;">
+                        Destructive actions require confirmation. These cannot be undone.
                     </p>
+                    <div class="hygiene-actions">
+                        <button type="button" class="btn warning" id="purge-unknown-btn">
+                            Clear Unassigned Tags
+                        </button>
+                        <button type="button" class="btn danger" id="clear-history-btn">
+                            Purge Timeline History
+                        </button>
+                    </div>
                 </section>
             </div>
         </main>
     </div>
+
+    <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+    <script>
+        let settings = {};
+
+        function showToast(message, isError) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast' + (isError ? ' err' : '');
+            toast.textContent = message;
+            container.appendChild(toast);
+            requestAnimationFrame(() => toast.classList.add('show'));
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 400);
+            }, 3200);
+        }
+
+        async function loadSettings() {
+            const res = await fetch('/api/admin/settings');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to load settings');
+            settings = data;
+
+            document.getElementById('ha-url').value = settings.home_assistant_url || '';
+            document.getElementById('ha-enabled').checked = settings.enable_ha_notifications === 'true';
+
+            const near = parseInt(settings.rssi_near_gate || '-55', 10);
+            const far = parseInt(settings.rssi_far_gate || '-85', 10);
+            document.getElementById('rssi-near').value = near;
+            document.getElementById('rssi-far').value = far;
+            updateSliderLabels();
+        }
+
+        function updateSliderLabels() {
+            const near = document.getElementById('rssi-near').value;
+            const far = document.getElementById('rssi-far').value;
+            document.getElementById('near-value').textContent = near + ' dBm';
+            document.getElementById('far-value').textContent = far + ' dBm';
+        }
+
+        async function postSettings(payload) {
+            const res = await fetch('/api/admin/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Save failed');
+            settings = data.settings || data;
+            return data;
+        }
+
+        document.getElementById('rssi-near').addEventListener('input', updateSliderLabels);
+        document.getElementById('rssi-far').addEventListener('input', updateSliderLabels);
+
+        document.getElementById('save-ha-btn').addEventListener('click', async () => {
+            try {
+                await postSettings({
+                    home_assistant_url: document.getElementById('ha-url').value.trim(),
+                    enable_ha_notifications: document.getElementById('ha-enabled').checked ? 'true' : 'false',
+                });
+                showToast('✅ Home Assistant connection saved');
+            } catch (err) {
+                showToast('❌ ' + err.message, true);
+            }
+        });
+
+        document.getElementById('save-gates-btn').addEventListener('click', async () => {
+            try {
+                await postSettings({
+                    rssi_near_gate: document.getElementById('rssi-near').value,
+                    rssi_far_gate: document.getElementById('rssi-far').value,
+                });
+                showToast('✅ RSSI proximity gates saved');
+            } catch (err) {
+                showToast('❌ ' + err.message, true);
+            }
+        });
+
+        document.getElementById('purge-unknown-btn').addEventListener('click', async () => {
+            if (!confirm('Remove all items named "Unknown RFID Tag …"? This deletes ghost scan entries.')) return;
+            try {
+                const res = await fetch('/api/admin/purge-unknown', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Purge failed');
+                showToast('✅ ' + (data.message || 'Unassigned tags cleared'));
+            } catch (err) {
+                showToast('❌ ' + err.message, true);
+            }
+        });
+
+        document.getElementById('clear-history-btn').addEventListener('click', async () => {
+            if (!confirm('Delete ALL scan timeline history? The live feed will reset.')) return;
+            try {
+                const res = await fetch('/api/admin/clear-history', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Clear failed');
+                showToast('✅ ' + (data.message || 'Timeline history purged'));
+            } catch (err) {
+                showToast('❌ ' + err.message, true);
+            }
+        });
+
+        loadSettings().catch((err) => showToast('❌ ' + err.message, true));
+    </script>
 </body>
 </html>

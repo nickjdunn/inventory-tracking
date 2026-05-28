@@ -45,8 +45,33 @@ db.serialize(() => {
         action TEXT NOT NULL
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS system_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    )`, (err) => {
+        if (err) console.error('system_settings init:', err.message);
+        else seedDefaultSystemSettings();
+    });
+
     console.log('💾 SQLite Database tables initialized successfully.');
 });
+
+const DEFAULT_SYSTEM_SETTINGS = {
+    home_assistant_url: '',
+    enable_ha_notifications: 'false',
+    rssi_near_gate: '-55',
+    rssi_far_gate: '-85',
+};
+
+function seedDefaultSystemSettings() {
+    const stmt = db.prepare(
+        `INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)`
+    );
+    Object.entries(DEFAULT_SYSTEM_SETTINGS).forEach(([key, value]) => {
+        stmt.run(key, value);
+    });
+    stmt.finalize();
+}
 
 function migrateLegacyContainersTable() {
     db.all(`PRAGMA table_info(containers)`, [], (err, columns) => {
