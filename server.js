@@ -1,5 +1,6 @@
 const express = require('express');
 const db = require('./database'); // Import our database setup
+const { lookupUpcHybrid, normalizeUpc } = require('./upc-lookup');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -26,6 +27,7 @@ const ALLOWED_SETTING_KEYS = new Set([
     'enable_ha_notifications',
     'rssi_near_gate',
     'rssi_far_gate',
+    'upcitemdb_api_key',
 ]);
 
 function getSystemSettings() {
@@ -46,6 +48,7 @@ const DEFAULT_SYSTEM_SETTINGS_FALLBACK = {
     enable_ha_notifications: 'false',
     rssi_near_gate: '-55',
     rssi_far_gate: '-85',
+    upcitemdb_api_key: '',
 };
 
 function sanitizeSettingsInput(raw) {
@@ -71,7 +74,60 @@ function sanitizeSettingsInput(raw) {
             sanitized.rssi_far_gate = String(clamp(n, -100, -71));
         }
     }
+    if ('upcitemdb_api_key' in raw) {
+        sanitized.upcitemdb_api_key = String(raw.upcitemdb_api_key ?? '').trim();
+    }
     return sanitized;
+}
+
+function getCachedUpc(upc) {
+    return new Promise((resolve, reject) => {
+        db.get(
+            `SELECT upc, source, name, brand, category, description, image_url, fetched_at
+             FROM upc_lookup_cache WHERE upc = ?`,
+            [upc],
+            (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            }
+        );
+    });
+}
+
+function saveUpcCache(result) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            `INSERT OR REPLACE INTO upc_lookup_cache
+             (upc, source, name, brand, category, description, image_url, raw_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                result.upc,
+                result.source,
+                result.name,
+                result.brand,
+                result.category,
+                result.description,
+                result.image_url,
+                JSON.stringify(result),
+            ],
+            (err) => (err ? reject(err) : resolve())
+        );
+    });
+}
+
+function cacheRowToLookup(row) {
+    return {
+        found: true,
+        upc: row.upc,
+        source: row.source,
+        cached: true,
+        name: row.name,
+        brand: row.brand,
+        category: row.category,
+        description: row.description,
+        image_url: row.image_url,
+        fetched_at: row.fetched_at,
+    };
 }
 
 function clamp(n, min, max) {
@@ -182,19 +238,107 @@ app.post('/api/scan', (req, res) => {
     });
 });
 
+// 🏷️ Hybrid UPC lookup (local cache → Open*Facts chain → optional UPCitemdb)
+app.get('/api/upc/lookup/:code', async (req, res) => {
+    const upc = normalizeUpc(req.params.code);
+    if (!upc) {
+        return res.status(400).json({ found: false, error: 'Invalid UPC — use 8–14 digits' });
+    }
+
+    try {
+        const cached = await getCachedUpc(upc);
+        if (cached) {
+            return res.json({
+                ...cacheRowToLookup(cached),
+                providers_tried: ['local_cache'],
+            });
+        }
+
+        const settings = await getSystemSettings();
+        const key = settings.upcitemdb_api_key || process.env.UPCITEMDB_API_KEY || '';
+        const result = await lookupUpcHybrid(upc, { upcitemdbKey: key });
+
+        if (result.found) {
+            await saveUpcCache(result);
+        }
+
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ found: false, error: err.message });
+    }
+});
+
+// ➕ Register item with RFID EPC (+ optional UPC metadata)
+app.post('/api/items', (req, res) => {
+    const {
+        epc_id,
+        name,
+        description,
+        category,
+        upc,
+        container_id,
+        home_container_id,
+    } = req.body;
+
+    const epc = epc_id == null ? '' : String(epc_id).trim();
+    const itemName = name == null ? '' : String(name).trim();
+    const normalizedUpc = upc ? normalizeUpc(upc) : null;
+
+    if (!epc) return res.status(400).json({ error: 'epc_id is required' });
+    if (!itemName) return res.status(400).json({ error: 'name is required' });
+
+    db.run(
+        `INSERT INTO items (epc_id, name, description, category, upc, container_id, home_container_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+            epc,
+            itemName,
+            description ?? null,
+            category ?? null,
+            normalizedUpc,
+            normalizeContainerId(container_id),
+            normalizeContainerId(home_container_id),
+        ],
+        function (err) {
+            if (err) {
+                if (String(err.message).includes('UNIQUE')) {
+                    return res.status(409).json({ error: 'Item with this EPC already exists' });
+                }
+                return res.status(500).json({ error: err.message });
+            }
+            res.status(201).json({
+                status: 'success',
+                epc_id: epc,
+                name: itemName,
+                description,
+                category,
+                upc: normalizedUpc,
+                container_id: normalizeContainerId(container_id),
+                home_container_id: normalizeContainerId(home_container_id),
+            });
+        }
+    );
+});
+
 // ✏️ Update item metadata (name, description, category)
 app.put('/api/items/:epc_id', (req, res) => {
     const { epc_id } = req.params;
-    const { name, description, category, home_container_id } = req.body;
+    const { name, description, category, home_container_id, upc } = req.body;
     const normalizedHomeContainerId = normalizeContainerId(home_container_id);
+    const normalizedUpc = upc === undefined ? undefined : (upc ? normalizeUpc(upc) : null);
 
     if (!name || typeof name !== 'string' || !name.trim()) {
         return res.status(400).json({ error: 'name is required' });
     }
 
-    db.run(
-        `UPDATE items SET name = ?, description = ?, category = ?, home_container_id = ? WHERE epc_id = ?`,
-        [name.trim(), description ?? null, category ?? null, normalizedHomeContainerId, epc_id],
+    const sql = normalizedUpc !== undefined
+        ? `UPDATE items SET name = ?, description = ?, category = ?, home_container_id = ?, upc = ? WHERE epc_id = ?`
+        : `UPDATE items SET name = ?, description = ?, category = ?, home_container_id = ? WHERE epc_id = ?`;
+    const params = normalizedUpc !== undefined
+        ? [name.trim(), description ?? null, category ?? null, normalizedHomeContainerId, normalizedUpc, epc_id]
+        : [name.trim(), description ?? null, category ?? null, normalizedHomeContainerId, epc_id];
+
+    db.run(sql, params,
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) return res.status(404).json({ error: 'Item not found' });
@@ -204,7 +348,8 @@ app.put('/api/items/:epc_id', (req, res) => {
                 name: name.trim(),
                 description,
                 category,
-                home_container_id: normalizedHomeContainerId
+                home_container_id: normalizedHomeContainerId,
+                upc: normalizedUpc !== undefined ? normalizedUpc : undefined,
             });
         }
     );

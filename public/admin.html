@@ -141,6 +141,18 @@
                 </section>
 
                 <section class="card admin-card">
+                    <h3>🏷️ UPC Product Lookup</h3>
+                    <p style="color: var(--text-muted); font-size: 14px; margin: 0 0 12px;">
+                        Free Open*Facts databases are used first. Optional UPCitemdb key improves hardware/tool coverage.
+                    </p>
+                    <div class="form-field">
+                        <label for="upcitemdb-key">UPCitemdb API key (optional)</label>
+                        <input type="text" id="upcitemdb-key" placeholder="trial / 3scale user_key" autocomplete="off">
+                    </div>
+                    <button type="button" class="btn primary" id="save-upc-btn">💾 Save UPC Settings</button>
+                </section>
+
+                <section class="card admin-card">
                     <h3>📶 Proximity Calibration Zones</h3>
                     <div class="slider-field">
                         <div class="slider-header">
@@ -203,6 +215,7 @@
 
             document.getElementById('ha-url').value = settings.home_assistant_url || '';
             document.getElementById('ha-enabled').checked = settings.enable_ha_notifications === 'true';
+            document.getElementById('upcitemdb-key').value = settings.upcitemdb_api_key || '';
 
             const near = parseInt(settings.rssi_near_gate || '-55', 10);
             const far = parseInt(settings.rssi_far_gate || '-85', 10);
@@ -232,6 +245,17 @@
 
         document.getElementById('rssi-near').addEventListener('input', updateSliderLabels);
         document.getElementById('rssi-far').addEventListener('input', updateSliderLabels);
+
+        document.getElementById('save-upc-btn').addEventListener('click', async () => {
+            try {
+                await postSettings({
+                    upcitemdb_api_key: document.getElementById('upcitemdb-key').value.trim(),
+                });
+                showToast('✅ UPC lookup settings saved');
+            } catch (err) {
+                showToast('❌ ' + err.message, true);
+            }
+        });
 
         document.getElementById('save-ha-btn').addEventListener('click', async () => {
             try {

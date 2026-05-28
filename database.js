@@ -37,6 +37,24 @@ db.serialize(() => {
         }
     });
 
+    db.run(`ALTER TABLE items ADD COLUMN upc TEXT`, (err) => {
+        if (err && !String(err.message || '').includes('duplicate column name')) {
+            console.error('upc column migration:', err.message);
+        }
+    });
+
+    db.run(`CREATE TABLE IF NOT EXISTS upc_lookup_cache (
+        upc TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        name TEXT NOT NULL,
+        brand TEXT,
+        category TEXT,
+        description TEXT,
+        image_url TEXT,
+        raw_json TEXT,
+        fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS scan_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -61,6 +79,7 @@ const DEFAULT_SYSTEM_SETTINGS = {
     enable_ha_notifications: 'false',
     rssi_near_gate: '-55',
     rssi_far_gate: '-85',
+    upcitemdb_api_key: '',
 };
 
 function seedDefaultSystemSettings() {

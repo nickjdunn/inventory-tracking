@@ -1,2 +1,4 @@
 secrets.yaml
 node_modules/
+inventory.db
+.env
