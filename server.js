@@ -5,6 +5,22 @@ const PORT = process.env.PORT || 3000;
 
 let activeSearchQueue = [];
 
+function normalizeContainerId(value) {
+    const trimmed = value == null ? '' : String(value).trim();
+    return trimmed === '' ? null : trimmed;
+}
+
+function computeItemStatus(item) {
+    const currentId = normalizeContainerId(item.container_id);
+    const homeId = normalizeContainerId(item.home_container_id);
+
+    if (currentId && homeId && currentId === homeId) return 'HOME';
+    if (!currentId && homeId) return 'FLOATING';
+    if (currentId && !homeId) return 'UNASSIGNED';
+    if (currentId && homeId && currentId !== homeId) return 'MISPLACED';
+    return 'UNASSIGNED';
+}
+
 app.use(express.json());
 // Serves index.html, mobile.html, and assets — no route conflict with /api/*
 app.use(express.static('public'));
@@ -28,7 +44,7 @@ app.post('/api/scan', (req, res) => {
     db.serialize(() => {
         scanned_tags.forEach((epc) => {
             // 1. Check if the item already exists in our master list
-            db.get(`SELECT name, container_id FROM items WHERE epc_id = ?`, [epc], (err, item) => {
+            db.get(`SELECT name, container_id, home_container_id FROM items WHERE epc_id = ?`, [epc], (err, item) => {
                 if (err) console.error(err);
 
                 if (item) {
@@ -63,19 +79,27 @@ app.post('/api/scan', (req, res) => {
 // ✏️ Update item metadata (name, description, category)
 app.put('/api/items/:epc_id', (req, res) => {
     const { epc_id } = req.params;
-    const { name, description, category } = req.body;
+    const { name, description, category, home_container_id } = req.body;
+    const normalizedHomeContainerId = normalizeContainerId(home_container_id);
 
     if (!name || typeof name !== 'string' || !name.trim()) {
         return res.status(400).json({ error: 'name is required' });
     }
 
     db.run(
-        `UPDATE items SET name = ?, description = ?, category = ? WHERE epc_id = ?`,
-        [name.trim(), description ?? null, category ?? null, epc_id],
+        `UPDATE items SET name = ?, description = ?, category = ?, home_container_id = ? WHERE epc_id = ?`,
+        [name.trim(), description ?? null, category ?? null, normalizedHomeContainerId, epc_id],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) return res.status(404).json({ error: 'Item not found' });
-            res.json({ status: 'success', epc_id, name: name.trim(), description, category });
+            res.json({
+                status: 'success',
+                epc_id,
+                name: name.trim(),
+                description,
+                category,
+                home_container_id: normalizedHomeContainerId
+            });
         }
     );
 });
@@ -147,18 +171,29 @@ app.get('/api/dashboard', (req, res) => {
     const data = {};
     
     // Get all items and their current bin assignments
-    db.all(`SELECT items.*, containers.name AS container_name 
+    db.all(`SELECT items.*,
+                   containers.name AS container_name,
+                   home_containers.name AS home_container_name
             FROM items 
-            LEFT JOIN containers ON items.container_id = containers.epc_id`, [], (err, items) => {
+            LEFT JOIN containers ON items.container_id = containers.epc_id
+            LEFT JOIN containers AS home_containers ON items.home_container_id = home_containers.epc_id`, [], (err, items) => {
         if (err) return res.status(500).json({ error: err.message });
-        data.items = items;
+        data.items = items.map((item) => ({
+            ...item,
+            status: computeItemStatus(item)
+        }));
 
-        // Get the latest 10 scans for the live history feed
-        db.all(`SELECT * FROM scan_history ORDER BY timestamp DESC LIMIT 10`, [], (err, history) => {
+        db.all(`SELECT epc_id, name, location_id FROM containers ORDER BY name ASC`, [], (err, containers) => {
             if (err) return res.status(500).json({ error: err.message });
-            data.history = history;
-            
-            res.json(data);
+            data.containers = containers;
+
+            // Get the latest 10 scans for the live history feed
+            db.all(`SELECT * FROM scan_history ORDER BY timestamp DESC LIMIT 10`, [], (err, history) => {
+                if (err) return res.status(500).json({ error: err.message });
+                data.history = history;
+
+                res.json(data);
+            });
         });
     });
 });

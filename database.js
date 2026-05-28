@@ -29,8 +29,22 @@ db.serialize(() => {
         description TEXT,
         category TEXT,
         container_id TEXT,
+        home_container_id TEXT,
         FOREIGN KEY(container_id) REFERENCES containers(epc_id)
     )`);
+
+    // Backward-compatible migration for existing databases.
+    try {
+        db.run(`ALTER TABLE items ADD COLUMN home_container_id TEXT`, (err) => {
+            if (err && !String(err.message || '').includes('duplicate column name')) {
+                console.error('Failed to add home_container_id to items:', err.message);
+            }
+        });
+    } catch (err) {
+        if (!String(err.message || '').includes('duplicate column name')) {
+            console.error('Failed to add home_container_id to items:', err.message);
+        }
+    }
 
     // 4. Scan History (The immutable timeline audit trail)
     db.run(`CREATE TABLE IF NOT EXISTS scan_history (

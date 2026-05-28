@@ -145,7 +145,8 @@
             text-transform: uppercase;
         }
         .modal input,
-        .modal textarea {
+        .modal textarea,
+        .modal select {
             background: #0f172a;
             border: 1px solid #475569;
             border-radius: 4px;
@@ -225,6 +226,24 @@
             padding: 10px 18px;
         }
         .btn.hunt-batch:hover { background: #92400e; }
+        .status-pill {
+            border-radius: 999px;
+            display: inline-block;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 10px;
+            white-space: nowrap;
+        }
+        .status-home { background: #d4edda; color: #155724; }
+        .status-floating { background: #cce5ff; color: #004085; }
+        .status-unassigned { background: #fff3cd; color: #856404; }
+        .status-misplaced { background: #f8d7da; color: #721c24; }
+        .status-detail {
+            color: var(--text-muted);
+            display: block;
+            font-size: 12px;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
@@ -250,13 +269,14 @@
                             </th>
                             <th>Item Name</th>
                             <th>Current Location / Bin</th>
+                            <th>Status</th>
                             <th>EPC Identifier</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="inventory-table">
                         <tr>
-                            <td colspan="5" style="text-align:center; color: var(--text-muted);">Waiting for scan stream data...</td>
+                            <td colspan="6" style="text-align:center; color: var(--text-muted);">Waiting for scan stream data...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -282,6 +302,8 @@
                 <input type="text" id="edit-category" name="category" placeholder="e.g. Tools, Electronics">
                 <label for="edit-description">Description</label>
                 <textarea id="edit-description" name="description" placeholder="Optional notes"></textarea>
+                <label for="edit-home-container">Assigned Home Bin</label>
+                <select id="edit-home-container" name="home_container_id"></select>
                 <p id="edit-epc-display" style="font-family: monospace; font-size: 12px; color: var(--text-muted); margin: 0 0 12px 0;"></p>
                 <div class="modal-actions">
                     <button type="button" class="btn" id="edit-cancel">Cancel</button>
@@ -298,6 +320,7 @@
 
     <script>
         let activeSearchQueue = [];
+        let availableContainers = [];
         const selectedEpcs = new Set();
 
         function escapeHtml(str) {
@@ -314,10 +337,39 @@
             document.getElementById('edit-name').value = item.name || '';
             document.getElementById('edit-category').value = item.category || '';
             document.getElementById('edit-description').value = item.description || '';
+            const homeSelect = document.getElementById('edit-home-container');
+            homeSelect.innerHTML = renderHomeBinOptions(item.home_container_id);
+            homeSelect.value = item.home_container_id || '';
             document.getElementById('edit-epc-display').textContent = 'EPC: ' + item.epc_id;
             const modal = document.getElementById('edit-modal');
             modal.classList.add('open');
             modal.setAttribute('aria-hidden', 'false');
+        }
+
+        function renderHomeBinOptions(selectedContainerId) {
+            const selected = selectedContainerId || '';
+            const optionRows = [
+                '<option value="">-- No assigned home bin --</option>',
+                ...availableContainers.map((container) => {
+                    const selectedAttr = container.epc_id === selected ? ' selected' : '';
+                    return `<option value="${escapeHtml(container.epc_id)}"${selectedAttr}>${escapeHtml(container.name)} (${escapeHtml(container.epc_id)})</option>`;
+                })
+            ];
+            return optionRows.join('');
+        }
+
+        function renderStatusBadgeHtml(item) {
+            if (item.status === 'HOME') {
+                return '<span class="status-pill status-home">🟢 Home</span>';
+            }
+            if (item.status === 'FLOATING') {
+                return '<span class="status-pill status-floating">🔵 Floating</span>';
+            }
+            if (item.status === 'MISPLACED') {
+                const homeLabel = item.home_container_name || item.home_container_id || 'Unknown Home Bin';
+                return `<span class="status-pill status-misplaced">🔴 Misplaced</span><span class="status-detail">Belongs in ${escapeHtml(homeLabel)}</span>`;
+            }
+            return '<span class="status-pill status-unassigned">🟡 Unassigned</span>';
         }
 
         function closeEditModal() {
@@ -418,7 +470,8 @@
             const payload = {
                 name: document.getElementById('edit-name').value.trim(),
                 category: document.getElementById('edit-category').value.trim() || null,
-                description: document.getElementById('edit-description').value.trim() || null
+                description: document.getElementById('edit-description').value.trim() || null,
+                home_container_id: document.getElementById('edit-home-container').value || null
             };
             try {
                 const response = await fetch('/api/items/' + encodeURIComponent(epcId), {
@@ -447,12 +500,13 @@
                 ]);
                 const data = await dashResponse.json();
                 const searchData = await searchResponse.json();
+                availableContainers = Array.isArray(data.containers) ? data.containers : [];
                 activeSearchQueue = searchData.activeSearchQueue || [];
                 updateFindBanner();
 
                 const tableBody = document.getElementById('inventory-table');
                 if (data.items.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag to auto-discover.</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag to auto-discover.</td></tr>`;
                 } else {
                     tableBody.innerHTML = data.items.map(item => {
                         const isFindTarget = activeSearchQueue.includes(item.epc_id);
@@ -469,6 +523,7 @@
                                 <button type="button" class="item-name-link edit-item-btn" data-epc="${escapeHtml(item.epc_id)}">${escapeHtml(item.name)}</button>
                             </td>
                             <td><span class="badge info">${escapeHtml(location)}</span></td>
+                            <td>${renderStatusBadgeHtml(item)}</td>
                             <td style="font-family: monospace; color: var(--text-muted); font-size: 13px;">${escapeHtml(item.epc_id)}</td>
                             <td>
                                 <div class="row-actions">
