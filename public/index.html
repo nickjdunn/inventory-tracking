@@ -4,48 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>📦 RFID Home Inventory Hub</title>
+    <link rel="stylesheet" href="/app.css">
     <style>
-        :root {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --accent: #38bdf8;
-            --success: #4ade80;
-            --warning: #fbbf24;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            margin: 0;
-            padding: 20px 20px 100px;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #334155;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }
-        h1 { margin: 0; font-size: 24px; color: var(--accent); }
-        .grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 20px;
-        }
-        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
-        .card {
-            background-color: var(--card-bg);
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-        }
         h2 { font-size: 18px; margin-top: 0; border-bottom: 1px solid #334155; padding-bottom: 10px; }
         table {
             width: 100%;
@@ -247,12 +207,28 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>🧠 RFID Inventory</h1>
+                <p>Navigation</p>
+            </div>
+            <nav class="sidebar-nav" aria-label="Main navigation">
+                <a class="sidebar-link active" href="/index.html">📦 Inventory Dashboard</a>
+                <a class="sidebar-link" href="/bins.html">🗃️ Bin & Location Manager</a>
+                <a class="sidebar-link" href="/admin.html">⚙️ Admin Settings</a>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="/mobile.html">📱 Handheld Mobile View</a>
+            </div>
+        </aside>
+
+        <main class="main-content">
+        <div class="container">
+        <header class="page-header">
             <div>
-                <h1>🧠 RFID Inventory Brain</h1>
-                <p style="color: var(--text-muted); margin: 5px 0 0 0;">Real-world physical asset synchronization mapping</p>
-                <a href="/mobile.html" style="color: var(--accent); font-size: 14px; display: inline-block; margin-top: 10px; text-decoration: none;">📱 Switch to Handheld Mobile View</a>
+                <h2>🧠 RFID Inventory Brain</h2>
+                <p>Real-world physical asset synchronization mapping</p>
             </div>
             <div id="connection-status" class="badge success">● Live Sync Active</div>
         </header>
@@ -289,6 +265,8 @@
                 </div>
             </div>
         </div>
+        </div>
+        </main>
     </div>
 
     <div id="edit-modal" class="modal-overlay" aria-hidden="true">
@@ -332,7 +310,19 @@
                 .replace(/"/g, '&quot;');
         }
 
-        function openEditModal(item) {
+        async function loadContainersFromApi() {
+            try {
+                const res = await fetch('/api/containers');
+                if (res.ok) {
+                    availableContainers = await res.json();
+                }
+            } catch (err) {
+                console.warn('Could not load containers:', err);
+            }
+        }
+
+        async function openEditModal(item) {
+            await loadContainersFromApi();
             document.getElementById('edit-epc-id').value = item.epc_id;
             document.getElementById('edit-name').value = item.name || '';
             document.getElementById('edit-category').value = item.category || '';
@@ -351,8 +341,9 @@
             const optionRows = [
                 '<option value="">-- No assigned home bin --</option>',
                 ...availableContainers.map((container) => {
-                    const selectedAttr = container.epc_id === selected ? ' selected' : '';
-                    return `<option value="${escapeHtml(container.epc_id)}"${selectedAttr}>${escapeHtml(container.name)} (${escapeHtml(container.epc_id)})</option>`;
+                    const binId = container.id || container.epc_id;
+                    const selectedAttr = binId === selected ? ' selected' : '';
+                    return `<option value="${escapeHtml(binId)}"${selectedAttr}>${escapeHtml(container.name)} (${escapeHtml(binId)})</option>`;
                 })
             ];
             return optionRows.join('');
@@ -500,7 +491,9 @@
                 ]);
                 const data = await dashResponse.json();
                 const searchData = await searchResponse.json();
-                availableContainers = Array.isArray(data.containers) ? data.containers : [];
+                if (Array.isArray(data.containers) && data.containers.length) {
+                    availableContainers = data.containers;
+                }
                 activeSearchQueue = searchData.activeSearchQueue || [];
                 updateFindBanner();
 
@@ -593,6 +586,7 @@
 
         document.getElementById('hunt-selected-btn').addEventListener('click', huntSelectedItems);
 
+        loadContainersFromApi();
         fetchDashboardData();
         setInterval(fetchDashboardData, 2000);
     </script>

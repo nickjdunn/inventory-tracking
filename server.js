@@ -104,34 +104,82 @@ app.put('/api/items/:epc_id', (req, res) => {
     );
 });
 
-// 📦 Name or register a physical container (bin) by EPC
-app.put('/api/containers/:epc_id', (req, res) => {
-    const { epc_id } = req.params;
-    const { name, location_id } = req.body;
+// 📦 List all registered bins
+app.get('/api/containers', (req, res) => {
+    db.all(
+        `SELECT id, name, description FROM containers ORDER BY name ASC`,
+        [],
+        (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows);
+        }
+    );
+});
+
+// 📦 Create a new bin
+app.post('/api/containers', (req, res) => {
+    const { id, name, description } = req.body;
+    const binId = id == null ? '' : String(id).trim();
+    const binName = name == null ? '' : String(name).trim();
+
+    if (!binId) return res.status(400).json({ error: 'id is required' });
+    if (!binName) return res.status(400).json({ error: 'name is required' });
+
+    db.run(
+        `INSERT INTO containers (id, name, description) VALUES (?, ?, ?)`,
+        [binId, binName, description ? String(description).trim() : null],
+        function (err) {
+            if (err) {
+                if (String(err.message).includes('UNIQUE')) {
+                    return res.status(409).json({ error: 'A bin with this ID already exists' });
+                }
+                return res.status(500).json({ error: err.message });
+            }
+            res.status(201).json({
+                id: binId,
+                name: binName,
+                description: description ? String(description).trim() : null,
+            });
+        }
+    );
+});
+
+// 📦 Update an existing bin by ID (upsert for scan-time registration)
+app.put('/api/containers/:id', (req, res) => {
+    const { id: paramId } = req.params;
+    const { name, description } = req.body;
 
     if (!name || typeof name !== 'string' || !name.trim()) {
         return res.status(400).json({ error: 'name is required' });
     }
 
-    db.get(`SELECT epc_id FROM containers WHERE epc_id = ?`, [epc_id], (err, row) => {
+    db.get(`SELECT id FROM containers WHERE id = ?`, [paramId], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
 
         if (row) {
             db.run(
-                `UPDATE containers SET name = ?, location_id = COALESCE(?, location_id) WHERE epc_id = ?`,
-                [name.trim(), location_id ?? null, epc_id],
+                `UPDATE containers SET name = ?, description = COALESCE(?, description) WHERE id = ?`,
+                [name.trim(), description ?? null, paramId],
                 function (updateErr) {
                     if (updateErr) return res.status(500).json({ error: updateErr.message });
-                    res.json({ status: 'success', epc_id, name: name.trim(), location_id });
+                    res.json({
+                        id: paramId,
+                        name: name.trim(),
+                        description: description ?? null,
+                    });
                 }
             );
         } else {
             db.run(
-                `INSERT INTO containers (epc_id, name, location_id) VALUES (?, ?, ?)`,
-                [epc_id, name.trim(), location_id ?? null],
+                `INSERT INTO containers (id, name, description) VALUES (?, ?, ?)`,
+                [paramId, name.trim(), description ?? null],
                 function (insertErr) {
                     if (insertErr) return res.status(500).json({ error: insertErr.message });
-                    res.status(201).json({ status: 'success', epc_id, name: name.trim(), location_id });
+                    res.status(201).json({
+                        id: paramId,
+                        name: name.trim(),
+                        description: description ?? null,
+                    });
                 }
             );
         }
@@ -175,15 +223,15 @@ app.get('/api/dashboard', (req, res) => {
                    containers.name AS container_name,
                    home_containers.name AS home_container_name
             FROM items 
-            LEFT JOIN containers ON items.container_id = containers.epc_id
-            LEFT JOIN containers AS home_containers ON items.home_container_id = home_containers.epc_id`, [], (err, items) => {
+            LEFT JOIN containers ON items.container_id = containers.id
+            LEFT JOIN containers AS home_containers ON items.home_container_id = home_containers.id`, [], (err, items) => {
         if (err) return res.status(500).json({ error: err.message });
         data.items = items.map((item) => ({
             ...item,
             status: computeItemStatus(item)
         }));
 
-        db.all(`SELECT epc_id, name, location_id FROM containers ORDER BY name ASC`, [], (err, containers) => {
+        db.all(`SELECT id, name, description FROM containers ORDER BY name ASC`, [], (err, containers) => {
             if (err) return res.status(500).json({ error: err.message });
             data.containers = containers;
 

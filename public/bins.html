@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🗃️ Bin & Location Manager</title>
+    <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>🧠 RFID Inventory</h1>
+                <p>Navigation</p>
+            </div>
+            <nav class="sidebar-nav" aria-label="Main navigation">
+                <a class="sidebar-link" href="/index.html">📦 Inventory Dashboard</a>
+                <a class="sidebar-link active" href="/bins.html">🗃️ Bin & Location Manager</a>
+                <a class="sidebar-link" href="/admin.html">⚙️ Admin Settings</a>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="/mobile.html">📱 Handheld Mobile View</a>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h2>🗃️ Bin & Location Manager</h2>
+                    <p>Register physical totes and shelf bins for RFID tracking</p>
+                </div>
+            </header>
+
+            <div class="container">
+                <section class="card">
+                    <h3>Create New Container / Bin</h3>
+                    <form id="create-bin-form">
+                        <div class="form-field">
+                            <label for="bin-id">Bin Code / ID</label>
+                            <input type="text" id="bin-id" name="id" placeholder="BIN-GARAGE-01" required autocomplete="off">
+                        </div>
+                        <div class="form-field">
+                            <label for="bin-name">Bin Name</label>
+                            <input type="text" id="bin-name" name="name" placeholder="Main Garage Shelf Tote" required>
+                        </div>
+                        <div class="form-field">
+                            <label for="bin-description">Description (optional)</label>
+                            <textarea id="bin-description" name="description" placeholder="e.g. Top shelf, left side"></textarea>
+                        </div>
+                        <button type="submit" class="btn primary">➕ Create Bin</button>
+                        <div id="form-status" class="form-status" style="display:none;" role="status"></div>
+                    </form>
+                </section>
+
+                <section class="card">
+                    <h3>Registered Bins</h3>
+                    <div id="bins-grid" class="bin-grid">
+                        <p style="color: var(--text-muted);">Loading bins…</p>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function showFormStatus(message, type) {
+            const el = document.getElementById('form-status');
+            el.style.display = 'block';
+            el.className = 'form-status ' + type;
+            el.textContent = message;
+        }
+
+        async function loadBins() {
+            const grid = document.getElementById('bins-grid');
+            try {
+                const res = await fetch('/api/containers');
+                const bins = await res.json();
+                if (!res.ok) throw new Error(bins.error || 'Failed to load bins');
+
+                if (!bins.length) {
+                    grid.innerHTML = '<p style="color: var(--text-muted);">No bins registered yet. Create one above.</p>';
+                    return;
+                }
+
+                grid.innerHTML = bins.map((bin) => `
+                    <article class="bin-card">
+                        <h4>${escapeHtml(bin.name)}</h4>
+                        <div class="bin-id">${escapeHtml(bin.id)}</div>
+                        <p class="bin-desc">${escapeHtml(bin.description || 'No description')}</p>
+                    </article>
+                `).join('');
+            } catch (err) {
+                grid.innerHTML = '<p style="color: #fecaca;">Could not load bins: ' + escapeHtml(err.message) + '</p>';
+            }
+        }
+
+        document.getElementById('create-bin-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const payload = {
+                id: document.getElementById('bin-id').value.trim(),
+                name: document.getElementById('bin-name').value.trim(),
+                description: document.getElementById('bin-description').value.trim() || null,
+            };
+
+            try {
+                const res = await fetch('/api/containers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Create failed');
+
+                showFormStatus('✅ Bin created: ' + data.name, 'ok');
+                document.getElementById('create-bin-form').reset();
+                await loadBins();
+            } catch (err) {
+                showFormStatus('❌ ' + err.message, 'err');
+            }
+        });
+
+        loadBins();
+    </script>
+</body>
+</html>

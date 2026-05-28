@@ -1,28 +1,25 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-// Connect to the local database file (it will be created automatically if it doesn't exist)
 const dbPath = path.join(__dirname, 'inventory.db');
 const db = new sqlite3.Database(dbPath);
 
-// Initialize the database tables
 db.serialize(() => {
-    // 1. Locations (e.g., Garage, Basement, Storage Unit)
     db.run(`CREATE TABLE IF NOT EXISTS locations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
         description TEXT
     )`);
 
-    // 2. Containers / Bins (Physical totes with their own RFID EPC)
     db.run(`CREATE TABLE IF NOT EXISTS containers (
-        epc_id TEXT PRIMARY KEY,
+        id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        location_id INTEGER,
-        FOREIGN KEY(location_id) REFERENCES locations(id)
-    )`);
+        description TEXT
+    )`, (err) => {
+        if (err) console.error('containers init:', err.message);
+        else migrateLegacyContainersTable();
+    });
 
-    // 3. Physical Items (The individual items with their own RFID EPC)
     db.run(`CREATE TABLE IF NOT EXISTS items (
         epc_id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -30,23 +27,16 @@ db.serialize(() => {
         category TEXT,
         container_id TEXT,
         home_container_id TEXT,
-        FOREIGN KEY(container_id) REFERENCES containers(epc_id)
+        FOREIGN KEY(container_id) REFERENCES containers(id),
+        FOREIGN KEY(home_container_id) REFERENCES containers(id)
     )`);
 
-    // Backward-compatible migration for existing databases.
-    try {
-        db.run(`ALTER TABLE items ADD COLUMN home_container_id TEXT`, (err) => {
-            if (err && !String(err.message || '').includes('duplicate column name')) {
-                console.error('Failed to add home_container_id to items:', err.message);
-            }
-        });
-    } catch (err) {
-        if (!String(err.message || '').includes('duplicate column name')) {
-            console.error('Failed to add home_container_id to items:', err.message);
+    db.run(`ALTER TABLE items ADD COLUMN home_container_id TEXT`, (err) => {
+        if (err && !String(err.message || '').includes('duplicate column name')) {
+            console.error('home_container_id migration:', err.message);
         }
-    }
+    });
 
-    // 4. Scan History (The immutable timeline audit trail)
     db.run(`CREATE TABLE IF NOT EXISTS scan_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -55,7 +45,31 @@ db.serialize(() => {
         action TEXT NOT NULL
     )`);
 
-    console.log("💾 SQLite Database tables initialized successfully.");
+    console.log('💾 SQLite Database tables initialized successfully.');
 });
+
+function migrateLegacyContainersTable() {
+    db.all(`PRAGMA table_info(containers)`, [], (err, columns) => {
+        if (err) return;
+        const hasEpcId = columns.some((c) => c.name === 'epc_id');
+        const hasId = columns.some((c) => c.name === 'id');
+        if (!hasEpcId || hasId) return;
+
+        console.log('💾 Migrating legacy containers table (epc_id → id + description)...');
+        db.serialize(() => {
+            db.run(`CREATE TABLE containers_migrated (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT
+            )`);
+            db.run(
+                `INSERT INTO containers_migrated (id, name, description)
+                 SELECT epc_id, name, NULL FROM containers`
+            );
+            db.run(`DROP TABLE containers`);
+            db.run(`ALTER TABLE containers_migrated RENAME TO containers`);
+        });
+    });
+}
 
 module.exports = db;
