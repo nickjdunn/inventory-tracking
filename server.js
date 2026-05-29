@@ -10,6 +10,10 @@ let activeSearchQueue = [];
 const nearFieldBuffer = [];
 const NEAR_FIELD_BUFFER_MAX = 120;
 
+/** Handheld scanner heartbeats (scanner_id → { lastSeen, ...meta }). */
+const scannerHeartbeats = new Map();
+const SCANNER_ONLINE_THRESHOLD_MS = 45_000;
+
 function normalizeContainerId(value) {
     const trimmed = value == null ? '' : String(value).trim();
     return trimmed === '' ? null : trimmed;
@@ -301,6 +305,46 @@ function processScannedTags(scannedTags, targetContainerEpc) {
         });
     });
 }
+
+// 📡 Scanner connectivity heartbeat (Merlin handheld / hardware client)
+app.post('/api/scanner/heartbeat', (req, res) => {
+    const scannerId =
+        req.body.scanner_id == null ? '' : String(req.body.scanner_id).trim();
+    if (!scannerId) {
+        return res.status(400).json({ error: 'scanner_id is required' });
+    }
+
+    const record = {
+        scanner_id: scannerId,
+        last_seen: Date.now(),
+        ip: req.ip,
+        user_agent: req.get('user-agent') || null,
+        battery: req.body.battery ?? null,
+        mode: req.body.mode ?? null,
+    };
+
+    scannerHeartbeats.set(scannerId, record);
+    res.json({ status: 'ok', scanner_id: scannerId, online: true });
+});
+
+app.get('/api/scanner/status', (req, res) => {
+    const now = Date.now();
+    const scanners = [...scannerHeartbeats.entries()].map(([id, data]) => ({
+        scanner_id: id,
+        online: now - data.last_seen < SCANNER_ONLINE_THRESHOLD_MS,
+        last_seen: data.last_seen,
+        last_seen_ago_ms: now - data.last_seen,
+        battery: data.battery,
+        mode: data.mode,
+    }));
+
+    const anyOnline = scanners.some((s) => s.online);
+    res.json({
+        scanners,
+        any_online: anyOnline,
+        threshold_ms: SCANNER_ONLINE_THRESHOLD_MS,
+    });
+});
 
 // 📡 Near-field ingest (onboarding listener — does not mutate inventory)
 app.post('/api/scan/near-field-ingest', async (req, res) => {

@@ -303,6 +303,7 @@
             <div class="header-actions">
                 <button type="button" class="btn" id="open-onboard-wizard">🏷️ Register New Tag</button>
                 <button type="button" class="btn primary" id="open-add-item">➕ Add Item</button>
+                <div id="scanner-status" class="badge warning" title="RFID handheld heartbeat">○ Merlin Scanner</div>
                 <div id="connection-status" class="badge success">● Live Sync Active</div>
             </div>
         </header>
@@ -772,12 +773,37 @@
             document.getElementById('add-item-epc').focus();
         }
 
+        async function refreshScannerStatus() {
+            const el = document.getElementById('scanner-status');
+            if (!el) return;
+            try {
+                const res = await fetch('/api/scanner/status');
+                const data = await res.json();
+                if (!res.ok) throw new Error('status unavailable');
+                const online = data.any_online;
+                const merlin = (data.scanners || []).find((s) => s.online);
+                if (online && merlin) {
+                    el.textContent = '🟢 Merlin Scanner Online';
+                    el.className = 'badge success';
+                    el.title = `Last seen ${Math.round(merlin.last_seen_ago_ms / 1000)}s ago — ${merlin.scanner_id}`;
+                } else {
+                    el.textContent = '○ Merlin Scanner Offline';
+                    el.className = 'badge warning';
+                    el.title = 'No heartbeat in the last 45 seconds';
+                }
+            } catch {
+                el.textContent = '○ Scanner Unknown';
+                el.className = 'badge warning';
+            }
+        }
+
         async function fetchDashboardData() {
             try {
                 const [dashResponse, searchResponse] = await Promise.all([
                     fetch('/api/dashboard'),
                     fetch('/api/search/target')
                 ]);
+                refreshScannerStatus();
                 const data = await dashResponse.json();
                 const searchData = await searchResponse.json();
                 if (Array.isArray(data.containers) && data.containers.length) {
@@ -922,7 +948,9 @@
 
         loadContainersFromApi();
         fetchDashboardData();
+        refreshScannerStatus();
         setInterval(fetchDashboardData, 2000);
+        setInterval(refreshScannerStatus, 5000);
     </script>
 </body>
 </html>
