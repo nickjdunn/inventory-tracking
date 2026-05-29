@@ -379,25 +379,41 @@ app.post('/api/items', (req, res) => {
     );
 });
 
-// ✏️ Update item metadata (name, description, category)
+// ✏️ Update item metadata (name, description, category, bins, current location)
 app.put('/api/items/:epc_id', (req, res) => {
     const { epc_id } = req.params;
-    const { name, description, category, home_container_id, upc } = req.body;
+    const { name, description, category, home_container_id, container_id, upc } = req.body;
     const normalizedHomeContainerId = normalizeContainerId(home_container_id);
+    const normalizedContainerId = container_id !== undefined
+        ? normalizeContainerId(container_id)
+        : undefined;
     const normalizedUpc = upc === undefined ? undefined : (upc ? normalizeUpc(upc) : null);
 
     if (!name || typeof name !== 'string' || !name.trim()) {
         return res.status(400).json({ error: 'name is required' });
     }
 
-    const sql = normalizedUpc !== undefined
-        ? `UPDATE items SET name = ?, description = ?, category = ?, home_container_id = ?, upc = ? WHERE epc_id = ?`
-        : `UPDATE items SET name = ?, description = ?, category = ?, home_container_id = ? WHERE epc_id = ?`;
-    const params = normalizedUpc !== undefined
-        ? [name.trim(), description ?? null, category ?? null, normalizedHomeContainerId, normalizedUpc, epc_id]
-        : [name.trim(), description ?? null, category ?? null, normalizedHomeContainerId, epc_id];
+    const sets = ['name = ?', 'description = ?', 'category = ?', 'home_container_id = ?'];
+    const params = [
+        name.trim(),
+        description ?? null,
+        category ?? null,
+        normalizedHomeContainerId,
+    ];
 
-    db.run(sql, params,
+    if (normalizedContainerId !== undefined) {
+        sets.push('container_id = ?');
+        params.push(normalizedContainerId);
+    }
+    if (normalizedUpc !== undefined) {
+        sets.push('upc = ?');
+        params.push(normalizedUpc);
+    }
+    params.push(epc_id);
+
+    db.run(
+        `UPDATE items SET ${sets.join(', ')} WHERE epc_id = ?`,
+        params,
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             if (this.changes === 0) return res.status(404).json({ error: 'Item not found' });
@@ -408,6 +424,7 @@ app.put('/api/items/:epc_id', (req, res) => {
                 description,
                 category,
                 home_container_id: normalizedHomeContainerId,
+                container_id: normalizedContainerId,
                 upc: normalizedUpc !== undefined ? normalizedUpc : undefined,
             });
         }

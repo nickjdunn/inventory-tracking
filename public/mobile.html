@@ -453,6 +453,170 @@
             box-shadow: none;
             color: var(--muted);
         }
+        .inventory-search {
+            background: #0f172a;
+            border: 2px solid #475569;
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 16px;
+            margin-bottom: 12px;
+            min-height: 52px;
+            padding: 12px 14px;
+            width: 100%;
+        }
+        .status-pill-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .kpi-pill {
+            background: #0f172a;
+            border: 2px solid #475569;
+            border-radius: 999px;
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 8px 12px;
+            touch-action: manipulation;
+        }
+        .kpi-pill.active {
+            background: #1e3a8a;
+            border-color: var(--accent);
+            color: #e0f2fe;
+        }
+        .kpi-pill .kpi-count {
+            color: var(--accent);
+            margin-left: 4px;
+        }
+        .item-card {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            padding: 14px 16px;
+        }
+        .item-card.find-target {
+            border-color: var(--warning);
+            box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.35);
+        }
+        .item-card-header {
+            align-items: flex-start;
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .item-card-header h3 {
+            font-size: 17px;
+            line-height: 1.25;
+            margin: 0;
+            word-break: break-word;
+        }
+        .item-card-epc {
+            color: var(--muted);
+            font-family: ui-monospace, monospace;
+            font-size: 12px;
+            margin-bottom: 10px;
+            word-break: break-all;
+        }
+        .item-card-location {
+            color: var(--accent);
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .status-pill {
+            border-radius: 999px;
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            white-space: nowrap;
+        }
+        .status-home { background: #d4edda; color: #155724; }
+        .status-floating { background: #fff3cd; color: #856404; }
+        .status-unassigned { background: #e2e8f0; color: #334155; }
+        .status-misplaced { background: #f8d7da; color: #721c24; }
+        .status-detail {
+            color: var(--muted);
+            display: block;
+            font-size: 11px;
+            margin-top: 4px;
+        }
+        .item-card-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .btn-chip {
+            background: #334155;
+            border: none;
+            border-radius: 8px;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            min-height: 40px;
+            padding: 8px 12px;
+            touch-action: manipulation;
+        }
+        .btn-chip.accent { background: #0369a1; color: #e0f2fe; }
+        .btn-chip.warn { background: #713f12; color: #fef08a; }
+        .sheet-overlay {
+            background: rgba(15, 23, 42, 0.75);
+            inset: 0;
+            opacity: 0;
+            pointer-events: none;
+            position: fixed;
+            transition: opacity 0.25s ease;
+            z-index: 200;
+        }
+        .sheet-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .bottom-sheet {
+            background: var(--card);
+            border-radius: 16px 16px 0 0;
+            bottom: 0;
+            left: 0;
+            max-height: 88dvh;
+            overflow-y: auto;
+            padding: 20px 20px calc(24px + var(--safe-bottom));
+            position: fixed;
+            right: 0;
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+            z-index: 210;
+        }
+        .bottom-sheet.open { transform: translateY(0); }
+        .sheet-handle {
+            background: #475569;
+            border-radius: 4px;
+            height: 4px;
+            margin: 0 auto 16px;
+            width: 40px;
+        }
+        .sheet-title {
+            font-size: 18px;
+            margin: 0 0 16px;
+        }
+        .status-quick-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .sync-badge {
+            color: var(--success);
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .sync-badge.warn { color: var(--warning); }
     </style>
 </head>
 <body>
@@ -539,6 +703,19 @@
             </div>
         </section>
 
+        <!-- Inventory -->
+        <section id="view-inventory" class="view">
+            <div class="card">
+                <h2>📋 Inventory</h2>
+                <p id="inventory-sync-badge" class="sync-badge">● Syncing…</p>
+                <input type="search" id="inventory-search" class="inventory-search" placeholder="🔍 Search name, EPC, or bin…" autocomplete="off" aria-label="Filter inventory">
+                <div id="status-pill-row" class="status-pill-row" role="group" aria-label="Filter by status"></div>
+                <div id="inventory-list">
+                    <p class="standby">Loading inventory…</p>
+                </div>
+            </div>
+        </section>
+
         <!-- Add Item -->
         <section id="view-add" class="view">
             <div class="card">
@@ -581,15 +758,19 @@
     <nav class="bottom-nav" aria-label="Main navigation">
         <button type="button" class="nav-tab active" data-view="scan">
             <span class="icon">📥</span>
-            Quick Scan
+            Scan
         </button>
-        <button type="button" class="nav-tab" data-view="add">
-            <span class="icon">➕</span>
-            Add Item
+        <button type="button" class="nav-tab" data-view="inventory">
+            <span class="icon">📋</span>
+            Items
         </button>
         <button type="button" class="nav-tab" data-view="find">
             <span class="icon">🔍</span>
             Find
+        </button>
+        <button type="button" class="nav-tab" data-view="add">
+            <span class="icon">➕</span>
+            Add
         </button>
         <button type="button" class="nav-tab" data-view="bins">
             <span class="icon">📦</span>
@@ -597,6 +778,38 @@
         </button>
     </nav>
 
+    <div id="item-sheet-overlay" class="sheet-overlay" aria-hidden="true"></div>
+    <div id="item-bottom-sheet" class="bottom-sheet" role="dialog" aria-labelledby="item-sheet-title" aria-hidden="true">
+        <div class="sheet-handle"></div>
+        <h3 class="sheet-title" id="item-sheet-title">Edit Item</h3>
+        <form id="item-edit-form">
+            <input type="hidden" id="sheet-epc-id">
+            <label for="sheet-item-name">Name</label>
+            <input type="text" id="sheet-item-name" required>
+            <label for="sheet-item-category">Category</label>
+            <input type="text" id="sheet-item-category">
+            <label for="sheet-item-desc">Description</label>
+            <textarea id="sheet-item-desc"></textarea>
+            <label for="sheet-home-bin">Assigned home bin</label>
+            <select id="sheet-home-bin"></select>
+            <label for="sheet-current-bin">Current location / bin</label>
+            <select id="sheet-current-bin"></select>
+            <label>Quick status</label>
+            <div class="status-quick-row">
+                <button type="button" class="btn-chip" data-status-preset="home">🟢 At home</button>
+                <button type="button" class="btn-chip" data-status-preset="floating">🟡 Missing</button>
+                <button type="button" class="btn-chip" data-status-preset="unassigned">⚪ Unassigned</button>
+            </div>
+            <p id="sheet-status-preview"></p>
+            <div class="item-card-actions">
+                <button type="submit" class="btn-giant" style="min-height:56px;margin:0;">💾 Save changes</button>
+                <button type="button" class="btn-chip accent" id="sheet-find-btn">🔍 Hunt this item</button>
+                <button type="button" class="btn-chip" id="sheet-close-btn">Cancel</button>
+            </div>
+        </form>
+    </div>
+
+    <script src="/inventory-shared.js"></script>
     <script>
         const MOCK_ITEM_EPCS = [
             'EPC301833B2A1TOOL00001',
@@ -613,10 +826,16 @@
 
         const SCANNER_ID = 'MERLIN-MOBILE-001';
         const TARGET_POLL_MS = 1500;
+        const INVENTORY_SYNC_MS = 2000;
         const RSSI_TICK_MS = 280;
         const CONTINUOUS_SCAN_MS = 2200;
 
         let activeView = 'scan';
+        let inventorySyncTimer = null;
+        let inventoryItems = [];
+        let inventorySearchQuery = '';
+        let inventoryStatusFilter = 'ALL';
+        let sheetEditEpc = null;
         let findPollTimer = null;
         let rssiAnimTimer = null;
         let continuousScanTimer = null;
@@ -798,6 +1017,7 @@
                 }
             }
             if (data.spatial_zone) MerlinAudio.playSpatialChime();
+            await syncInventoryFromServer();
             return data;
         }
 
@@ -1039,15 +1259,218 @@
             return item ? item.name : 'Unknown Item';
         }
 
-        async function refreshItemLookup() {
+        function applyLocalInventoryState(items) {
+            inventoryItems = MerlinInventory.enrichItems(items);
+            itemLookup = Object.fromEntries(inventoryItems.map((item) => [item.epc_id, item]));
+            if (activeView === 'inventory') {
+                renderStatusPills();
+                renderInventoryCards();
+            }
+        }
+
+        async function syncInventoryFromServer() {
+            const badge = document.getElementById('inventory-sync-badge');
             try {
-                const res = await fetch('/api/dashboard');
-                const data = await res.json();
-                itemLookup = {};
-                (data.items || []).forEach((item) => {
-                    itemLookup[item.epc_id] = item;
+                const [dashRes, searchRes] = await Promise.all([
+                    fetch('/api/dashboard'),
+                    fetch('/api/search/target'),
+                ]);
+                const data = await dashRes.json();
+                const searchData = await searchRes.json();
+                if (Array.isArray(data.containers) && data.containers.length) {
+                    registeredContainers = data.containers;
+                }
+                activeSearchQueue = searchData.activeSearchQueue || [];
+                applyLocalInventoryState(data.items || []);
+                if (badge) {
+                    badge.textContent = '● Live sync active';
+                    badge.className = 'sync-badge';
+                }
+            } catch (_) {
+                if (badge) {
+                    badge.textContent = '⚠ Sync interrupted';
+                    badge.className = 'sync-badge warn';
+                }
+            }
+        }
+
+        async function refreshItemLookup() {
+            await syncInventoryFromServer();
+        }
+
+        function renderStatusPills() {
+            const row = document.getElementById('status-pill-row');
+            if (!row) return;
+            const counts = MerlinInventory.countByStatus(inventoryItems);
+            row.innerHTML = MerlinInventory.STATUS_PILLS.map((pill) => {
+                const active = inventoryStatusFilter === pill.id ? ' active' : '';
+                const count = counts[pill.id] ?? 0;
+                return `<button type="button" class="kpi-pill${active}" data-status="${pill.id}">${escapeHtml(pill.label)}<span class="kpi-count">${count}</span></button>`;
+            }).join('');
+            row.querySelectorAll('.kpi-pill').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    inventoryStatusFilter = btn.dataset.status;
+                    renderStatusPills();
+                    renderInventoryCards();
                 });
-            } catch (_) { /* offline — keep last lookup */ }
+            });
+        }
+
+        function renderInventoryCards() {
+            const list = document.getElementById('inventory-list');
+            if (!list) return;
+            const displayItems = MerlinInventory.filterItems(inventoryItems, {
+                query: inventorySearchQuery,
+                statusFilter: inventoryStatusFilter,
+            });
+
+            if (!inventoryItems.length) {
+                list.innerHTML = '<p class="standby">No items yet. Scan a tag or add an item.</p>';
+                return;
+            }
+            if (!displayItems.length) {
+                list.innerHTML = '<p class="standby">No items match your search or filter.</p>';
+                return;
+            }
+
+            list.innerHTML = displayItems.map((item) => {
+                const isFindTarget = activeSearchQueue.includes(item.epc_id);
+                const location = item.container_id
+                    ? (item.container_name || item.container_id)
+                    : '📍 Open / unassigned';
+                return `
+                <article class="item-card${isFindTarget ? ' find-target' : ''}" data-epc="${escapeHtml(item.epc_id)}">
+                    <div class="item-card-header">
+                        <h3>${escapeHtml(item.name)}</h3>
+                        ${MerlinInventory.renderStatusBadgeHtml(item, escapeHtml)}
+                    </div>
+                    <div class="item-card-epc">${escapeHtml(item.epc_id)}</div>
+                    <div class="item-card-location">📦 ${escapeHtml(location)}</div>
+                    <div class="item-card-actions">
+                        <button type="button" class="btn-chip accent item-action-btn" data-epc="${escapeHtml(item.epc_id)}">⚙️ Actions</button>
+                        <button type="button" class="btn-chip warn item-find-btn" data-epc="${escapeHtml(item.epc_id)}">${isFindTarget ? '🔍 Hunting' : '🔍 Find'}</button>
+                    </div>
+                </article>`;
+            }).join('');
+
+            list.querySelectorAll('.item-action-btn').forEach((btn) => {
+                btn.addEventListener('click', () => openItemSheet(btn.dataset.epc));
+            });
+            list.querySelectorAll('.item-find-btn').forEach((btn) => {
+                btn.addEventListener('click', () => toggleFindFromInventory(btn.dataset.epc));
+            });
+        }
+
+        function renderSheetBinSelects(item) {
+            const homeSel = document.getElementById('sheet-home-bin');
+            const currentSel = document.getElementById('sheet-current-bin');
+            const binOptions = (id, label) =>
+                '<option value="">— ' + escapeHtml(label) + ' —</option>' +
+                registeredContainers.map((c) =>
+                    `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${escapeHtml(c.id)})</option>`
+                ).join('');
+            homeSel.innerHTML = binOptions(item.home_container_id, 'No home bin');
+            currentSel.innerHTML = binOptions(item.container_id, 'Open / unassigned');
+            homeSel.value = item.home_container_id || '';
+            currentSel.value = item.container_id || '';
+        }
+
+        function updateSheetStatusPreview() {
+            const draft = {
+                container_id: document.getElementById('sheet-current-bin').value || null,
+                home_container_id: document.getElementById('sheet-home-bin').value || null,
+            };
+            const status = MerlinInventory.computeItemStatus(draft);
+            document.getElementById('sheet-status-preview').innerHTML =
+                MerlinInventory.renderStatusBadgeHtml({ ...draft, status }, escapeHtml);
+        }
+
+        async function openItemSheet(epc) {
+            await loadContainersForSelect();
+            const item = itemLookup[epc];
+            if (!item) return;
+            sheetEditEpc = epc;
+            document.getElementById('sheet-epc-id').value = epc;
+            document.getElementById('sheet-item-name').value = item.name || '';
+            document.getElementById('sheet-item-category').value = item.category || '';
+            document.getElementById('sheet-item-desc').value = item.description || '';
+            renderSheetBinSelects(item);
+            updateSheetStatusPreview();
+            document.getElementById('item-sheet-overlay').classList.add('open');
+            document.getElementById('item-sheet-overlay').setAttribute('aria-hidden', 'false');
+            document.getElementById('item-bottom-sheet').classList.add('open');
+            document.getElementById('item-bottom-sheet').setAttribute('aria-hidden', 'false');
+        }
+
+        function closeItemSheet() {
+            sheetEditEpc = null;
+            document.getElementById('item-sheet-overlay').classList.remove('open');
+            document.getElementById('item-sheet-overlay').setAttribute('aria-hidden', 'true');
+            document.getElementById('item-bottom-sheet').classList.remove('open');
+            document.getElementById('item-bottom-sheet').setAttribute('aria-hidden', 'true');
+        }
+
+        function applyStatusPreset(preset) {
+            const homeSel = document.getElementById('sheet-home-bin');
+            const currentSel = document.getElementById('sheet-current-bin');
+            if (preset === 'home') {
+                const home = homeSel.value;
+                if (home) currentSel.value = home;
+            } else if (preset === 'floating') {
+                currentSel.value = '';
+            } else if (preset === 'unassigned') {
+                homeSel.value = '';
+                currentSel.value = '';
+            }
+            updateSheetStatusPreview();
+        }
+
+        async function saveItemFromSheet() {
+            const epc = document.getElementById('sheet-epc-id').value;
+            const payload = {
+                name: document.getElementById('sheet-item-name').value.trim(),
+                category: document.getElementById('sheet-item-category').value.trim() || null,
+                description: document.getElementById('sheet-item-desc').value.trim() || null,
+                home_container_id: document.getElementById('sheet-home-bin').value || null,
+                container_id: document.getElementById('sheet-current-bin').value || null,
+            };
+            if (!payload.name) throw new Error('Name is required');
+            const res = await fetch('/api/items/' + encodeURIComponent(epc), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Save failed');
+            closeItemSheet();
+            await syncInventoryFromServer();
+            return data;
+        }
+
+        async function toggleFindFromInventory(epc) {
+            await MerlinAudio.unlock();
+            if (activeSearchQueue.includes(epc)) {
+                const next = activeSearchQueue.filter((id) => id !== epc);
+                await fetch('/api/search/target', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ epc_ids: next }),
+                });
+            } else {
+                await fetch('/api/search/target', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ epc_ids: [epc] }),
+                });
+            }
+            await syncInventoryFromServer();
+            if (activeView !== 'find') switchView('find');
+        }
+
+        function startInventorySync() {
+            if (inventorySyncTimer) return;
+            syncInventoryFromServer();
+            inventorySyncTimer = setInterval(syncInventoryFromServer, INVENTORY_SYNC_MS);
         }
 
         function showFindStandby() {
@@ -1307,6 +1730,10 @@
                 stopContinuousScan();
             }
 
+            if (view === 'inventory') {
+                renderStatusPills();
+                renderInventoryCards();
+            }
             if (view === 'bins') loadBins();
             if (view === 'add') {
                 loadContainersForSelect();
@@ -1400,8 +1827,36 @@
             }
         });
 
+        document.getElementById('inventory-search').addEventListener('input', (e) => {
+            inventorySearchQuery = e.target.value;
+            renderInventoryCards();
+        });
+
+        document.getElementById('item-edit-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            try {
+                await saveItemFromSheet();
+            } catch (err) {
+                alert(err.message);
+            }
+        });
+
+        document.getElementById('sheet-close-btn').addEventListener('click', closeItemSheet);
+        document.getElementById('item-sheet-overlay').addEventListener('click', closeItemSheet);
+        document.getElementById('sheet-home-bin').addEventListener('change', updateSheetStatusPreview);
+        document.getElementById('sheet-current-bin').addEventListener('change', updateSheetStatusPreview);
+        document.querySelectorAll('[data-status-preset]').forEach((btn) => {
+            btn.addEventListener('click', () => applyStatusPreset(btn.dataset.statusPreset));
+        });
+        document.getElementById('sheet-find-btn').addEventListener('click', () => {
+            if (sheetEditEpc) {
+                closeItemSheet();
+                toggleFindFromInventory(sheetEditEpc);
+            }
+        });
+
         loadAdminSettings();
-        refreshItemLookup();
+        startInventorySync();
         loadContainersForSelect().then(() => {
             if (registeredContainers.length && !document.getElementById('bin-epc-custom').value.trim()) {
                 document.getElementById('bin-select').selectedIndex = 0;

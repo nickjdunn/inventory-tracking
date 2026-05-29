@@ -215,10 +215,44 @@
             border: 1px solid #475569;
             border-radius: 6px;
             color: var(--text-main);
-            margin-bottom: 14px;
-            max-width: 360px;
-            padding: 10px 12px;
+            font-size: 15px;
+            margin-bottom: 12px;
+            padding: 12px 14px;
             width: 100%;
+        }
+        .inventory-toolbar {
+            margin-bottom: 14px;
+        }
+        .status-pill-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        .kpi-pill {
+            background: #0f172a;
+            border: 1px solid #475569;
+            border-radius: 999px;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 14px;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        }
+        .kpi-pill:hover {
+            border-color: var(--accent);
+            color: var(--text-main);
+        }
+        .kpi-pill.active {
+            background: #1e3a8a;
+            border-color: var(--accent);
+            color: #e0f2fe;
+        }
+        .kpi-pill .kpi-count {
+            color: var(--accent);
+            font-weight: 800;
+            margin-left: 4px;
         }
         .upc-preview {
             background: #0f172a;
@@ -274,7 +308,10 @@
             <div class="card">
                 <h2>📦 Registered Items Master List</h2>
                 <div id="find-banner" class="find-banner hidden"></div>
-                <input type="search" id="inventory-search" class="inventory-search" placeholder="🔍 Find by name or EPC…" autocomplete="off">
+                <div class="inventory-toolbar">
+                    <input type="search" id="inventory-search" class="inventory-search" placeholder="🔍 Search name, EPC, or bin…" autocomplete="off" aria-label="Filter inventory">
+                    <div id="status-pill-row" class="status-pill-row" role="group" aria-label="Filter by status"></div>
+                </div>
                 <table>
                     <thead>
                         <tr>
@@ -320,6 +357,9 @@
                 <textarea id="edit-description" name="description" placeholder="Optional notes"></textarea>
                 <label for="edit-home-container">Assigned Home Bin</label>
                 <select id="edit-home-container" name="home_container_id"></select>
+                <label for="edit-current-container">Current Location / Bin</label>
+                <select id="edit-current-container" name="container_id"></select>
+                <p id="edit-status-preview" style="font-size: 13px; margin: 0 0 12px 0;"></p>
                 <p id="edit-epc-display" style="font-family: monospace; font-size: 12px; color: var(--text-muted); margin: 0 0 12px 0;"></p>
                 <div class="modal-actions">
                     <button type="button" class="btn" id="edit-cancel">Cancel</button>
@@ -365,11 +405,13 @@
         <button type="button" class="btn hunt-batch" id="hunt-selected-btn">🔍 Hunt Selected Items</button>
     </div>
 
+    <script src="/inventory-shared.js"></script>
     <script>
         let activeSearchQueue = [];
         let availableContainers = [];
         let lastDashboardItems = [];
         let inventorySearchQuery = '';
+        let inventoryStatusFilter = 'ALL';
         const selectedEpcs = new Set();
 
         function escapeHtml(str) {
@@ -394,44 +436,70 @@
 
         async function openEditModal(item) {
             await loadContainersFromApi();
-            document.getElementById('edit-epc-id').value = item.epc_id;
-            document.getElementById('edit-name').value = item.name || '';
-            document.getElementById('edit-category').value = item.category || '';
-            document.getElementById('edit-description').value = item.description || '';
+            const enriched = MerlinInventory.enrichItems([item])[0];
+            document.getElementById('edit-epc-id').value = enriched.epc_id;
+            document.getElementById('edit-name').value = enriched.name || '';
+            document.getElementById('edit-category').value = enriched.category || '';
+            document.getElementById('edit-description').value = enriched.description || '';
             const homeSelect = document.getElementById('edit-home-container');
-            homeSelect.innerHTML = renderHomeBinOptions(item.home_container_id);
-            homeSelect.value = item.home_container_id || '';
-            document.getElementById('edit-epc-display').textContent = 'EPC: ' + item.epc_id;
+            homeSelect.innerHTML = renderBinOptions(enriched.home_container_id, 'No assigned home bin');
+            homeSelect.value = enriched.home_container_id || '';
+            const currentSelect = document.getElementById('edit-current-container');
+            currentSelect.innerHTML = renderBinOptions(enriched.container_id, 'Open / unassigned space');
+            currentSelect.value = enriched.container_id || '';
+            updateEditStatusPreview();
+            document.getElementById('edit-epc-display').textContent = 'EPC: ' + enriched.epc_id;
             const modal = document.getElementById('edit-modal');
             modal.classList.add('open');
             modal.setAttribute('aria-hidden', 'false');
         }
 
-        function renderHomeBinOptions(selectedContainerId) {
+        function renderBinOptions(selectedContainerId, emptyLabel) {
             const selected = selectedContainerId || '';
             const optionRows = [
-                '<option value="">-- No assigned home bin --</option>',
+                `<option value="">-- ${escapeHtml(emptyLabel || 'None')} --</option>`,
                 ...availableContainers.map((container) => {
                     const binId = container.id || container.epc_id;
                     const selectedAttr = binId === selected ? ' selected' : '';
                     return `<option value="${escapeHtml(binId)}"${selectedAttr}>${escapeHtml(container.name)} (${escapeHtml(binId)})</option>`;
-                })
+                }),
             ];
             return optionRows.join('');
         }
 
+        function renderHomeBinOptions(selectedContainerId) {
+            return renderBinOptions(selectedContainerId, 'No assigned home bin');
+        }
+
+        function updateEditStatusPreview() {
+            const preview = document.getElementById('edit-status-preview');
+            const draft = {
+                container_id: document.getElementById('edit-current-container').value || null,
+                home_container_id: document.getElementById('edit-home-container').value || null,
+            };
+            const status = MerlinInventory.computeItemStatus(draft);
+            preview.innerHTML = 'Tracking status: ' + MerlinInventory.renderStatusBadgeHtml({ ...draft, status }, escapeHtml);
+        }
+
         function renderStatusBadgeHtml(item) {
-            if (item.status === 'HOME') {
-                return '<span class="status-pill status-home">🟢 Home</span>';
-            }
-            if (item.status === 'FLOATING') {
-                return '<span class="status-pill status-floating">🔵 Floating</span>';
-            }
-            if (item.status === 'MISPLACED') {
-                const homeLabel = item.home_container_name || item.home_container_id || 'Unknown Home Bin';
-                return `<span class="status-pill status-misplaced">🔴 Misplaced</span><span class="status-detail">Belongs in ${escapeHtml(homeLabel)}</span>`;
-            }
-            return '<span class="status-pill status-unassigned">🟡 Unassigned</span>';
+            return MerlinInventory.renderStatusBadgeHtml(item, escapeHtml);
+        }
+
+        function renderStatusPills() {
+            const row = document.getElementById('status-pill-row');
+            const counts = MerlinInventory.countByStatus(lastDashboardItems);
+            row.innerHTML = MerlinInventory.STATUS_PILLS.map((pill) => {
+                const active = inventoryStatusFilter === pill.id ? ' active' : '';
+                const count = counts[pill.id] ?? 0;
+                return `<button type="button" class="kpi-pill${active}" data-status="${pill.id}">${escapeHtml(pill.label)}<span class="kpi-count">${count}</span></button>`;
+            }).join('');
+            row.querySelectorAll('.kpi-pill').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    inventoryStatusFilter = btn.dataset.status;
+                    renderStatusPills();
+                    renderInventoryTable(lastDashboardItems);
+                });
+            });
         }
 
         function closeEditModal() {
@@ -533,7 +601,8 @@
                 name: document.getElementById('edit-name').value.trim(),
                 category: document.getElementById('edit-category').value.trim() || null,
                 description: document.getElementById('edit-description').value.trim() || null,
-                home_container_id: document.getElementById('edit-home-container').value || null
+                home_container_id: document.getElementById('edit-home-container').value || null,
+                container_id: document.getElementById('edit-current-container').value || null,
             };
             try {
                 const response = await fetch('/api/items/' + encodeURIComponent(epcId), {
@@ -555,26 +624,26 @@
         });
 
         function filterItemsForDisplay(items) {
-            const q = inventorySearchQuery.trim().toLowerCase();
-            if (!q) return items;
-            return items.filter((item) => {
-                const name = (item.name || '').toLowerCase();
-                const epc = (item.epc_id || '').toLowerCase();
-                const upc = (item.upc || '').toLowerCase();
-                return name.includes(q) || epc.includes(q) || upc.includes(q);
+            return MerlinInventory.filterItems(items, {
+                query: inventorySearchQuery,
+                statusFilter: inventoryStatusFilter,
             });
         }
 
         function renderInventoryTable(items) {
             const tableBody = document.getElementById('inventory-table');
-            const displayItems = filterItemsForDisplay(items);
+            const enriched = MerlinInventory.enrichItems(items);
+            const displayItems = filterItemsForDisplay(enriched);
 
             if (items.length === 0) {
                 tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag to auto-discover.</td></tr>`;
                 return;
             }
             if (displayItems.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No items match your search.</td></tr>`;
+                const msg = inventorySearchQuery.trim() || inventoryStatusFilter !== 'ALL'
+                    ? 'No items match your search or status filter.'
+                    : 'No items match your filters.';
+                tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">${msg}</td></tr>`;
                 return;
             }
 
@@ -676,7 +745,8 @@
                 activeSearchQueue = searchData.activeSearchQueue || [];
                 updateFindBanner();
 
-                lastDashboardItems = data.items || [];
+                lastDashboardItems = MerlinInventory.enrichItems(data.items || []);
+                renderStatusPills();
                 const tableBody = document.getElementById('inventory-table');
                 if (lastDashboardItems.length === 0) {
                     tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag or use Add Item.</td></tr>`;
@@ -730,6 +800,9 @@
             inventorySearchQuery = e.target.value;
             renderInventoryTable(lastDashboardItems);
         });
+
+        document.getElementById('edit-home-container').addEventListener('change', updateEditStatusPreview);
+        document.getElementById('edit-current-container').addEventListener('change', updateEditStatusPreview);
 
         document.getElementById('open-add-item').addEventListener('click', async () => {
             await loadContainersFromApi();
