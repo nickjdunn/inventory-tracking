@@ -856,7 +856,7 @@
                                     <span class="badge ${badgeClass}">${log.action}</span>
                                     <span style="font-family: monospace; margin-left: 5px;">${log.scanned_epc.slice(-8)}</span>
                                 </div>
-                                <div class="timestamp">${new Date(log.timestamp).toLocaleTimeString()}</div>
+                                <div class="timestamp">${MerlinInventory.formatScanTimestamp(log.timestamp)}</div>
                             </div>
                         `;
                     }).join('');

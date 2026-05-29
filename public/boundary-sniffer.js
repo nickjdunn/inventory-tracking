@@ -13,6 +13,25 @@
         return document.getElementById(id);
     }
 
+    /** Returns null when no bin exists yet (new-bin form). */
+    function normalizeExcludeBinId(value) {
+        if (value == null) return null;
+        const trimmed = String(value).trim();
+        if (!trimmed || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
+            return null;
+        }
+        return trimmed;
+    }
+
+    function resolveExcludeBinId(options) {
+        if (options && options.excludeBinId !== undefined) {
+            return normalizeExcludeBinId(options.excludeBinId);
+        }
+        const editing = normalizeExcludeBinId(getEl('editing-bin-id')?.value);
+        if (editing) return editing;
+        return normalizeExcludeBinId(getEl('bin-id')?.value);
+    }
+
     async function unlockAudio() {
         if (!audioCtx) {
             const Ctx = global.AudioContext || global.webkitAudioContext;
@@ -114,7 +133,7 @@
     async function startScan(inputId, options) {
         await unlockAudio();
         activeInputId = inputId;
-        excludeBinId = options.excludeBinId || getEl('editing-bin-id')?.value || getEl('bin-id')?.value || null;
+        excludeBinId = resolveExcludeBinId(options || {});
         listenSince = Date.now();
 
         const modal = getEl('boundary-sniffer-modal');

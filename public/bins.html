@@ -271,10 +271,12 @@
         document.querySelectorAll('.scan-boundary').forEach((btn) => {
             btn.addEventListener('click', () => {
                 const inputId = btn.dataset.boundaryInput;
-                const excludeBinId =
+                const rawExclude =
                     document.getElementById('editing-bin-id').value ||
-                    document.getElementById('bin-id').value ||
-                    null;
+                    document.getElementById('bin-id').value;
+                const excludeBinId = rawExclude && String(rawExclude).trim()
+                    ? String(rawExclude).trim()
+                    : null;
                 BoundarySniffer.startScan(inputId, { excludeBinId });
             });
         });

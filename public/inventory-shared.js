@@ -80,6 +80,37 @@
         return '<span class="status-pill status-unassigned">⚪ Unassigned</span>';
     }
 
+    /**
+     * SQLite stores UTC without a suffix; parse as UTC then show local wall clock.
+     */
+    function parseServerTimestamp(timestampString) {
+        const raw = String(timestampString ?? '').trim();
+        if (!raw) return new Date(NaN);
+        if (/[zZ]$/.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw)) {
+            return new Date(raw);
+        }
+        const iso = raw.includes('T') ? raw : raw.replace(' ', 'T');
+        return new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+    }
+
+    function formatScanTimestamp(timestampString) {
+        const date = parseServerTimestamp(timestampString);
+        if (Number.isNaN(date.getTime())) {
+            return String(timestampString ?? '');
+        }
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatScanTimestampWithDate(timestampString) {
+        const date = parseServerTimestamp(timestampString);
+        if (Number.isNaN(date.getTime())) {
+            return String(timestampString ?? '');
+        }
+        const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const day = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        return day + ' ' + time;
+    }
+
     const STATUS_PILLS = [
         { id: 'ALL', label: 'All' },
         { id: 'HOME', label: '🟢 Home' },
@@ -160,6 +191,9 @@
         playHomeConfirmTone,
         canSetCurrentBinAsHome,
         setCurrentBinAsHome,
+        parseServerTimestamp,
+        formatScanTimestamp,
+        formatScanTimestampWithDate,
         STATUS_PILLS,
     };
 })(typeof window !== 'undefined' ? window : global);

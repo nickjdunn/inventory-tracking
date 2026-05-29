@@ -369,8 +369,17 @@ app.post('/api/scan/near-field-ingest', async (req, res) => {
     }
 });
 
+function normalizeExcludeBinIdParam(value) {
+    if (value == null) return null;
+    const trimmed = String(value).trim();
+    if (!trimmed || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
+        return null;
+    }
+    return trimmed;
+}
+
 function checkNearFieldCaptureEligibility(epc, purpose, excludeBinId, callback) {
-    const excludeId = excludeBinId ? String(excludeBinId).trim() : null;
+    const excludeId = normalizeExcludeBinIdParam(excludeBinId);
 
     db.get(`SELECT epc_id, name FROM items WHERE epc_id = ?`, [epc], (err, itemRow) => {
         if (err) return callback(err);
@@ -397,25 +406,35 @@ function checkNearFieldCaptureEligibility(epc, purpose, excludeBinId, callback) 
                 return callback(null, { eligible: true, epc });
             }
 
-            db.get(
-                `SELECT id, name FROM containers
-                 WHERE (boundary_tag_a = ? OR boundary_tag_b = ?)
-                   AND (? IS NULL OR id != ?)`,
-                [epc, epc, excludeId, excludeId],
-                (boundErr, boundaryRow) => {
-                    if (boundErr) return callback(boundErr);
-                    if (boundaryRow) {
-                        return callback(null, {
-                            eligible: false,
-                            reason: 'boundary_in_use',
-                            epc,
-                            container_id: boundaryRow.id,
-                            container_name: boundaryRow.name,
-                        });
-                    }
-                    callback(null, { eligible: true, epc });
+            const onBoundaryRow = (boundErr, boundaryRow) => {
+                if (boundErr) return callback(boundErr);
+                if (boundaryRow) {
+                    return callback(null, {
+                        eligible: false,
+                        reason: 'boundary_in_use',
+                        epc,
+                        container_id: boundaryRow.id,
+                        container_name: boundaryRow.name,
+                    });
                 }
-            );
+                callback(null, { eligible: true, epc });
+            };
+
+            if (excludeId) {
+                db.get(
+                    `SELECT id, name FROM containers
+                     WHERE (boundary_tag_a = ? OR boundary_tag_b = ?) AND id != ?`,
+                    [epc, epc, excludeId],
+                    onBoundaryRow
+                );
+            } else {
+                db.get(
+                    `SELECT id, name FROM containers
+                     WHERE boundary_tag_a = ? OR boundary_tag_b = ?`,
+                    [epc, epc],
+                    onBoundaryRow
+                );
+            }
         });
     });
 }
@@ -424,7 +443,7 @@ function checkNearFieldCaptureEligibility(epc, purpose, excludeBinId, callback) 
 app.get('/api/scan/latest-near-field', async (req, res) => {
     const since = parseInt(String(req.query.since || '0'), 10) || 0;
     const purpose = String(req.query.purpose || 'onboarding').trim().toLowerCase();
-    const excludeBinId = req.query.exclude_bin_id || null;
+    const excludeBinId = normalizeExcludeBinIdParam(req.query.exclude_bin_id);
 
     try {
         const settings = await getSystemSettings();
