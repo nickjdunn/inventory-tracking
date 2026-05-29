@@ -65,11 +65,15 @@
         setTimeout(() => input.classList.remove('boundary-captured'), 1800);
     }
 
-    function stopPolling() {
+    function clearPollTimer() {
         if (pollTimer) {
             clearInterval(pollTimer);
             pollTimer = null;
         }
+    }
+
+    function stopPolling() {
+        clearPollTimer();
         const modal = getEl('boundary-sniffer-modal');
         if (modal) {
             modal.classList.remove('open');
@@ -145,7 +149,7 @@
         if (radar) radar.classList.add('listening');
         setModalStatus('Listening… hold tag on antenna and pull trigger');
 
-        stopPolling();
+        clearPollTimer();
         pollOnce();
         pollTimer = setInterval(pollOnce, POLL_MS);
     }
