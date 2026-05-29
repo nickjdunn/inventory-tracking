@@ -109,6 +109,21 @@
                 .replace(/"/g, '&quot;');
         }
 
+        function boundaryTagsConflict() {
+            const a = document.getElementById('boundary-tag-a').value.trim();
+            const b = document.getElementById('boundary-tag-b').value.trim();
+            return a && b && a.toLowerCase() === b.toLowerCase();
+        }
+
+        function warnDuplicateBoundaryTags() {
+            if (!boundaryTagsConflict()) return false;
+            const msg =
+                'Boundary Tag A and Tag B cannot be the same EPC. Each side of the bin needs its own unique tag.';
+            alert(msg);
+            showFormStatus('❌ ' + msg, 'err');
+            return true;
+        }
+
         function showFormStatus(message, type, autoFade) {
             const el = document.getElementById('form-status');
             if (toastHideTimer) {
@@ -224,8 +239,15 @@
             }
         }
 
+        ['boundary-tag-a', 'boundary-tag-b'].forEach((id) => {
+            document.getElementById(id).addEventListener('change', () => {
+                if (boundaryTagsConflict()) warnDuplicateBoundaryTags();
+            });
+        });
+
         document.getElementById('create-bin-form').addEventListener('submit', async (e) => {
             e.preventDefault();
+            if (warnDuplicateBoundaryTags()) return;
             const payload = {
                 name: document.getElementById('bin-name').value.trim(),
                 description: document.getElementById('bin-description').value.trim() || null,

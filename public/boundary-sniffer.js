@@ -89,6 +89,28 @@
         if (el) el.textContent = text;
     }
 
+    function siblingBoundaryInputId(activeInputId) {
+        if (activeInputId === 'boundary-tag-a') return 'boundary-tag-b';
+        if (activeInputId === 'boundary-tag-b') return 'boundary-tag-a';
+        return null;
+    }
+
+    function normalizeEpc(value) {
+        return String(value ?? '').trim().toLowerCase();
+    }
+
+    /** True when the other boundary field on this form already has the same EPC. */
+    function isDuplicateOnSameBin(epc, activeInputId) {
+        const siblingId = siblingBoundaryInputId(activeInputId);
+        if (!siblingId) return false;
+        const captured = normalizeEpc(epc);
+        const sibling = normalizeEpc(getEl(siblingId)?.value);
+        return captured !== '' && captured === sibling;
+    }
+
+    const DUPLICATE_SAME_BIN_MSG =
+        'This tag is already set as the other boundary on this bin. Tag A and Tag B must be different EPCs.';
+
     async function pollOnce() {
         if (!activeInputId) return;
 
@@ -111,6 +133,11 @@
             }
 
             if (data.captured && data.epc) {
+                if (isDuplicateOnSameBin(data.epc, activeInputId)) {
+                    global.alert(DUPLICATE_SAME_BIN_MSG);
+                    setModalStatus(DUPLICATE_SAME_BIN_MSG);
+                    return;
+                }
                 const input = getEl(activeInputId);
                 if (input) input.value = data.epc;
                 playCaptureTick();

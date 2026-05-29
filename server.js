@@ -705,15 +705,20 @@ app.post('/api/containers', (req, res) => {
     const { id, name, description, boundary_tag_a, boundary_tag_b } = req.body;
     const binId = id == null ? '' : String(id).trim();
     const binName = name == null ? '' : String(name).trim();
-    const boundaryA = boundary_tag_a == null ? '' : String(boundary_tag_a).trim();
-    const boundaryB = boundary_tag_b == null ? '' : String(boundary_tag_b).trim();
+    const boundaryA = normalizeBoundaryTag(boundary_tag_a);
+    const boundaryB = normalizeBoundaryTag(boundary_tag_b);
 
     if (!binId) return res.status(400).json({ error: 'id is required' });
     if (!binName) return res.status(400).json({ error: 'name is required' });
+    if (boundaryTagsAreDuplicate(boundaryA, boundaryB)) {
+        return res.status(400).json({
+            error: 'Boundary Tag A and Tag B must be different EPCs',
+        });
+    }
 
     db.run(
         `INSERT INTO containers (id, name, description, boundary_tag_a, boundary_tag_b) VALUES (?, ?, ?, ?, ?)`,
-        [binId, binName, description ? String(description).trim() : null, boundaryA || null, boundaryB || null],
+        [binId, binName, description ? String(description).trim() : null, boundaryA, boundaryB],
         function (err) {
             if (err) {
                 if (String(err.message).includes('UNIQUE')) {
@@ -725,8 +730,8 @@ app.post('/api/containers', (req, res) => {
                 id: binId,
                 name: binName,
                 description: description ? String(description).trim() : null,
-                boundary_tag_a: boundaryA || null,
-                boundary_tag_b: boundaryB || null,
+                boundary_tag_a: boundaryA,
+                boundary_tag_b: boundaryB,
             });
         }
     );
@@ -735,6 +740,11 @@ app.post('/api/containers', (req, res) => {
 function normalizeBoundaryTag(value) {
     const trimmed = value == null ? '' : String(value).trim();
     return trimmed === '' ? null : trimmed;
+}
+
+function boundaryTagsAreDuplicate(boundaryA, boundaryB) {
+    if (!boundaryA || !boundaryB) return false;
+    return boundaryA.toLowerCase() === boundaryB.toLowerCase();
 }
 
 // 📦 Update an existing bin by ID (upsert for scan-time registration)
@@ -751,6 +761,12 @@ app.put('/api/containers/:id', (req, res) => {
         : String(description).trim();
     const boundaryA = normalizeBoundaryTag(boundary_tag_a);
     const boundaryB = normalizeBoundaryTag(boundary_tag_b);
+
+    if (boundaryTagsAreDuplicate(boundaryA, boundaryB)) {
+        return res.status(400).json({
+            error: 'Boundary Tag A and Tag B must be different EPCs',
+        });
+    }
 
     db.get(`SELECT id FROM containers WHERE id = ?`, [paramId], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
