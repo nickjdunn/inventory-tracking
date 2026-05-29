@@ -185,57 +185,116 @@ app.use(express.json());
 // Serves index.html, mobile.html, and assets — no route conflict with /api/*
 app.use(express.static('public'));
 
+function normalizeScanTag(epc) {
+    return epc == null ? '' : String(epc).trim();
+}
+
+function findSpatialZoneMatch(scannedTags, containers) {
+    const tagSet = new Set(scannedTags.map(normalizeScanTag).filter(Boolean));
+
+    for (const container of containers) {
+        const tagA = normalizeScanTag(container.boundary_tag_a);
+        const tagB = normalizeScanTag(container.boundary_tag_b);
+        if (!tagA || !tagB) continue;
+        if (tagSet.has(tagA) && tagSet.has(tagB)) {
+            return { container, tagA, tagB };
+        }
+    }
+    return null;
+}
+
+function processScannedTags(scannedTags, targetContainerEpc) {
+    const logStmt = db.prepare(
+        `INSERT INTO scan_history (scanned_epc, parent_container_epc, action) VALUES (?, ?, ?)`
+    );
+    const updateItemStmt = db.prepare(`UPDATE items SET container_id = ? WHERE epc_id = ?`);
+
+    db.serialize(() => {
+        scannedTags.forEach((epc) => {
+            db.get(
+                `SELECT name, container_id, home_container_id FROM items WHERE epc_id = ?`,
+                [epc],
+                (err, item) => {
+                    if (err) console.error(err);
+
+                    if (item) {
+                        if (item.container_id !== targetContainerEpc) {
+                            console.log(
+                                `📦 MOVED: '${item.name}' [${epc}] moved to bin [${targetContainerEpc}]`
+                            );
+                            updateItemStmt.run(targetContainerEpc, epc);
+                            logStmt.run(epc, targetContainerEpc, 'MOVED');
+                            maybeNotifyMisplaced(item, epc, targetContainerEpc);
+                        } else {
+                            console.log(
+                                `🎯 CONFIRMED: '${item.name}' is still in bin [${targetContainerEpc}]`
+                            );
+                            logStmt.run(epc, targetContainerEpc, 'FOUND');
+                            maybeNotifyMisplaced(item, epc, targetContainerEpc);
+                        }
+                    } else {
+                        console.log(`🆕 UNKNOWN TAG DETECTED: [${epc}]. Creating placeholder entry.`);
+                        db.run(
+                            `INSERT INTO items (epc_id, name, container_id) VALUES (?, ?, ?)`,
+                            [epc, `Unknown RFID Tag (${epc.slice(-4)})`, targetContainerEpc]
+                        );
+                        logStmt.run(epc, targetContainerEpc, 'REGISTERED');
+                    }
+                }
+            );
+        });
+    });
+}
+
 // 📡 The Endpoint: Processes bulk scans and updates item locations
 app.post('/api/scan', (req, res) => {
-    const { scanner_id, target_container_epc, scanned_tags } = req.body;
+    const { target_container_epc, scanned_tags } = req.body;
 
     console.log(`\n--- 📡 Processing Scan: ${scanned_tags ? scanned_tags.length : 0} tags ---`);
 
     if (!scanned_tags || scanned_tags.length === 0) {
-        return res.status(200).json({ status: "success", message: "No tags received." });
+        return res.status(200).json({ status: 'success', message: 'No tags received.' });
     }
 
-    // Prepare statement to log history
-    const logStmt = db.prepare(`INSERT INTO scan_history (scanned_epc, parent_container_epc, action) VALUES (?, ?, ?)`);
-    
-    // Prepare statement to update an item's current container assignment
-    const updateItemStmt = db.prepare(`UPDATE items SET container_id = ? WHERE epc_id = ?`);
+    const normalizedTags = scanned_tags.map(normalizeScanTag).filter(Boolean);
 
-    db.serialize(() => {
-        scanned_tags.forEach((epc) => {
-            // 1. Check if the item already exists in our master list
-            db.get(`SELECT name, container_id, home_container_id FROM items WHERE epc_id = ?`, [epc], (err, item) => {
-                if (err) console.error(err);
+    db.all(
+        `SELECT id, name, boundary_tag_a, boundary_tag_b FROM containers
+         WHERE TRIM(COALESCE(boundary_tag_a, '')) != ''
+           AND TRIM(COALESCE(boundary_tag_b, '')) != ''`,
+        [],
+        (err, boundaryContainers) => {
+            if (err) {
+                console.error(err);
+                return res.status(500).json({ error: err.message });
+            }
 
-                if (item) {
-                    // Item exists! Check if it moved bins
-                    if (item.container_id !== target_container_epc) {
-                        console.log(`📦 MOVED: '${item.name}' [${epc}] moved to bin [${target_container_epc}]`);
-                        updateItemStmt.run(target_container_epc, epc);
-                        logStmt.run(epc, target_container_epc, 'MOVED');
-                        maybeNotifyMisplaced(item, epc, target_container_epc);
-                    } else {
-                        console.log(`🎯 CONFIRMED: '${item.name}' is still in bin [${target_container_epc}]`);
-                        logStmt.run(epc, target_container_epc, 'FOUND');
-                        maybeNotifyMisplaced(item, epc, target_container_epc);
-                    }
-                } else {
-                    // First time seeing this tag! Auto-register it as an Unnamed Item
-                    console.log(`🆕 UNKNOWN TAG DETECTED: [${epc}]. Creating placeholder entry.`);
-                    
-                    db.run(`INSERT INTO items (epc_id, name, container_id) VALUES (?, ?, ?)`, 
-                        [epc, `Unknown RFID Tag (${epc.slice(-4)})`, target_container_epc]
-                    );
-                    logStmt.run(epc, target_container_epc, 'REGISTERED');
-                }
+            let effectiveTarget = target_container_epc;
+            let tagsToProcess = normalizedTags;
+
+            const zoneMatch = findSpatialZoneMatch(normalizedTags, boundaryContainers);
+            if (zoneMatch) {
+                const { container, tagA, tagB } = zoneMatch;
+                effectiveTarget = container.id;
+                const boundarySet = new Set([tagA, tagB]);
+                tagsToProcess = normalizedTags.filter((epc) => !boundarySet.has(epc));
+
+                console.log(
+                    `🎯 Spatial Zone Match: Isolated ${tagsToProcess.length} items between boundaries of bin [${container.name}]`
+                );
+            }
+
+            processScannedTags(tagsToProcess, effectiveTarget);
+
+            res.status(200).json({
+                status: 'success',
+                message: `Database processed ${tagsToProcess.length} tags.`,
+                spatial_zone: zoneMatch
+                    ? { container_id: zoneMatch.container.id, container_name: zoneMatch.container.name }
+                    : null,
             });
-        });
-    });
-
-    res.status(200).json({ 
-        status: "success", 
-        message: `Database processed ${scanned_tags.length} tags.` 
-    });
+        }
+    );
 });
 
 // 🏷️ Hybrid UPC lookup (local cache → Open*Facts chain → optional UPCitemdb)
@@ -358,7 +417,7 @@ app.put('/api/items/:epc_id', (req, res) => {
 // 📦 List all registered bins
 app.get('/api/containers', (req, res) => {
     db.all(
-        `SELECT id, name, description FROM containers ORDER BY name ASC`,
+        `SELECT id, name, description, boundary_tag_a, boundary_tag_b FROM containers ORDER BY name ASC`,
         [],
         (err, rows) => {
             if (err) return res.status(500).json({ error: err.message });
@@ -369,16 +428,18 @@ app.get('/api/containers', (req, res) => {
 
 // 📦 Create a new bin
 app.post('/api/containers', (req, res) => {
-    const { id, name, description } = req.body;
+    const { id, name, description, boundary_tag_a, boundary_tag_b } = req.body;
     const binId = id == null ? '' : String(id).trim();
     const binName = name == null ? '' : String(name).trim();
+    const boundaryA = boundary_tag_a == null ? '' : String(boundary_tag_a).trim();
+    const boundaryB = boundary_tag_b == null ? '' : String(boundary_tag_b).trim();
 
     if (!binId) return res.status(400).json({ error: 'id is required' });
     if (!binName) return res.status(400).json({ error: 'name is required' });
 
     db.run(
-        `INSERT INTO containers (id, name, description) VALUES (?, ?, ?)`,
-        [binId, binName, description ? String(description).trim() : null],
+        `INSERT INTO containers (id, name, description, boundary_tag_a, boundary_tag_b) VALUES (?, ?, ?, ?, ?)`,
+        [binId, binName, description ? String(description).trim() : null, boundaryA || null, boundaryB || null],
         function (err) {
             if (err) {
                 if (String(err.message).includes('UNIQUE')) {
@@ -390,6 +451,8 @@ app.post('/api/containers', (req, res) => {
                 id: binId,
                 name: binName,
                 description: description ? String(description).trim() : null,
+                boundary_tag_a: boundaryA || null,
+                boundary_tag_b: boundaryB || null,
             });
         }
     );

@@ -47,6 +47,14 @@
                             <label for="bin-description">Description (optional)</label>
                             <textarea id="bin-description" name="description" placeholder="e.g. Top shelf, left side"></textarea>
                         </div>
+                        <div class="form-field">
+                            <label for="boundary-tag-a">Boundary Tag A (Left/Front EPC)</label>
+                            <input type="text" id="boundary-tag-a" name="boundary_tag_a" placeholder="EPC of left/front boundary tag" autocomplete="off">
+                        </div>
+                        <div class="form-field">
+                            <label for="boundary-tag-b">Boundary Tag B (Right/Back EPC)</label>
+                            <input type="text" id="boundary-tag-b" name="boundary_tag_b" placeholder="EPC of right/back boundary tag" autocomplete="off">
+                        </div>
                         <button type="submit" class="btn primary">➕ Create Bin</button>
                         <div id="form-status" class="form-status" style="display:none;" role="status"></div>
                     </form>
@@ -90,13 +98,21 @@
                     return;
                 }
 
-                grid.innerHTML = bins.map((bin) => `
+                grid.innerHTML = bins.map((bin) => {
+                    const tagA = (bin.boundary_tag_a || '').trim();
+                    const tagB = (bin.boundary_tag_b || '').trim();
+                    const boundariesHtml = (tagA || tagB)
+                        ? `<p class="bin-boundaries">🔗 Boundaries: ${escapeHtml(tagA || '—')} | ${escapeHtml(tagB || '—')}</p>`
+                        : '';
+                    return `
                     <article class="bin-card">
                         <h4>${escapeHtml(bin.name)}</h4>
                         <div class="bin-id">${escapeHtml(bin.id)}</div>
                         <p class="bin-desc">${escapeHtml(bin.description || 'No description')}</p>
+                        ${boundariesHtml}
                     </article>
-                `).join('');
+                `;
+                }).join('');
             } catch (err) {
                 grid.innerHTML = '<p style="color: #fecaca;">Could not load bins: ' + escapeHtml(err.message) + '</p>';
             }
@@ -108,6 +124,8 @@
                 id: document.getElementById('bin-id').value.trim(),
                 name: document.getElementById('bin-name').value.trim(),
                 description: document.getElementById('bin-description').value.trim() || null,
+                boundary_tag_a: document.getElementById('boundary-tag-a').value.trim(),
+                boundary_tag_b: document.getElementById('boundary-tag-b').value.trim(),
             };
 
             try {

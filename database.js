@@ -14,10 +14,12 @@ db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS containers (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        description TEXT
+        description TEXT,
+        boundary_tag_a TEXT,
+        boundary_tag_b TEXT
     )`, (err) => {
         if (err) console.error('containers init:', err.message);
-        else migrateLegacyContainersTable();
+        else migrateLegacyContainersTable(() => migrateContainersBoundaryColumns());
     });
 
     db.run(`CREATE TABLE IF NOT EXISTS items (
@@ -92,27 +94,56 @@ function seedDefaultSystemSettings() {
     stmt.finalize();
 }
 
-function migrateLegacyContainersTable() {
+function migrateLegacyContainersTable(done) {
     db.all(`PRAGMA table_info(containers)`, [], (err, columns) => {
-        if (err) return;
+        if (err) {
+            if (done) done();
+            return;
+        }
         const hasEpcId = columns.some((c) => c.name === 'epc_id');
         const hasId = columns.some((c) => c.name === 'id');
-        if (!hasEpcId || hasId) return;
+        if (!hasEpcId || hasId) {
+            if (done) done();
+            return;
+        }
 
         console.log('💾 Migrating legacy containers table (epc_id → id + description)...');
         db.serialize(() => {
             db.run(`CREATE TABLE containers_migrated (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                description TEXT
+                description TEXT,
+                boundary_tag_a TEXT,
+                boundary_tag_b TEXT
             )`);
             db.run(
                 `INSERT INTO containers_migrated (id, name, description)
                  SELECT epc_id, name, NULL FROM containers`
             );
             db.run(`DROP TABLE containers`);
-            db.run(`ALTER TABLE containers_migrated RENAME TO containers`);
+            db.run(`ALTER TABLE containers_migrated RENAME TO containers`, () => {
+                if (done) done();
+            });
         });
+    });
+}
+
+function migrateContainersBoundaryColumns() {
+    db.all(`PRAGMA table_info(containers)`, [], (err, columns) => {
+        if (err) return;
+        const names = new Set(columns.map((c) => c.name));
+        if (!names.has('boundary_tag_a')) {
+            db.run(`ALTER TABLE containers ADD COLUMN boundary_tag_a TEXT`, (alterErr) => {
+                if (alterErr) console.error('boundary_tag_a migration:', alterErr.message);
+                else console.log('💾 Added containers.boundary_tag_a column');
+            });
+        }
+        if (!names.has('boundary_tag_b')) {
+            db.run(`ALTER TABLE containers ADD COLUMN boundary_tag_b TEXT`, (alterErr) => {
+                if (alterErr) console.error('boundary_tag_b migration:', alterErr.message);
+                else console.log('💾 Added containers.boundary_tag_b column');
+            });
+        }
     });
 }
 
