@@ -415,7 +415,11 @@ app.get('/api/scan/latest-near-field', async (req, res) => {
 
 // 📡 The Endpoint: Processes bulk scans and updates item locations
 app.post('/api/scan', async (req, res) => {
-    const { target_container_epc, scanned_tags } = req.body;
+    const options = req.body || {};
+    const targetContainerEpc = normalizeContainerId(
+        options.targetContainerEpc || options.target_container_epc || null
+    );
+    const scanned_tags = options.scanned_tags || options.tags;
 
     console.log(`\n--- 📡 Processing Scan: ${scanned_tags ? scanned_tags.length : 0} tags ---`);
 
@@ -444,7 +448,7 @@ app.post('/api/scan', async (req, res) => {
                 return res.status(500).json({ error: err.message });
             }
 
-            let effectiveTarget = target_container_epc;
+            let effectiveTarget = targetContainerEpc;
             let tagsToProcess = normalizedTags;
 
             const zoneMatch = findSpatialZoneMatch(normalizedTags, boundaryContainers);

@@ -195,13 +195,17 @@ async function sendBulkInventoryScan(rawTagArray, options = {}) {
         throw new Error('sendBulkInventoryScan: no valid tags in array');
     }
 
+    const targetContainerEpc =
+        options.targetContainerEpc ||
+        options.target_container_epc ||
+        CONFIG.TARGET_CONTAINER_EPC ||
+        null;
+
     const payload = {
         scanner_id: CONFIG.SCANNER_ID,
         scannerId: CONFIG.SCANNER_ID,
-        target_container_epc:
-            (options.targetContainerEpc ??
-            options.target_container_epc ??
-            CONFIG.TARGET_CONTAINER_EPC) || null,
+        target_container_epc: targetContainerEpc,
+        targetContainerEpc,
         scanned_tags: tags,
         tags,
     };
