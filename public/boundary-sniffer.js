@@ -148,11 +148,19 @@
             }
 
             if (data.reason === 'already_registered') {
-                setModalStatus('Tag is a registered item — use a blank boundary sticker');
+                setModalStatus(
+                    'Tag is already an item' +
+                        (data.existing_name ? ' (“' + data.existing_name + '”)' : '') +
+                        ' — use a blank boundary sticker'
+                );
             } else if (data.reason === 'boundary_in_use') {
                 setModalStatus('Tag already used on bin: ' + (data.container_name || data.container_id));
             } else if (data.reason === 'container_id') {
-                setModalStatus('Tag matches a bin ID — use a dedicated boundary sticker');
+                setModalStatus(
+                    'Tag matches bin ID' +
+                        (data.container_name ? ' (“' + data.container_name + '”)' : '') +
+                        ' — use a dedicated boundary sticker'
+                );
             } else {
                 setModalStatus('Listening… hold tag on antenna and pull trigger');
             }

@@ -124,6 +124,74 @@
             return true;
         }
 
+        function currentExcludeBinId() {
+            return (
+                editingBinId ||
+                document.getElementById('editing-bin-id').value.trim() ||
+                document.getElementById('bin-id').value.trim() ||
+                ''
+            );
+        }
+
+        async function validateEpcWithRegistry(epc, role) {
+            let url =
+                '/api/epc/validate?epc=' +
+                encodeURIComponent(epc) +
+                '&role=' +
+                encodeURIComponent(role);
+            const exclude = currentExcludeBinId();
+            if (exclude) {
+                url += '&exclude_bin_id=' + encodeURIComponent(exclude);
+            }
+            const res = await fetch(url);
+            return res.json();
+        }
+
+        async function validateBinFormAgainstRegistry() {
+            if (warnDuplicateBoundaryTags()) return false;
+
+            const binId = document.getElementById('bin-id').value.trim();
+            const tagA = document.getElementById('boundary-tag-a').value.trim();
+            const tagB = document.getElementById('boundary-tag-b').value.trim();
+
+            if (!editingBinId && binId) {
+                const check = await validateEpcWithRegistry(binId, 'container_id');
+                if (!check.valid) {
+                    alert(check.error || 'Bin ID is already in use');
+                    showFormStatus('❌ ' + (check.error || 'Bin ID conflict'), 'err');
+                    return false;
+                }
+            }
+
+            for (const [tag, label] of [
+                [tagA, 'Boundary Tag A'],
+                [tagB, 'Boundary Tag B'],
+            ]) {
+                if (!tag) continue;
+                const check = await validateEpcWithRegistry(tag, 'boundary');
+                if (!check.valid) {
+                    alert(label + ': ' + (check.error || 'EPC already in use'));
+                    showFormStatus('❌ ' + (check.error || 'EPC conflict'), 'err');
+                    return false;
+                }
+            }
+
+            if (binId && tagA && binId.toLowerCase() === tagA.toLowerCase()) {
+                const msg = 'Boundary Tag A cannot be the same as the bin ID';
+                alert(msg);
+                showFormStatus('❌ ' + msg, 'err');
+                return false;
+            }
+            if (binId && tagB && binId.toLowerCase() === tagB.toLowerCase()) {
+                const msg = 'Boundary Tag B cannot be the same as the bin ID';
+                alert(msg);
+                showFormStatus('❌ ' + msg, 'err');
+                return false;
+            }
+
+            return true;
+        }
+
         function showFormStatus(message, type, autoFade) {
             const el = document.getElementById('form-status');
             if (toastHideTimer) {
@@ -240,14 +308,35 @@
         }
 
         ['boundary-tag-a', 'boundary-tag-b'].forEach((id) => {
-            document.getElementById(id).addEventListener('change', () => {
-                if (boundaryTagsConflict()) warnDuplicateBoundaryTags();
+            document.getElementById(id).addEventListener('change', async () => {
+                if (boundaryTagsConflict()) {
+                    warnDuplicateBoundaryTags();
+                    return;
+                }
+                const tag = document.getElementById(id).value.trim();
+                if (!tag) return;
+                const check = await validateEpcWithRegistry(tag, 'boundary');
+                if (!check.valid) {
+                    alert(check.error || 'This EPC is already in use');
+                    showFormStatus('❌ ' + (check.error || 'EPC conflict'), 'err');
+                }
             });
+        });
+
+        document.getElementById('bin-id').addEventListener('change', async () => {
+            if (editingBinId) return;
+            const binId = document.getElementById('bin-id').value.trim();
+            if (!binId) return;
+            const check = await validateEpcWithRegistry(binId, 'container_id');
+            if (!check.valid) {
+                alert(check.error || 'Bin ID is already in use');
+                showFormStatus('❌ ' + (check.error || 'Bin ID conflict'), 'err');
+            }
         });
 
         document.getElementById('create-bin-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            if (warnDuplicateBoundaryTags()) return;
+            if (!(await validateBinFormAgainstRegistry())) return;
             const payload = {
                 name: document.getElementById('bin-name').value.trim(),
                 description: document.getElementById('bin-description').value.trim() || null,

@@ -1,6 +1,15 @@
 const express = require('express');
 const db = require('./database'); // Import our database setup
 const { lookupUpcHybrid, normalizeUpc } = require('./upc-lookup');
+const {
+    normalizeEpc,
+    normalizeBoundaryTag,
+    normalizeExcludeId,
+    checkEpcForRole,
+    checkEpcForRoleAsync,
+    validateContainerSaveAsync,
+    toNearFieldReason,
+} = require('./epc-registry');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -293,12 +302,25 @@ function processScannedTags(scannedTags, targetContainerEpc) {
                             maybeNotifyMisplaced(item, epc, targetContainerEpc);
                         }
                     } else {
-                        console.log(`🆕 UNKNOWN TAG DETECTED: [${epc}]. Creating placeholder entry.`);
-                        db.run(
-                            `INSERT INTO items (epc_id, name, container_id) VALUES (?, ?, ?)`,
-                            [epc, `Unknown RFID Tag (${epc.slice(-4)})`, targetContainerEpc]
-                        );
-                        logStmt.run(epc, targetContainerEpc, 'REGISTERED');
+                        checkEpcForRole(epc, { role: 'item' }, (regErr, regResult) => {
+                            if (regErr) {
+                                console.error(regErr);
+                                return;
+                            }
+                            if (!regResult.valid) {
+                                console.log(
+                                    `⚠️ Skipped auto-register [${epc}]: ${regResult.message}`
+                                );
+                                logStmt.run(epc, targetContainerEpc, 'REJECTED');
+                                return;
+                            }
+                            console.log(`🆕 UNKNOWN TAG DETECTED: [${epc}]. Creating placeholder entry.`);
+                            db.run(
+                                `INSERT INTO items (epc_id, name, container_id) VALUES (?, ?, ?)`,
+                                [epc, `Unknown RFID Tag (${epc.slice(-4)})`, targetContainerEpc]
+                            );
+                            logStmt.run(epc, targetContainerEpc, 'REGISTERED');
+                        });
                     }
                 }
             );
@@ -369,81 +391,65 @@ app.post('/api/scan/near-field-ingest', async (req, res) => {
     }
 });
 
-function normalizeExcludeBinIdParam(value) {
-    if (value == null) return null;
-    const trimmed = String(value).trim();
-    if (!trimmed || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
-        return null;
-    }
-    return trimmed;
-}
-
 function checkNearFieldCaptureEligibility(epc, purpose, excludeBinId, callback) {
-    const excludeId = normalizeExcludeBinIdParam(excludeBinId);
+    const role = purpose === 'boundary' ? 'boundary' : 'item';
+    const excludeId = normalizeExcludeId(excludeBinId);
 
-    db.get(`SELECT epc_id, name FROM items WHERE epc_id = ?`, [epc], (err, itemRow) => {
+    checkEpcForRole(epc, { role, excludeBinId: excludeId }, (err, result) => {
         if (err) return callback(err);
-        if (itemRow) {
-            return callback(null, {
-                eligible: false,
-                reason: 'already_registered',
-                epc,
-                existing_name: itemRow.name,
-            });
+        if (result.valid) {
+            return callback(null, { eligible: true, epc: result.epc || epc });
         }
-
-        db.get(`SELECT id FROM containers WHERE id = ?`, [epc], (idErr, containerIdRow) => {
-            if (idErr) return callback(idErr);
-            if (containerIdRow) {
-                return callback(null, {
-                    eligible: false,
-                    reason: 'container_id',
-                    epc,
-                });
-            }
-
-            if (purpose !== 'boundary') {
-                return callback(null, { eligible: true, epc });
-            }
-
-            const onBoundaryRow = (boundErr, boundaryRow) => {
-                if (boundErr) return callback(boundErr);
-                if (boundaryRow) {
-                    return callback(null, {
-                        eligible: false,
-                        reason: 'boundary_in_use',
-                        epc,
-                        container_id: boundaryRow.id,
-                        container_name: boundaryRow.name,
-                    });
-                }
-                callback(null, { eligible: true, epc });
-            };
-
-            if (excludeId) {
-                db.get(
-                    `SELECT id, name FROM containers
-                     WHERE (boundary_tag_a = ? OR boundary_tag_b = ?) AND id != ?`,
-                    [epc, epc, excludeId],
-                    onBoundaryRow
-                );
-            } else {
-                db.get(
-                    `SELECT id, name FROM containers
-                     WHERE boundary_tag_a = ? OR boundary_tag_b = ?`,
-                    [epc, epc],
-                    onBoundaryRow
-                );
-            }
+        callback(null, {
+            eligible: false,
+            reason: toNearFieldReason(result.reason),
+            epc: result.epc || epc,
+            existing_name: result.item_name,
+            container_id: result.container_id,
+            container_name: result.container_name,
         });
     });
 }
+
+// 🔍 Validate an EPC against the global registry (items, bin IDs, boundary tags)
+app.get('/api/epc/validate', (req, res) => {
+    const epc = normalizeEpc(req.query.epc);
+    const role = String(req.query.role || 'item').trim().toLowerCase();
+    const allowedRoles = new Set(['item', 'boundary', 'container_id']);
+
+    if (!epc) return res.status(400).json({ valid: false, error: 'epc query parameter is required' });
+    if (!allowedRoles.has(role)) {
+        return res.status(400).json({ valid: false, error: 'role must be item, boundary, or container_id' });
+    }
+
+    checkEpcForRole(
+        epc,
+        {
+            role,
+            excludeBinId: normalizeExcludeId(req.query.exclude_bin_id),
+            excludeItemEpc: normalizeEpc(req.query.exclude_item_epc),
+        },
+        (err, result) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (result.valid) return res.json({ valid: true, epc });
+            res.json({
+                valid: false,
+                reason: result.reason,
+                error: result.message,
+                epc: result.epc,
+                container_id: result.container_id,
+                container_name: result.container_name,
+                item_name: result.item_name,
+            });
+        }
+    );
+});
 
 // 🏷️ Latest ultra-near tag for onboarding / boundary sniffer wizards
 app.get('/api/scan/latest-near-field', async (req, res) => {
     const since = parseInt(String(req.query.since || '0'), 10) || 0;
     const purpose = String(req.query.purpose || 'onboarding').trim().toLowerCase();
-    const excludeBinId = normalizeExcludeBinIdParam(req.query.exclude_bin_id);
+    const excludeBinId = normalizeExcludeId(req.query.exclude_bin_id);
 
     try {
         const settings = await getSystemSettings();
@@ -585,7 +591,7 @@ app.get('/api/upc/lookup/:code', async (req, res) => {
 });
 
 // ➕ Register item with RFID EPC (+ optional UPC metadata)
-app.post('/api/items', (req, res) => {
+app.post('/api/items', async (req, res) => {
     const {
         epc_id,
         name,
@@ -596,12 +602,24 @@ app.post('/api/items', (req, res) => {
         home_container_id,
     } = req.body;
 
-    const epc = epc_id == null ? '' : String(epc_id).trim();
+    const epc = normalizeEpc(epc_id);
     const itemName = name == null ? '' : String(name).trim();
     const normalizedUpc = upc ? normalizeUpc(upc) : null;
 
     if (!epc) return res.status(400).json({ error: 'epc_id is required' });
     if (!itemName) return res.status(400).json({ error: 'name is required' });
+
+    try {
+        const registry = await checkEpcForRoleAsync(epc, { role: 'item' });
+        if (!registry.valid) {
+            return res.status(409).json({
+                error: registry.message,
+                reason: registry.reason,
+            });
+        }
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
 
     db.run(
         `INSERT INTO items (epc_id, name, description, category, upc, container_id, home_container_id)
@@ -701,19 +719,31 @@ app.get('/api/containers', (req, res) => {
 });
 
 // 📦 Create a new bin
-app.post('/api/containers', (req, res) => {
+app.post('/api/containers', async (req, res) => {
     const { id, name, description, boundary_tag_a, boundary_tag_b } = req.body;
-    const binId = id == null ? '' : String(id).trim();
+    const binId = normalizeEpc(id);
     const binName = name == null ? '' : String(name).trim();
     const boundaryA = normalizeBoundaryTag(boundary_tag_a);
     const boundaryB = normalizeBoundaryTag(boundary_tag_b);
 
     if (!binId) return res.status(400).json({ error: 'id is required' });
     if (!binName) return res.status(400).json({ error: 'name is required' });
-    if (boundaryTagsAreDuplicate(boundaryA, boundaryB)) {
-        return res.status(400).json({
-            error: 'Boundary Tag A and Tag B must be different EPCs',
+
+    try {
+        const validation = await validateContainerSaveAsync({
+            binId,
+            boundaryA,
+            boundaryB,
+            excludeBinId: null,
         });
+        if (!validation.ok) {
+            return res.status(400).json({
+                error: validation.error,
+                reason: validation.reason,
+            });
+        }
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
     }
 
     db.run(
@@ -737,18 +767,8 @@ app.post('/api/containers', (req, res) => {
     );
 });
 
-function normalizeBoundaryTag(value) {
-    const trimmed = value == null ? '' : String(value).trim();
-    return trimmed === '' ? null : trimmed;
-}
-
-function boundaryTagsAreDuplicate(boundaryA, boundaryB) {
-    if (!boundaryA || !boundaryB) return false;
-    return boundaryA.toLowerCase() === boundaryB.toLowerCase();
-}
-
 // 📦 Update an existing bin by ID (upsert for scan-time registration)
-app.put('/api/containers/:id', (req, res) => {
+app.put('/api/containers/:id', async (req, res) => {
     const { id: paramId } = req.params;
     const { name, description, boundary_tag_a, boundary_tag_b } = req.body;
 
@@ -762,10 +782,21 @@ app.put('/api/containers/:id', (req, res) => {
     const boundaryA = normalizeBoundaryTag(boundary_tag_a);
     const boundaryB = normalizeBoundaryTag(boundary_tag_b);
 
-    if (boundaryTagsAreDuplicate(boundaryA, boundaryB)) {
-        return res.status(400).json({
-            error: 'Boundary Tag A and Tag B must be different EPCs',
+    try {
+        const validation = await validateContainerSaveAsync({
+            binId: paramId,
+            boundaryA,
+            boundaryB,
+            excludeBinId: paramId,
         });
+        if (!validation.ok) {
+            return res.status(400).json({
+                error: validation.error,
+                reason: validation.reason,
+            });
+        }
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
     }
 
     db.get(`SELECT id FROM containers WHERE id = ?`, [paramId], (err, row) => {

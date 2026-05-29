@@ -126,6 +126,20 @@
                 playCaptureTick();
                 await loadContainersIntoSelect(getEl('onboard-home-bin'));
                 showFormMode(data.epc, data.rssi, data.rssi_near_gate);
+                return;
+            }
+
+            if (data.reason === 'already_registered') {
+                getEl('onboard-listen-text').textContent =
+                    'Tag is already an item' +
+                    (data.existing_name ? ' (“' + data.existing_name + '”)' : '') +
+                    ' — use a new sticker';
+            } else if (data.reason === 'boundary_in_use') {
+                getEl('onboard-listen-text').textContent =
+                    'Tag is a boundary on bin ' + (data.container_name || data.container_id);
+            } else if (data.reason === 'container_id') {
+                getEl('onboard-listen-text').textContent =
+                    'Tag matches a bin ID — cannot register as an item';
             }
         } catch (err) {
             console.warn('Near-field poll failed:', err);
