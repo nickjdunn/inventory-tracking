@@ -88,6 +88,66 @@
         { id: 'UNASSIGNED', label: '⚪ Unassigned' },
     ];
 
+    let audioCtx = null;
+
+    async function unlockAudio() {
+        if (!audioCtx) {
+            const Ctx = global.AudioContext || global.webkitAudioContext;
+            if (Ctx) audioCtx = new Ctx();
+        }
+        if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
+    }
+
+    function playHomeConfirmTone() {
+        if (!audioCtx || audioCtx.state !== 'running') return;
+        const t0 = audioCtx.currentTime;
+        [659.25, 880].forEach((freq, i) => {
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, t0 + i * 0.08);
+            g.gain.setValueAtTime(0.0001, t0 + i * 0.08);
+            g.gain.exponentialRampToValueAtTime(0.1, t0 + i * 0.08 + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.08 + 0.14);
+            osc.connect(g);
+            g.connect(audioCtx.destination);
+            osc.start(t0 + i * 0.08);
+            osc.stop(t0 + i * 0.08 + 0.16);
+        });
+    }
+
+    function canSetCurrentBinAsHome(item) {
+        const currentId = normalizeContainerId(item.container_id);
+        const homeId = normalizeContainerId(item.home_container_id);
+        return Boolean(currentId && currentId !== homeId);
+    }
+
+    async function setCurrentBinAsHome(item) {
+        const currentId = normalizeContainerId(item.container_id);
+        if (!currentId) {
+            throw new Error('Item has no current bin location');
+        }
+
+        const res = await fetch('/api/items/' + encodeURIComponent(item.epc_id), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: item.name,
+                description: item.description ?? null,
+                category: item.category ?? null,
+                home_container_id: currentId,
+                container_id: currentId,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to set home bin');
+
+        await unlockAudio();
+        playHomeConfirmTone();
+
+        return enrichItems([{ ...item, home_container_id: currentId, container_id: currentId }])[0];
+    }
+
     global.MerlinInventory = {
         normalizeContainerId,
         computeItemStatus,
@@ -96,6 +156,10 @@
         filterItems,
         countByStatus,
         renderStatusBadgeHtml,
+        unlockAudio,
+        playHomeConfirmTone,
+        canSetCurrentBinAsHome,
+        setCurrentBinAsHome,
         STATUS_PILLS,
     };
 })(typeof window !== 'undefined' ? window : global);

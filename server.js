@@ -369,9 +369,62 @@ app.post('/api/scan/near-field-ingest', async (req, res) => {
     }
 });
 
-// 🏷️ Latest ultra-near unassigned tag for onboarding wizard
+function checkNearFieldCaptureEligibility(epc, purpose, excludeBinId, callback) {
+    const excludeId = excludeBinId ? String(excludeBinId).trim() : null;
+
+    db.get(`SELECT epc_id, name FROM items WHERE epc_id = ?`, [epc], (err, itemRow) => {
+        if (err) return callback(err);
+        if (itemRow) {
+            return callback(null, {
+                eligible: false,
+                reason: 'already_registered',
+                epc,
+                existing_name: itemRow.name,
+            });
+        }
+
+        db.get(`SELECT id FROM containers WHERE id = ?`, [epc], (idErr, containerIdRow) => {
+            if (idErr) return callback(idErr);
+            if (containerIdRow) {
+                return callback(null, {
+                    eligible: false,
+                    reason: 'container_id',
+                    epc,
+                });
+            }
+
+            if (purpose !== 'boundary') {
+                return callback(null, { eligible: true, epc });
+            }
+
+            db.get(
+                `SELECT id, name FROM containers
+                 WHERE (boundary_tag_a = ? OR boundary_tag_b = ?)
+                   AND (? IS NULL OR id != ?)`,
+                [epc, epc, excludeId, excludeId],
+                (boundErr, boundaryRow) => {
+                    if (boundErr) return callback(boundErr);
+                    if (boundaryRow) {
+                        return callback(null, {
+                            eligible: false,
+                            reason: 'boundary_in_use',
+                            epc,
+                            container_id: boundaryRow.id,
+                            container_name: boundaryRow.name,
+                        });
+                    }
+                    callback(null, { eligible: true, epc });
+                }
+            );
+        });
+    });
+}
+
+// 🏷️ Latest ultra-near tag for onboarding / boundary sniffer wizards
 app.get('/api/scan/latest-near-field', async (req, res) => {
     const since = parseInt(String(req.query.since || '0'), 10) || 0;
+    const purpose = String(req.query.purpose || 'onboarding').trim().toLowerCase();
+    const excludeBinId = req.query.exclude_bin_id || null;
 
     try {
         const settings = await getSystemSettings();
@@ -383,19 +436,24 @@ app.get('/api/scan/latest-near-field', async (req, res) => {
                 captured: false,
                 rssi_near_gate: nearGate,
                 rssi_far_gate: parseInt(settings.rssi_far_gate, 10) || -85,
+                purpose,
             });
         }
 
-        db.get(`SELECT epc_id, name FROM items WHERE epc_id = ?`, [candidate.epc], (err, row) => {
+        checkNearFieldCaptureEligibility(candidate.epc, purpose, excludeBinId, (err, result) => {
             if (err) return res.status(500).json({ error: err.message });
 
-            if (row) {
+            if (!result.eligible) {
                 return res.json({
                     captured: false,
-                    reason: 'already_registered',
-                    epc: candidate.epc,
-                    existing_name: row.name,
+                    reason: result.reason,
+                    epc: result.epc,
+                    existing_name: result.existing_name,
+                    container_id: result.container_id,
+                    container_name: result.container_name,
                     rssi_near_gate: nearGate,
+                    rssi_far_gate: parseInt(settings.rssi_far_gate, 10) || -85,
+                    purpose,
                 });
             }
 
@@ -406,6 +464,7 @@ app.get('/api/scan/latest-near-field', async (req, res) => {
                 timestamp: candidate.timestamp,
                 rssi_near_gate: nearGate,
                 rssi_far_gate: parseInt(settings.rssi_far_gate, 10) || -85,
+                purpose,
             });
         });
     } catch (err) {

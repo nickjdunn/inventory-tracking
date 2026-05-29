@@ -1415,6 +1415,7 @@
 
             list.innerHTML = displayItems.map((item) => {
                 const isFindTarget = activeSearchQueue.includes(item.epc_id);
+                const canSetHome = MerlinInventory.canSetCurrentBinAsHome(item);
                 const location = item.container_id
                     ? (item.container_name || item.container_id)
                     : '📍 Open / unassigned';
@@ -1428,6 +1429,7 @@
                     <div class="item-card-location">📦 ${escapeHtml(location)}</div>
                     <div class="item-card-actions">
                         <button type="button" class="btn-chip accent item-action-btn" data-epc="${escapeHtml(item.epc_id)}">⚙️ Actions</button>
+                        <button type="button" class="btn-chip set-home-btn" data-epc="${escapeHtml(item.epc_id)}" ${canSetHome ? '' : 'disabled'} style="${canSetHome ? 'border-color:#4ade80;color:#bbf7d0;' : ''}">🏠 Set as Home</button>
                         <button type="button" class="btn-chip warn item-find-btn" data-epc="${escapeHtml(item.epc_id)}">${isFindTarget ? '🔍 Hunting' : '🔍 Find'}</button>
                     </div>
                 </article>`;
@@ -1435,6 +1437,23 @@
 
             list.querySelectorAll('.item-action-btn').forEach((btn) => {
                 btn.addEventListener('click', () => openItemSheet(btn.dataset.epc));
+            });
+            list.querySelectorAll('.set-home-btn').forEach((btn) => {
+                btn.addEventListener('click', async () => {
+                    const item = itemLookup[btn.dataset.epc];
+                    if (!item || btn.disabled) return;
+                    btn.disabled = true;
+                    try {
+                        const updated = await MerlinInventory.setCurrentBinAsHome(item);
+                        const idx = inventoryItems.findIndex((i) => i.epc_id === updated.epc_id);
+                        if (idx >= 0) inventoryItems[idx] = { ...inventoryItems[idx], ...updated, status: 'HOME' };
+                        itemLookup[updated.epc_id] = inventoryItems[idx];
+                        renderInventoryCards();
+                    } catch (err) {
+                        alert(err.message);
+                        btn.disabled = false;
+                    }
+                });
             });
             list.querySelectorAll('.item-find-btn').forEach((btn) => {
                 btn.addEventListener('click', () => toggleFindFromInventory(btn.dataset.epc));

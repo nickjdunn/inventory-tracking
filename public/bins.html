@@ -20,6 +20,7 @@
             </nav>
             <div class="sidebar-footer">
                 <a href="/mobile.html">📱 Handheld Mobile View</a>
+                <a href="/emulator.html" style="display:block;margin-top:8px;">📡 Hardware Simulator</a>
             </div>
         </aside>
 
@@ -50,11 +51,17 @@
                         </div>
                         <div class="form-field">
                             <label for="boundary-tag-a">Boundary Tag A (Left/Front EPC)</label>
-                            <input type="text" id="boundary-tag-a" name="boundary_tag_a" placeholder="EPC of left/front boundary tag" autocomplete="off">
+                            <div class="boundary-field-row">
+                                <input type="text" id="boundary-tag-a" name="boundary_tag_a" placeholder="EPC of left/front boundary tag" autocomplete="off">
+                                <button type="button" class="btn scan-boundary" data-boundary-input="boundary-tag-a">📡 Scan Tag</button>
+                            </div>
                         </div>
                         <div class="form-field">
                             <label for="boundary-tag-b">Boundary Tag B (Right/Back EPC)</label>
-                            <input type="text" id="boundary-tag-b" name="boundary_tag_b" placeholder="EPC of right/back boundary tag" autocomplete="off">
+                            <div class="boundary-field-row">
+                                <input type="text" id="boundary-tag-b" name="boundary_tag_b" placeholder="EPC of right/back boundary tag" autocomplete="off">
+                                <button type="button" class="btn scan-boundary" data-boundary-input="boundary-tag-b">📡 Scan Tag</button>
+                            </div>
                         </div>
                         <div class="bin-form-actions">
                             <button type="submit" class="btn primary" id="bin-form-submit">➕ Create Bin</button>
@@ -74,6 +81,21 @@
         </main>
     </div>
 
+    <div id="boundary-sniffer-modal" class="boundary-sniffer-modal" aria-hidden="true">
+        <div class="boundary-sniffer-panel" role="dialog" aria-labelledby="boundary-sniffer-title">
+            <h3 id="boundary-sniffer-title" style="margin:0 0 12px;color:var(--accent);">📡 Boundary Tag Sniffer</h3>
+            <div id="boundary-sniffer-radar" class="boundary-sniffer-radar listening">
+                <span style="font-size:36px;">🏷️</span>
+            </div>
+            <p id="boundary-sniffer-status" style="font-size:14px;margin:0 0 8px;">Listening…</p>
+            <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px;">
+                Ultra-near gate: ≥ <strong id="boundary-sniffer-gate">—</strong> dBm
+            </p>
+            <button type="button" class="btn" id="boundary-sniffer-cancel">Cancel</button>
+        </div>
+    </div>
+
+    <script src="/boundary-sniffer.js"></script>
     <script>
         let editingBinId = null;
         let toastHideTimer = null;
@@ -246,6 +268,18 @@
             showFormStatus('Edit cancelled', 'info', true);
         });
 
+        document.querySelectorAll('.scan-boundary').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const inputId = btn.dataset.boundaryInput;
+                const excludeBinId =
+                    document.getElementById('editing-bin-id').value ||
+                    document.getElementById('bin-id').value ||
+                    null;
+                BoundarySniffer.startScan(inputId, { excludeBinId });
+            });
+        });
+
+        BoundarySniffer.init();
         loadBins();
     </script>
 </body>

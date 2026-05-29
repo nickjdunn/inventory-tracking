@@ -692,6 +692,7 @@
             tableBody.innerHTML = displayItems.map(item => {
                 const isFindTarget = activeSearchQueue.includes(item.epc_id);
                 const isChecked = selectedEpcs.has(item.epc_id);
+                const canSetHome = MerlinInventory.canSetCurrentBinAsHome(item);
                 const location = item.container_id
                     ? (item.container_name || item.container_id)
                     : '📍 Open/Unassigned Space';
@@ -709,6 +710,7 @@
                     <td>
                         <div class="row-actions">
                             <button type="button" class="btn edit-item-btn" data-epc="${escapeHtml(item.epc_id)}">Edit</button>
+                            <button type="button" class="btn home-quick set-home-btn" data-epc="${escapeHtml(item.epc_id)}" ${canSetHome ? '' : 'disabled'} title="Set home bin to current location">🏠 Set as Home</button>
                             <button type="button" class="btn find ${isFindTarget ? 'active' : ''}" data-find-epc="${escapeHtml(item.epc_id)}">🔍 Find</button>
                         </div>
                     </td>
@@ -720,6 +722,24 @@
                 btn.addEventListener('click', () => {
                     const item = itemByEpc[btn.dataset.epc];
                     if (item) openEditModal(item);
+                });
+            });
+            tableBody.querySelectorAll('.set-home-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const item = itemByEpc[btn.dataset.epc];
+                    if (!item || btn.disabled) return;
+                    btn.disabled = true;
+                    try {
+                        const updated = await MerlinInventory.setCurrentBinAsHome(item);
+                        const idx = lastDashboardItems.findIndex((i) => i.epc_id === updated.epc_id);
+                        if (idx >= 0) {
+                            lastDashboardItems[idx] = { ...lastDashboardItems[idx], ...updated, status: 'HOME' };
+                        }
+                        renderInventoryTable(lastDashboardItems);
+                    } catch (err) {
+                        alert(err.message);
+                        btn.disabled = false;
+                    }
                 });
             });
             tableBody.querySelectorAll('[data-find-epc]').forEach(btn => {
