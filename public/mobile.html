@@ -566,6 +566,7 @@
         }
         .btn-chip.accent { background: #0369a1; color: #e0f2fe; }
         .btn-chip.warn { background: #713f12; color: #fef08a; }
+        .btn-chip.danger { background: #7f1d1d; color: #fecaca; border-color: #991b1b; }
         .sheet-overlay {
             background: rgba(15, 23, 42, 0.75);
             inset: 0;
@@ -772,6 +773,7 @@
         <section id="view-bins" class="view">
             <div class="card">
                 <h2>📦 Browse Bins</h2>
+                <input type="search" id="mobile-bins-search" class="inventory-search" placeholder="🔍 Filter bins…" autocomplete="off" aria-label="Filter bins">
                 <div id="bins-list">
                     <p class="standby">Loading active totes…</p>
                 </div>
@@ -862,9 +864,14 @@
                 <button type="button" class="btn-chip" data-status-preset="unassigned">⚪ Unassigned</button>
             </div>
             <p id="sheet-status-preview"></p>
+            <p id="sheet-epc-display" style="font-family: monospace; font-size: 12px; color: var(--text-muted); margin: 0 0 12px;"></p>
+            <label for="sheet-new-epc">Replace damaged tag (new EPC)</label>
+            <input type="text" id="sheet-new-epc" placeholder="Scan or enter new tag EPC" autocomplete="off">
+            <button type="button" class="btn-chip" id="sheet-replace-epc-btn" style="margin-bottom: 12px;">🔄 Replace tag ID</button>
             <div class="item-card-actions">
                 <button type="submit" class="btn-giant" style="min-height:56px;margin:0;">💾 Save changes</button>
                 <button type="button" class="btn-chip accent" id="sheet-find-btn">🔍 Hunt this item</button>
+                <button type="button" class="btn-chip danger" id="sheet-delete-item">🗑️ Delete</button>
                 <button type="button" class="btn-chip" id="sheet-close-btn">Cancel</button>
             </div>
         </form>
@@ -896,6 +903,9 @@
         let inventorySyncTimer = null;
         let inventoryItems = [];
         let inventorySearchQuery = '';
+        let mobileBinsList = [];
+        let mobileBinsCountByBin = new Map();
+        let mobileBinsSearchQuery = '';
         let inventoryStatusFilter = 'ALL';
         let sheetEditEpc = null;
         let findPollTimer = null;
@@ -1493,6 +1503,8 @@
             document.getElementById('sheet-item-name').value = item.name || '';
             document.getElementById('sheet-item-category').value = item.category || '';
             document.getElementById('sheet-item-desc').value = item.description || '';
+            document.getElementById('sheet-epc-display').textContent = 'EPC: ' + epc;
+            document.getElementById('sheet-new-epc').value = '';
             renderSheetBinSelects(item);
             updateSheetStatusPreview();
             document.getElementById('item-sheet-overlay').classList.add('open');
@@ -1755,38 +1767,37 @@
             }
         }
 
-        async function loadBins() {
+        function matchesMobileBinSearch(bin, query) {
+            const q = (query || '').trim().toLowerCase();
+            if (!q) return true;
+            return [bin.name, bin.id, bin.description, bin.boundary_tag_a, bin.boundary_tag_b].some(
+                (f) => String(f ?? '').toLowerCase().includes(q)
+            );
+        }
+
+        function renderMobileBinsList() {
             const container = document.getElementById('bins-list');
-            try {
-                const [containersRes, dashRes] = await Promise.all([
-                    fetch('/api/containers'),
-                    fetch('/api/dashboard'),
-                ]);
-                const containers = containersRes.ok ? await containersRes.json() : [];
-                const data = dashRes.ok ? await dashRes.json() : { items: [] };
-                const countByBin = new Map();
-
-                (data.items || []).forEach((item) => {
-                    const id = item.container_id;
-                    if (!id) return;
-                    countByBin.set(id, (countByBin.get(id) || 0) + 1);
-                });
-
-                if (!containers.length) {
-                    container.innerHTML = '<p class="standby">No bins registered on the server yet. Add bins from the desktop Bin Manager.</p>';
-                    return;
-                }
-
-                container.innerHTML = containers
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((bin) => {
-                        const count = countByBin.get(bin.id) || 0;
-                        const tagA = (bin.boundary_tag_a || '').trim();
-                        const tagB = (bin.boundary_tag_b || '').trim();
-                        const boundaries = (tagA || tagB)
-                            ? `<div class="epc">🔗 ${escapeHtml(tagA || '—')} | ${escapeHtml(tagB || '—')}</div>`
-                            : '';
-                        return `
+            if (!mobileBinsList.length) {
+                container.innerHTML =
+                    '<p class="standby">No bins registered on the server yet. Add bins from the desktop Bin Manager.</p>';
+                return;
+            }
+            const filtered = mobileBinsList
+                .filter((b) => matchesMobileBinSearch(b, mobileBinsSearchQuery))
+                .sort((a, b) => a.name.localeCompare(b.name));
+            if (!filtered.length) {
+                container.innerHTML = '<p class="standby">No bins match your search.</p>';
+                return;
+            }
+            container.innerHTML = filtered
+                .map((bin) => {
+                    const count = mobileBinsCountByBin.get(bin.id) || 0;
+                    const tagA = (bin.boundary_tag_a || '').trim();
+                    const tagB = (bin.boundary_tag_b || '').trim();
+                    const boundaries = (tagA || tagB)
+                        ? `<div class="epc">🔗 ${escapeHtml(tagA || '—')} | ${escapeHtml(tagB || '—')}</div>`
+                        : '';
+                    return `
                         <div class="bin-card">
                             <h3>${escapeHtml(bin.name)}</h3>
                             <div class="epc">${escapeHtml(bin.id)}</div>
@@ -1794,7 +1805,28 @@
                             <div class="count">${count} item${count === 1 ? '' : 's'} here now</div>
                         </div>
                     `;
-                    }).join('');
+                })
+                .join('');
+        }
+
+        async function loadBins() {
+            const container = document.getElementById('bins-list');
+            try {
+                const [containersRes, dashRes] = await Promise.all([
+                    fetch('/api/containers'),
+                    fetch('/api/dashboard'),
+                ]);
+                mobileBinsList = containersRes.ok ? await containersRes.json() : [];
+                const data = dashRes.ok ? await dashRes.json() : { items: [] };
+                mobileBinsCountByBin = new Map();
+
+                (data.items || []).forEach((item) => {
+                    const id = item.container_id;
+                    if (!id) return;
+                    mobileBinsCountByBin.set(id, (mobileBinsCountByBin.get(id) || 0) + 1);
+                });
+
+                renderMobileBinsList();
             } catch (err) {
                 container.innerHTML = '<p class="standby">Could not load bins. Check server connection.</p>';
             }
@@ -1926,9 +1958,51 @@
             }
         });
 
-        document.getElementById('inventory-search').addEventListener('input', (e) => {
-            inventorySearchQuery = e.target.value;
+        MerlinInventory.bindInstantSearch(document.getElementById('inventory-search'), (query) => {
+            inventorySearchQuery = query;
             renderInventoryCards();
+        });
+
+        MerlinInventory.bindInstantSearch(document.getElementById('mobile-bins-search'), (query) => {
+            mobileBinsSearchQuery = query;
+            renderMobileBinsList();
+        });
+
+        document.getElementById('sheet-delete-item').addEventListener('click', async () => {
+            const epc = document.getElementById('sheet-epc-id').value;
+            const name = document.getElementById('sheet-item-name').value.trim() || epc;
+            if (!confirm(`Delete item "${name}" (${epc})?\n\nThis cannot be undone.`)) return;
+            try {
+                await MerlinInventory.deleteItem(epc);
+                closeItemSheet();
+                await syncInventoryFromServer();
+            } catch (err) {
+                alert(err.message);
+            }
+        });
+
+        document.getElementById('sheet-replace-epc-btn').addEventListener('click', async () => {
+            const oldEpc = document.getElementById('sheet-epc-id').value;
+            const newEpc = document.getElementById('sheet-new-epc').value.trim();
+            if (!newEpc) return alert('Enter or scan the new tag EPC first');
+            if (oldEpc.toLowerCase() === newEpc.toLowerCase()) {
+                return alert('New EPC must be different from the current tag');
+            }
+            const check = await MerlinInventory.validateEpcForItem(newEpc);
+            if (!check.valid) return alert(check.error || 'This EPC is already in use');
+            const name = document.getElementById('sheet-item-name').value.trim() || oldEpc;
+            if (!confirm(`Replace tag for "${name}"?\n\nOld: ${oldEpc}\nNew: ${newEpc}`)) return;
+            const btn = document.getElementById('sheet-replace-epc-btn');
+            btn.disabled = true;
+            try {
+                await MerlinInventory.replaceItemEpc(oldEpc, newEpc);
+                closeItemSheet();
+                await syncInventoryFromServer();
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                btn.disabled = false;
+            }
         });
 
         document.getElementById('item-edit-form').addEventListener('submit', async (e) => {

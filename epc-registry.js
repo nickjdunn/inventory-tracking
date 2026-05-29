@@ -1,6 +1,8 @@
 /**
- * Global EPC registry — each EPC may exist in only one role:
- * inventory item, bin ID, or boundary tag (on exactly one bin).
+ * Global EPC registry — every tag is unique system-wide.
+ * An EPC may exist in only one role: inventory item (items.epc_id),
+ * bin ID (containers.id), or boundary tag (containers.boundary_tag_a|b).
+ * Assigning the same EPC to an item and a bin (or two bins) is rejected.
  */
 const db = require('./database');
 

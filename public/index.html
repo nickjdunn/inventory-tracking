@@ -365,7 +365,15 @@
                 <select id="edit-current-container" name="container_id"></select>
                 <p id="edit-status-preview" style="font-size: 13px; margin: 0 0 12px 0;"></p>
                 <p id="edit-epc-display" style="font-family: monospace; font-size: 12px; color: var(--text-muted); margin: 0 0 12px 0;"></p>
-                <div class="modal-actions">
+                <div class="edit-tag-replace" style="margin: 16px 0; padding-top: 16px; border-top: 1px solid #334155;">
+                    <label for="edit-new-epc">Replace damaged tag (new EPC)</label>
+                    <input type="text" id="edit-new-epc" placeholder="Scan or enter new tag EPC" autocomplete="off" style="margin-bottom: 8px;">
+                    <button type="button" class="btn" id="edit-replace-epc-btn">🔄 Replace tag ID</button>
+                    <p style="font-size: 12px; color: var(--text-muted); margin: 8px 0 0;">Keeps name, bins, and history — only the RFID EPC changes. New tag must not exist anywhere in the system.</p>
+                </div>
+                <div class="modal-actions" style="flex-wrap: wrap; gap: 8px;">
+                    <button type="button" class="btn danger" id="edit-delete-item">🗑️ Delete item</button>
+                    <span style="flex: 1;"></span>
                     <button type="button" class="btn" id="edit-cancel">Cancel</button>
                     <button type="submit" class="btn primary">Save</button>
                 </div>
@@ -491,6 +499,7 @@
             currentSelect.value = enriched.container_id || '';
             updateEditStatusPreview();
             document.getElementById('edit-epc-display').textContent = 'EPC: ' + enriched.epc_id;
+            document.getElementById('edit-new-epc').value = '';
             const modal = document.getElementById('edit-modal');
             modal.classList.add('open');
             modal.setAttribute('aria-hidden', 'false');
@@ -634,6 +643,47 @@
         document.getElementById('edit-cancel').addEventListener('click', closeEditModal);
         document.getElementById('edit-modal').addEventListener('click', (e) => {
             if (e.target.id === 'edit-modal') closeEditModal();
+        });
+
+        document.getElementById('edit-delete-item').addEventListener('click', async () => {
+            const epcId = document.getElementById('edit-epc-id').value;
+            const name = document.getElementById('edit-name').value.trim() || epcId;
+            if (!confirm(`Delete item "${name}" (${epcId})?\n\nThis cannot be undone.`)) return;
+            try {
+                await MerlinInventory.deleteItem(epcId);
+                selectedEpcs.delete(epcId);
+                closeEditModal();
+                fetchDashboardData();
+            } catch (err) {
+                alert(err.message);
+            }
+        });
+
+        document.getElementById('edit-replace-epc-btn').addEventListener('click', async () => {
+            const oldEpc = document.getElementById('edit-epc-id').value;
+            const newEpc = document.getElementById('edit-new-epc').value.trim();
+            if (!newEpc) return alert('Enter or scan the new tag EPC first');
+            if (oldEpc.toLowerCase() === newEpc.toLowerCase()) {
+                return alert('New EPC must be different from the current tag');
+            }
+            const check = await MerlinInventory.validateEpcForItem(newEpc);
+            if (!check.valid) return alert(check.error || 'This EPC is already in use');
+            const name = document.getElementById('edit-name').value.trim() || oldEpc;
+            if (!confirm(`Replace tag for "${name}"?\n\nOld: ${oldEpc}\nNew: ${newEpc}`)) return;
+            const btn = document.getElementById('edit-replace-epc-btn');
+            btn.disabled = true;
+            try {
+                const data = await MerlinInventory.replaceItemEpc(oldEpc, newEpc);
+                const wasSelected = selectedEpcs.has(oldEpc);
+                selectedEpcs.delete(oldEpc);
+                if (wasSelected) selectedEpcs.add(data.epc_id);
+                closeEditModal();
+                fetchDashboardData();
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                btn.disabled = false;
+            }
         });
 
         document.getElementById('edit-item-form').addEventListener('submit', async (e) => {
@@ -883,8 +933,8 @@
 
         document.getElementById('hunt-selected-btn').addEventListener('click', huntSelectedItems);
 
-        document.getElementById('inventory-search').addEventListener('input', (e) => {
-            inventorySearchQuery = e.target.value;
+        MerlinInventory.bindInstantSearch(document.getElementById('inventory-search'), (query) => {
+            inventorySearchQuery = query;
             renderInventoryTable(lastDashboardItems);
         });
 

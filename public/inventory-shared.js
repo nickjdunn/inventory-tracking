@@ -153,6 +153,45 @@
         return Boolean(currentId && currentId !== homeId);
     }
 
+    function bindInstantSearch(inputEl, onQueryChange) {
+        if (!inputEl || typeof onQueryChange !== 'function') return;
+        const fire = () => onQueryChange(inputEl.value);
+        inputEl.addEventListener('input', fire);
+        inputEl.addEventListener('keyup', fire);
+        inputEl.addEventListener('change', fire);
+        inputEl.addEventListener('search', fire);
+    }
+
+    async function deleteItem(epcId) {
+        const res = await fetch('/api/items/' + encodeURIComponent(epcId), {
+            method: 'DELETE',
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Delete failed');
+        return data;
+    }
+
+    async function replaceItemEpc(oldEpcId, newEpcId) {
+        const res = await fetch(
+            '/api/items/' + encodeURIComponent(oldEpcId) + '/replace-epc',
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_epc_id: newEpcId }),
+            }
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not replace tag');
+        return data;
+    }
+
+    async function validateEpcForItem(epc) {
+        const res = await fetch(
+            '/api/epc/validate?epc=' + encodeURIComponent(epc) + '&role=item'
+        );
+        return res.json();
+    }
+
     async function setCurrentBinAsHome(item) {
         const currentId = normalizeContainerId(item.container_id);
         if (!currentId) {
@@ -189,6 +228,10 @@
         renderStatusBadgeHtml,
         unlockAudio,
         playHomeConfirmTone,
+        bindInstantSearch,
+        deleteItem,
+        replaceItemEpc,
+        validateEpcForItem,
         canSetCurrentBinAsHome,
         setCurrentBinAsHome,
         parseServerTimestamp,

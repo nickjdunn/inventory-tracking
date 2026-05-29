@@ -5,6 +5,7 @@ const {
     normalizeEpc,
     normalizeBoundaryTag,
     normalizeExcludeId,
+    epcEquals,
     checkEpcForRole,
     checkEpcForRoleAsync,
     validateContainerSaveAsync,
@@ -652,6 +653,82 @@ app.post('/api/items', async (req, res) => {
             });
         }
     );
+});
+
+// 🔄 Replace a damaged RFID tag (new EPC must pass global registry)
+app.post('/api/items/:epc_id/replace-epc', async (req, res) => {
+    const oldEpc = normalizeEpc(req.params.epc_id);
+    const newEpc = normalizeEpc(req.body?.new_epc_id);
+
+    if (!oldEpc) return res.status(400).json({ error: 'epc_id is required' });
+    if (!newEpc) return res.status(400).json({ error: 'new_epc_id is required' });
+    if (epcEquals(oldEpc, newEpc)) {
+        return res.status(400).json({ error: 'New EPC must be different from the current tag' });
+    }
+
+    try {
+        const registry = await checkEpcForRoleAsync(newEpc, { role: 'item' });
+        if (!registry.valid) {
+            return res.status(409).json({
+                error: registry.message,
+                reason: registry.reason,
+            });
+        }
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+
+    db.get(`SELECT epc_id, name FROM items WHERE LOWER(epc_id) = LOWER(?)`, [oldEpc], (findErr, row) => {
+        if (findErr) return res.status(500).json({ error: findErr.message });
+        if (!row) return res.status(404).json({ error: 'Item not found' });
+
+        db.serialize(() => {
+            db.run(`UPDATE items SET epc_id = ? WHERE LOWER(epc_id) = LOWER(?)`, [newEpc, oldEpc], function (updErr) {
+                if (updErr) {
+                    if (String(updErr.message).includes('UNIQUE')) {
+                        return res.status(409).json({ error: 'Item with this EPC already exists' });
+                    }
+                    return res.status(500).json({ error: updErr.message });
+                }
+                if (this.changes === 0) {
+                    return res.status(404).json({ error: 'Item not found' });
+                }
+
+                db.run(
+                    `UPDATE scan_history SET scanned_epc = ? WHERE LOWER(scanned_epc) = LOWER(?)`,
+                    [newEpc, oldEpc],
+                    (histErr) => {
+                        if (histErr) console.error('scan_history EPC remap:', histErr.message);
+
+                        activeSearchQueue = activeSearchQueue.map((id) =>
+                            epcEquals(id, oldEpc) ? newEpc : id
+                        );
+
+                        res.json({
+                            status: 'success',
+                            old_epc_id: row.epc_id,
+                            epc_id: newEpc,
+                            name: row.name,
+                        });
+                    }
+                );
+            });
+        });
+    });
+});
+
+// 🗑️ Delete an inventory item
+app.delete('/api/items/:epc_id', (req, res) => {
+    const epc = normalizeEpc(req.params.epc_id);
+    if (!epc) return res.status(400).json({ error: 'epc_id is required' });
+
+    db.run(`DELETE FROM items WHERE LOWER(epc_id) = LOWER(?)`, [epc], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Item not found' });
+
+        activeSearchQueue = activeSearchQueue.filter((id) => !epcEquals(id, epc));
+        res.json({ status: 'success', deleted_epc_id: epc });
+    });
 });
 
 // ✏️ Update item metadata (name, description, category, bins, current location)

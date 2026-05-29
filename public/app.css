@@ -196,6 +196,17 @@ body {
     background: #7f1d1d;
     color: #fecaca;
 }
+.inventory-search {
+    background: #0f172a;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    color: var(--text-main);
+    font-size: 15px;
+    margin-bottom: 12px;
+    padding: 12px 14px;
+    width: 100%;
+}
+
 .btn.danger:hover {
     background: #991b1b;
 }

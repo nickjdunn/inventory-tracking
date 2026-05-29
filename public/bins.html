@@ -73,6 +73,7 @@
 
                 <section class="card">
                     <h3>Registered Bins</h3>
+                    <input type="search" id="bins-search" class="inventory-search" placeholder="🔍 Filter by name, bin ID, or boundary EPC…" autocomplete="off" aria-label="Filter bins">
                     <div id="bins-grid" class="bin-grid">
                         <p style="color: var(--text-muted);">Loading bins…</p>
                     </div>
@@ -95,11 +96,14 @@
         </div>
     </div>
 
+    <script src="/inventory-shared.js"></script>
     <script src="/boundary-sniffer.js"></script>
     <script>
         let editingBinId = null;
         let toastHideTimer = null;
         let binById = {};
+        let allBinsList = [];
+        let binsSearchQuery = '';
 
         function escapeHtml(str) {
             return String(str ?? '')
@@ -234,21 +238,33 @@
             document.getElementById('bin-form-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
-        async function loadBins() {
+        function matchesBinSearch(bin, query) {
+            const q = (query || '').trim().toLowerCase();
+            if (!q) return true;
+            const fields = [
+                bin.name,
+                bin.id,
+                bin.description,
+                bin.boundary_tag_a,
+                bin.boundary_tag_b,
+            ];
+            return fields.some((f) => String(f ?? '').toLowerCase().includes(q));
+        }
+
+        function renderBinsGrid() {
             const grid = document.getElementById('bins-grid');
-            try {
-                const res = await fetch('/api/containers');
-                const bins = await res.json();
-                if (!res.ok) throw new Error(bins.error || 'Failed to load bins');
+            const bins = allBinsList.filter((b) => matchesBinSearch(b, binsSearchQuery));
 
-                binById = Object.fromEntries(bins.map((b) => [b.id, b]));
+            if (!allBinsList.length) {
+                grid.innerHTML = '<p style="color: var(--text-muted);">No bins registered yet. Create one above.</p>';
+                return;
+            }
+            if (!bins.length) {
+                grid.innerHTML = '<p style="color: var(--text-muted);">No bins match your search.</p>';
+                return;
+            }
 
-                if (!bins.length) {
-                    grid.innerHTML = '<p style="color: var(--text-muted);">No bins registered yet. Create one above.</p>';
-                    return;
-                }
-
-                grid.innerHTML = bins.map((bin) => {
+            grid.innerHTML = bins.map((bin) => {
                     const tagA = (bin.boundary_tag_a || '').trim();
                     const tagB = (bin.boundary_tag_b || '').trim();
                     const boundariesHtml = (tagA || tagB)
@@ -283,6 +299,18 @@
                         if (bin) deleteBin(bin);
                     });
                 });
+        }
+
+        async function loadBins() {
+            const grid = document.getElementById('bins-grid');
+            try {
+                const res = await fetch('/api/containers');
+                const bins = await res.json();
+                if (!res.ok) throw new Error(bins.error || 'Failed to load bins');
+
+                allBinsList = bins;
+                binById = Object.fromEntries(bins.map((b) => [b.id, b]));
+                renderBinsGrid();
             } catch (err) {
                 grid.innerHTML = '<p style="color: #fecaca;">Could not load bins: ' + escapeHtml(err.message) + '</p>';
             }
@@ -390,6 +418,11 @@
                     : null;
                 BoundarySniffer.startScan(inputId, { excludeBinId });
             });
+        });
+
+        MerlinInventory.bindInstantSearch(document.getElementById('bins-search'), (query) => {
+            binsSearchQuery = query;
+            renderBinsGrid();
         });
 
         BoundarySniffer.init();
