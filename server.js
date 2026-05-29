@@ -186,7 +186,7 @@ async function notifyHomeAssistant(payload) {
 }
 
 app.use(express.json());
-// Serves index.html, mobile.html, and assets — no route conflict with /api/*
+// Serves index.html, mobile.html, emulator.html, and /public assets — no route conflict with /api/*
 app.use(express.static('public'));
 
 function normalizeScanTag(epc) {

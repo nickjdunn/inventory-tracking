@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📡 Merlin Hardware Simulator</title>
+    <link rel="stylesheet" href="/app.css">
+    <style>
+        body { padding: 0; }
+        .emu-shell {
+            display: grid;
+            grid-template-columns: minmax(320px, 1fr) minmax(300px, 420px);
+            gap: 0;
+            min-height: 100vh;
+        }
+        @media (max-width: 960px) {
+            .emu-shell { grid-template-columns: 1fr; }
+        }
+        .emu-header {
+            background: #0b1220;
+            border-bottom: 1px solid #334155;
+            grid-column: 1 / -1;
+            padding: 16px 20px;
+        }
+        .emu-header h1 {
+            color: var(--accent);
+            font-size: 22px;
+            margin: 0 0 6px;
+        }
+        .emu-header p {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin: 0;
+        }
+        .emu-header nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        .emu-header nav a {
+            color: var(--accent);
+            font-size: 13px;
+        }
+        .control-deck {
+            border-right: 1px solid #334155;
+            max-height: calc(100vh - 88px);
+            overflow-y: auto;
+            padding: 16px 20px 32px;
+        }
+        .activity-panel {
+            background: #0b1220;
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100vh - 88px);
+            padding: 16px;
+        }
+        .activity-panel h2 {
+            font-size: 16px;
+            margin: 0 0 10px;
+        }
+        .log-toolbar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .log-stream {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            flex: 1;
+            font-family: ui-monospace, monospace;
+            font-size: 12px;
+            line-height: 1.45;
+            min-height: 280px;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        .log-entry {
+            border-left: 3px solid #475569;
+            margin-bottom: 12px;
+            padding-left: 10px;
+        }
+        .log-entry.near-field { border-left-color: #38bdf8; }
+        .log-entry.scan { border-left-color: #4ade80; }
+        .log-entry.autopilot { border-left-color: #fbbf24; }
+        .log-entry.error { border-left-color: #f87171; }
+        .log-entry.info { border-left-color: #94a3b8; }
+        .log-meta {
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+        .log-payload {
+            color: #e2e8f0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .tool-card {
+            background: var(--card-bg);
+            border: 1px solid #334155;
+            border-radius: 10px;
+            margin-bottom: 16px;
+            padding: 16px;
+        }
+        .tool-card h3 {
+            font-size: 15px;
+            margin: 0 0 12px;
+        }
+        .tool-card .hint {
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.5;
+            margin: 0 0 12px;
+        }
+        label.field-label {
+            color: var(--text-muted);
+            display: block;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+        .field-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .field-row input[type="text"],
+        .field-row select {
+            background: #0f172a;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            color: var(--text-main);
+            flex: 1;
+            min-width: 140px;
+            padding: 10px 12px;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        .rssi-readout {
+            color: var(--accent);
+            font-family: ui-monospace, monospace;
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .btn-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .btn.emu {
+            background: #334155;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            color: var(--text-main);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 10px 14px;
+            touch-action: manipulation;
+        }
+        .btn.emu:hover { background: #475569; }
+        .btn.emu.primary { background: #0369a1; border-color: var(--accent); }
+        .btn.emu.success { background: #14532d; border-color: #4ade80; }
+        .btn.emu.warn { background: #713f12; border-color: #fbbf24; }
+        .btn.emu:disabled { opacity: 0.5; cursor: not-allowed; }
+        .toggle-row {
+            align-items: center;
+            display: flex;
+            gap: 12px;
+            justify-content: space-between;
+        }
+        .toggle-switch {
+            background: #334155;
+            border: none;
+            border-radius: 999px;
+            cursor: pointer;
+            height: 32px;
+            position: relative;
+            width: 56px;
+        }
+        .toggle-switch.on { background: #15803d; }
+        .toggle-switch::after {
+            background: #fff;
+            border-radius: 50%;
+            content: '';
+            height: 26px;
+            left: 3px;
+            position: absolute;
+            top: 3px;
+            transition: transform 0.2s ease;
+            width: 26px;
+        }
+        .toggle-switch.on::after { transform: translateX(24px); }
+        .bin-matrix {
+            display: grid;
+            gap: 12px;
+        }
+        .bin-panel {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 12px;
+        }
+        .bin-panel h4 {
+            font-size: 14px;
+            margin: 0 0 4px;
+        }
+        .bin-panel .bin-id {
+            color: var(--accent);
+            font-family: ui-monospace, monospace;
+            font-size: 11px;
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+        .boundary-tags {
+            color: var(--text-muted);
+            font-family: ui-monospace, monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            margin-bottom: 10px;
+        }
+        .boundary-tags.missing { color: #fca5a5; }
+        .tag-grid {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        }
+        .tag-chip {
+            align-items: center;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 10px;
+        }
+        .tag-chip code {
+            font-size: 10px;
+            word-break: break-all;
+        }
+        .tag-chip input[type="range"] { margin: 0; }
+        .status-pill-emu {
+            background: #1e3a8a;
+            border-radius: 999px;
+            color: #93c5fd;
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="emu-shell">
+        <header class="emu-header">
+            <h1>📡 Merlin Hardware Simulator</h1>
+            <p>Browser workbench — fire RFID events into the live API for onboarding, spatial zones, and inventory sweeps.</p>
+            <nav>
+                <a href="/index.html">Dashboard</a>
+                <a href="/mobile.html">Mobile</a>
+                <a href="/bins.html">Bins</a>
+                <a href="/admin.html">Admin RSSI gates</a>
+            </nav>
+            <p style="margin-top:10px;font-size:12px;color:var(--text-muted);">
+                Scanner ID: <code id="scanner-id-display"></code> ·
+                Near gate: <span id="near-gate-display">…</span> dBm
+            </p>
+        </header>
+
+        <div class="control-deck">
+            <!-- Mode 1: Onboarding -->
+            <section class="tool-card">
+                <h3>🏷️ Onboarding Simulation Rig</h3>
+                <p class="hint">Tests the high-RSSI wizard. Slide RSSI above the admin near gate, then pull trigger. Open Register New Tag on dashboard/mobile in another tab.</p>
+                <label class="field-label">Mock EPC</label>
+                <div class="field-row">
+                    <input type="text" id="onboard-epc" placeholder="EPC…" autocomplete="off">
+                    <button type="button" class="btn emu" id="btn-random-epc">Random hex</button>
+                </div>
+                <label class="field-label">RSSI (dBm)</label>
+                <p class="rssi-readout" id="onboard-rssi-label">−55 dBm</p>
+                <input type="range" id="onboard-rssi" min="-90" max="-10" value="-55" step="1">
+                <div class="btn-row" style="margin-top:12px;">
+                    <button type="button" class="btn emu primary" id="btn-near-ingest">Pull trigger → near-field ingest</button>
+                    <button type="button" class="btn emu" id="btn-near-scan">Also POST /api/scan</button>
+                </div>
+            </section>
+
+            <!-- Mode 2: Spatial sandwich -->
+            <section class="tool-card">
+                <h3>🎯 Spatial Bin Sandwich Simulator</h3>
+                <p class="hint">Fetches live containers. Sweep sends both boundary EPCs (strong RSSI) plus 2–4 tool tags (weaker RSSI) in one bulk payload.</p>
+                <div class="btn-row" style="margin-bottom:12px;">
+                    <button type="button" class="btn emu" id="btn-refresh-containers">↻ Refresh containers</button>
+                </div>
+                <div id="bin-matrix" class="bin-matrix">
+                    <p class="hint">Loading containers…</p>
+                </div>
+            </section>
+
+            <!-- Quick fire deck -->
+            <section class="tool-card">
+                <h3>⚡ Quick Tag Arsenal</h3>
+                <p class="hint">Manual single-tag fires with per-tag RSSI sliders. Useful for drift and misplaced scenarios.</p>
+                <label class="field-label">Target bin (for /api/scan)</label>
+                <select id="quick-target-bin"></select>
+                <div id="tag-grid" class="tag-grid"></div>
+            </section>
+
+            <!-- Mode 3: Autopilot -->
+            <section class="tool-card">
+                <h3>🤖 Autonomous Inventory Traffic</h3>
+                <p class="hint">Replaces the terminal emulator loop. Random bulk sweeps every 3–5s with fluctuating RSSI.</p>
+                <div class="toggle-row">
+                    <span><strong id="autopilot-label">Autopilot OFF</strong></span>
+                    <button type="button" class="toggle-switch" id="autopilot-toggle" aria-pressed="false" aria-label="Toggle autopilot"></button>
+                </div>
+            </section>
+        </div>
+
+        <aside class="activity-panel">
+            <h2>📋 Activity Log</h2>
+            <div class="log-toolbar">
+                <button type="button" class="btn emu" id="btn-clear-log">Clear log</button>
+                <span class="status-pill-emu" id="log-count">0 events</span>
+            </div>
+            <div id="log-stream" class="log-stream" aria-live="polite"></div>
+        </aside>
+    </div>
+
+    <script>
+        const SCANNER_ID = 'BROWSER-EMU-001';
+        const MOCK_TOOL_EPCS = [
+            'EPC301833B2A1TOOL00001',
+            'EPC301833B2A1TOOL00002',
+            'EPC301833B2A1CABL00003',
+            'EPC301833B2A1CABL00004',
+            'EPC301833B2A1GEAR00005',
+            'EPC301833B2A1GEAR00006',
+            'EPC301833B2A1TOOL00007',
+            'EPC301833B2A1CABL00008',
+            'EPC301833B2A1GEAR00009',
+            'EPC301833B2A1TOOL00010',
+        ];
+
+        let containers = [];
+        let dashboardItems = [];
+        let autopilotTimer = null;
+        let logCount = 0;
+        let adminNearGate = -55;
+
+        document.getElementById('scanner-id-display').textContent = SCANNER_ID;
+
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function randomHexEpc() {
+            const t = Date.now().toString(16).toUpperCase();
+            const r = Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase().padStart(6, '0');
+            return `EPC${t}${r}`.slice(0, 24);
+        }
+
+        function pickRandom(arr, count) {
+            const pool = [...arr];
+            const out = [];
+            for (let i = 0; i < count && pool.length; i++) {
+                const idx = Math.floor(Math.random() * pool.length);
+                out.push(pool.splice(idx, 1)[0]);
+            }
+            return out;
+        }
+
+        function clamp(n, lo, hi) {
+            return Math.max(lo, Math.min(hi, n));
+        }
+
+        function appendLog(type, method, path, payload, response) {
+            logCount += 1;
+            document.getElementById('log-count').textContent = logCount + ' events';
+            const stream = document.getElementById('log-stream');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + type;
+            const time = new Date().toLocaleTimeString();
+            entry.innerHTML =
+                '<div class="log-meta">' + escapeHtml(time) + ' · ' + escapeHtml(method) + ' ' + escapeHtml(path) + '</div>' +
+                '<div class="log-payload">→ ' + escapeHtml(JSON.stringify(payload, null, 2)) + '</div>' +
+                (response != null
+                    ? '<div class="log-payload" style="margin-top:6px;color:#94a3b8;">← ' + escapeHtml(JSON.stringify(response, null, 2)) + '</div>'
+                    : '');
+            stream.prepend(entry);
+            while (stream.children.length > 80) stream.removeChild(stream.lastChild);
+        }
+
+        async function apiPost(path, body, logType) {
+            try {
+                const res = await fetch(path, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    appendLog('error', 'POST', path, body, data);
+                    throw new Error(data.error || res.statusText);
+                }
+                appendLog(logType || 'scan', 'POST', path, body, data);
+                return data;
+            } catch (err) {
+                if (!String(err.message).includes('error')) {
+                    appendLog('error', 'POST', path, body, { error: err.message });
+                }
+                throw err;
+            }
+        }
+
+        async function loadAdminGates() {
+            try {
+                const res = await fetch('/api/admin/settings');
+                const s = await res.json();
+                if (res.ok) {
+                    adminNearGate = parseInt(s.rssi_near_gate, 10) || -55;
+                    document.getElementById('near-gate-display').textContent = adminNearGate;
+                }
+            } catch (_) {
+                document.getElementById('near-gate-display').textContent = String(adminNearGate);
+            }
+        }
+
+        function getOnboardRssi() {
+            return parseInt(document.getElementById('onboard-rssi').value, 10);
+        }
+
+        function updateOnboardRssiLabel() {
+            const v = getOnboardRssi();
+            const el = document.getElementById('onboard-rssi-label');
+            el.textContent = v + ' dBm';
+            el.style.color = v >= adminNearGate ? '#4ade80' : '#fbbf24';
+        }
+
+        function buildNearFieldPayload(epc, rssi) {
+            return {
+                scanned_tags: [{ epc, rssi }],
+            };
+        }
+
+        function buildScanPayload(targetBin, tags) {
+            return {
+                scanner_id: SCANNER_ID,
+                target_container_epc: targetBin,
+                scanned_tags: tags,
+            };
+        }
+
+        async function fireNearFieldIngest() {
+            const epc = document.getElementById('onboard-epc').value.trim() || randomHexEpc();
+            document.getElementById('onboard-epc').value = epc;
+            const rssi = getOnboardRssi();
+            await apiPost('/api/scan/near-field-ingest', buildNearFieldPayload(epc, rssi), 'near-field');
+        }
+
+        async function fireNearFieldViaScan() {
+            const epc = document.getElementById('onboard-epc').value.trim() || randomHexEpc();
+            document.getElementById('onboard-epc').value = epc;
+            const rssi = getOnboardRssi();
+            const bin = document.getElementById('quick-target-bin').value || containers[0]?.id || 'BIN-UNASSIGNED';
+            await apiPost(
+                '/api/scan',
+                buildScanPayload(bin, [{ epc, rssi }]),
+                'scan'
+            );
+        }
+
+        function renderBinMatrix() {
+            const matrix = document.getElementById('bin-matrix');
+            if (!containers.length) {
+                matrix.innerHTML = '<p class="hint">No containers registered. Add bins with boundary tags in Bin Manager.</p>';
+                return;
+            }
+
+            matrix.innerHTML = containers.map((bin) => {
+                const tagA = (bin.boundary_tag_a || '').trim();
+                const tagB = (bin.boundary_tag_b || '').trim();
+                const boundariesOk = tagA && tagB;
+                const boundaryClass = boundariesOk ? '' : ' missing';
+                const boundaryText = boundariesOk
+                    ? `A: ${escapeHtml(tagA)}<br>B: ${escapeHtml(tagB)}`
+                    : '⚠ Configure boundary_tag_a & boundary_tag_b on this bin';
+                return `
+                <div class="bin-panel" data-bin-id="${escapeHtml(bin.id)}">
+                    <h4>${escapeHtml(bin.name)}</h4>
+                    <div class="bin-id">${escapeHtml(bin.id)}</div>
+                    <div class="boundary-tags${boundaryClass}">${boundaryText}</div>
+                    <button type="button" class="btn emu success btn-sweep-bin" data-bin-id="${escapeHtml(bin.id)}" ${boundariesOk ? '' : 'disabled'}>
+                        Sweep this bin container
+                    </button>
+                </div>`;
+            }).join('');
+
+            matrix.querySelectorAll('.btn-sweep-bin').forEach((btn) => {
+                btn.addEventListener('click', () => sweepBin(btn.dataset.binId));
+            });
+        }
+
+        async function sweepBin(binId) {
+            const bin = containers.find((c) => c.id === binId);
+            if (!bin) return;
+            const tagA = (bin.boundary_tag_a || '').trim();
+            const tagB = (bin.boundary_tag_b || '').trim();
+            if (!tagA || !tagB) {
+                alert('This bin needs both boundary tags configured.');
+                return;
+            }
+
+            const itemEpcs = dashboardItems.length
+                ? dashboardItems.map((i) => i.epc_id)
+                : MOCK_TOOL_EPCS;
+            const assetCount = 2 + Math.floor(Math.random() * 3);
+            const assets = pickRandom(itemEpcs, assetCount);
+
+            const scanned_tags = [
+                { epc: tagA, rssi: -38 - Math.floor(Math.random() * 6) },
+                { epc: tagB, rssi: -40 - Math.floor(Math.random() * 6) },
+                ...assets.map((epc) => ({
+                    epc,
+                    rssi: -58 - Math.floor(Math.random() * 18),
+                })),
+            ];
+
+            await apiPost(
+                '/api/scan',
+                buildScanPayload(binId, scanned_tags),
+                'scan'
+            );
+        }
+
+        function populateTargetBinSelect() {
+            const sel = document.getElementById('quick-target-bin');
+            if (!containers.length) {
+                sel.innerHTML = '<option value="">— no bins —</option>';
+                return;
+            }
+            sel.innerHTML = containers.map((c) =>
+                `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`
+            ).join('');
+        }
+
+        function renderTagGrid() {
+            const grid = document.getElementById('tag-grid');
+            const epcs = MOCK_TOOL_EPCS;
+            grid.innerHTML = epcs.map((epc) => `
+                <div class="tag-chip" data-epc="${escapeHtml(epc)}">
+                    <code>${escapeHtml(epc)}</code>
+                    <input type="range" class="tag-rssi" min="-90" max="-10" value="-60" step="1" aria-label="RSSI for ${escapeHtml(epc)}">
+                    <span class="tag-rssi-val">−60 dBm</span>
+                    <button type="button" class="btn emu btn-fire-tag">Fire tag</button>
+                </div>
+            `).join('');
+
+            grid.querySelectorAll('.tag-rssi').forEach((slider) => {
+                slider.addEventListener('input', () => {
+                    const val = slider.value;
+                    slider.parentElement.querySelector('.tag-rssi-val').textContent = val + ' dBm';
+                });
+            });
+
+            grid.querySelectorAll('.btn-fire-tag').forEach((btn) => {
+                btn.addEventListener('click', async () => {
+                    const chip = btn.closest('.tag-chip');
+                    const epc = chip.dataset.epc;
+                    const rssi = parseInt(chip.querySelector('.tag-rssi').value, 10);
+                    const bin = document.getElementById('quick-target-bin').value;
+                    if (!bin) {
+                        alert('Select a target bin first.');
+                        return;
+                    }
+                    await apiPost('/api/scan', buildScanPayload(bin, [{ epc, rssi }]), 'scan');
+                });
+            });
+        }
+
+        async function refreshContainers() {
+            const [contRes, dashRes] = await Promise.all([
+                fetch('/api/containers'),
+                fetch('/api/dashboard'),
+            ]);
+            containers = contRes.ok ? await contRes.json() : [];
+            const dash = dashRes.ok ? await dashRes.json() : {};
+            dashboardItems = dash.items || [];
+            appendLog('info', 'GET', '/api/containers + /api/dashboard', {}, {
+                containers: containers.length,
+                items: dashboardItems.length,
+            });
+            renderBinMatrix();
+            populateTargetBinSelect();
+        }
+
+        function autopilotTick() {
+            if (!containers.length) return;
+            const bin = containers[Math.floor(Math.random() * containers.length)];
+            const pool = dashboardItems.length
+                ? dashboardItems.map((i) => i.epc_id)
+                : MOCK_TOOL_EPCS;
+            const count = 2 + Math.floor(Math.random() * 5);
+            const tags = pickRandom(pool, count).map((epc) => ({
+                epc,
+                rssi: -75 + Math.floor(Math.random() * 35),
+            }));
+
+            const tagA = (bin.boundary_tag_a || '').trim();
+            const tagB = (bin.boundary_tag_b || '').trim();
+            if (tagA && tagB && Math.random() < 0.35) {
+                tags.push(
+                    { epc: tagA, rssi: -42 - Math.floor(Math.random() * 8) },
+                    { epc: tagB, rssi: -44 - Math.floor(Math.random() * 8) }
+                );
+            }
+
+            apiPost('/api/scan', buildScanPayload(bin.id, tags), 'autopilot').catch(() => {});
+        }
+
+        function setAutopilot(on) {
+            const toggle = document.getElementById('autopilot-toggle');
+            const label = document.getElementById('autopilot-label');
+            toggle.classList.toggle('on', on);
+            toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+            label.textContent = on ? 'Autopilot ON' : 'Autopilot OFF';
+
+            if (autopilotTimer) {
+                clearTimeout(autopilotTimer);
+                autopilotTimer = null;
+            }
+
+            if (!on) return;
+
+            const schedule = () => {
+                autopilotTick();
+                const delay = 3000 + Math.floor(Math.random() * 2000);
+                autopilotTimer = setTimeout(schedule, delay);
+            };
+            schedule();
+        }
+
+        document.getElementById('onboard-rssi').addEventListener('input', updateOnboardRssiLabel);
+        document.getElementById('btn-random-epc').addEventListener('click', () => {
+            document.getElementById('onboard-epc').value = randomHexEpc();
+        });
+        document.getElementById('btn-near-ingest').addEventListener('click', () => fireNearFieldIngest().catch((e) => alert(e.message)));
+        document.getElementById('btn-near-scan').addEventListener('click', () => fireNearFieldViaScan().catch((e) => alert(e.message)));
+        document.getElementById('btn-refresh-containers').addEventListener('click', () => refreshContainers().catch((e) => alert(e.message)));
+        document.getElementById('btn-clear-log').addEventListener('click', () => {
+            document.getElementById('log-stream').innerHTML = '';
+            logCount = 0;
+            document.getElementById('log-count').textContent = '0 events';
+        });
+        document.getElementById('autopilot-toggle').addEventListener('click', () => {
+            const on = !document.getElementById('autopilot-toggle').classList.contains('on');
+            setAutopilot(on);
+            appendLog('info', 'LOCAL', 'autopilot', { enabled: on }, null);
+        });
+
+        loadAdminGates();
+        updateOnboardRssiLabel();
+        document.getElementById('onboard-epc').value = randomHexEpc();
+        renderTagGrid();
+        refreshContainers().catch(console.error);
+        appendLog('info', 'LOCAL', 'simulator', { message: 'Merlin Hardware Simulator ready' }, null);
+    </script>
+</body>
+</html>
