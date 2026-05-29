@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <title>📱 Merlin Handheld</title>
+    <link rel="stylesheet" href="/onboarding-wizard.css">
     <style>
         :root {
             --bg: #0f172a;
@@ -617,6 +618,26 @@
             margin-bottom: 10px;
         }
         .sync-badge.warn { color: var(--warning); }
+        .header-util-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .btn-register-tag {
+            background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            cursor: pointer;
+            flex: 1;
+            font-size: 14px;
+            font-weight: 700;
+            min-height: 44px;
+            padding: 10px 14px;
+            touch-action: manipulation;
+        }
+        .btn-register-tag:active { opacity: 0.9; }
     </style>
 </head>
 <body>
@@ -624,6 +645,9 @@
         <h1>📱 Merlin Handheld</h1>
         <p>Nordic ID UHF — mobile scanner interface</p>
         <a class="desktop-link" href="/index.html">🖥️ Switch to Desktop Dashboard</a>
+        <div class="header-util-row">
+            <button type="button" class="btn-register-tag" id="open-onboard-wizard">🏷️ Register New Tag</button>
+        </div>
     </header>
 
     <main>
@@ -778,6 +802,43 @@
         </button>
     </nav>
 
+    <div id="onboard-modal" class="modal-overlay" aria-hidden="true" style="align-items:flex-end;z-index:300;">
+        <div class="modal onboard-wizard" role="dialog" aria-labelledby="onboard-title" style="max-width:100%;width:100%;border-radius:16px 16px 0 0;margin:0;max-height:92dvh;overflow-y:auto;">
+            <h3 id="onboard-title">🏷️ Register New Tag</h3>
+            <p class="onboard-subtitle">Ultra-near capture — hold tag on antenna, pull trigger.</p>
+            <div id="onboard-listen-zone" class="onboard-listen-zone">
+                <div id="onboard-radar" class="onboard-radar listening">
+                    <span class="onboard-radar-icon">📡</span>
+                </div>
+                <p id="onboard-listen-text" class="onboard-listen-text">Hold a new tag against the antenna and pull the trigger…</p>
+                <p class="onboard-rssi-hint">Listening for ≥ <strong id="onboard-gate-display">—</strong> dBm</p>
+            </div>
+            <div id="onboard-form-zone" class="onboard-form-zone hidden">
+                <label for="onboard-epc">EPC (locked)</label>
+                <input type="text" id="onboard-epc" class="onboard-epc-locked" readonly>
+                <p id="onboard-capture-meta" class="onboard-rssi-hint" style="margin-top:-8px;margin-bottom:14px;"></p>
+                <form id="onboard-register-form">
+                    <label for="onboard-name">Item name</label>
+                    <input type="text" id="onboard-name" required placeholder="e.g. DeWalt Impact Wrench">
+                    <label for="onboard-home-bin">Home container</label>
+                    <select id="onboard-home-bin"></select>
+                    <label for="onboard-category">Category</label>
+                    <input type="text" id="onboard-category">
+                    <label for="onboard-description">Description</label>
+                    <textarea id="onboard-description"></textarea>
+                    <div class="onboard-actions">
+                        <button type="button" class="btn-chip" id="onboard-rescan">↺ Re-scan</button>
+                        <button type="button" class="btn-chip" id="onboard-cancel">Cancel</button>
+                        <button type="submit" class="btn-giant onboard-register" id="onboard-register-btn" style="min-height:52px;margin:0;flex:1 1 100%;" disabled>✓ Register asset</button>
+                    </div>
+                </form>
+            </div>
+            <div class="onboard-actions" id="onboard-listen-actions">
+                <button type="button" class="btn-chip" id="onboard-cancel-listen" style="width:100%;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <div id="item-sheet-overlay" class="sheet-overlay" aria-hidden="true"></div>
     <div id="item-bottom-sheet" class="bottom-sheet" role="dialog" aria-labelledby="item-sheet-title" aria-hidden="true">
         <div class="sheet-handle"></div>
@@ -810,6 +871,7 @@
     </div>
 
     <script src="/inventory-shared.js"></script>
+    <script src="/onboarding-wizard.js"></script>
     <script>
         const MOCK_ITEM_EPCS = [
             'EPC301833B2A1TOOL00001',
@@ -975,6 +1037,15 @@
             return picked;
         }
 
+        function tagsWithRssi(epcs, ultraNear) {
+            return epcs.map((epc) => ({
+                epc,
+                rssi: ultraNear
+                    ? -38 - Math.floor(Math.random() * 10)
+                    : -72 - Math.floor(Math.random() * 18),
+            }));
+        }
+
         function getTargetBinEpc() {
             const custom = document.getElementById('bin-epc-custom').value.trim();
             if (custom) return custom;
@@ -995,20 +1066,29 @@
         }
 
         async function postScanPayload(binEpc, tags) {
-            const hadUnknownInBuffer = tags.some((epc) => !itemLookup[epc] || isUnknownTagEpc(epc));
+            const epcList = tags.map((t) => (typeof t === 'string' ? t : t.epc));
+            const hadUnknownInBuffer = epcList.some((epc) => !itemLookup[epc] || isUnknownTagEpc(epc));
+
+            if (typeof MerlinOnboarding !== 'undefined' && MerlinOnboarding.isOpen()) {
+                await MerlinOnboarding.ingestNearFieldTags(tagsWithRssi(epcList, true));
+                document.getElementById('scan-tag-list').textContent =
+                    'Near-field ingest: ' + epcList.length + ' tag(s) for onboarding';
+                return { status: 'success', message: 'Near-field capture sent' };
+            }
+
             const res = await fetch('/api/scan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     scanner_id: SCANNER_ID,
                     target_container_epc: binEpc,
-                    scanned_tags: tags,
+                    scanned_tags: tagsWithRssi(epcList, false),
                 }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Scan failed');
             await refreshItemLookup();
-            const stillUnknown = tags.some(isUnknownTagEpc);
+            const stillUnknown = epcList.some(isUnknownTagEpc);
             if (hadUnknownInBuffer || stillUnknown) {
                 const now = Date.now();
                 if (now - lastUnknownToneAt > 900) {
@@ -1853,6 +1933,12 @@
                 closeItemSheet();
                 toggleFindFromInventory(sheetEditEpc);
             }
+        });
+
+        MerlinOnboarding.init({
+            onRegistered: async () => {
+                await syncInventoryFromServer();
+            },
         });
 
         loadAdminSettings();

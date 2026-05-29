@@ -6,6 +6,10 @@ const PORT = process.env.PORT || 3000;
 
 let activeSearchQueue = [];
 
+/** Recent ultra-near reads for onboarding wizard (newest first). */
+const nearFieldBuffer = [];
+const NEAR_FIELD_BUFFER_MAX = 120;
+
 function normalizeContainerId(value) {
     const trimmed = value == null ? '' : String(value).trim();
     return trimmed === '' ? null : trimmed;
@@ -189,6 +193,58 @@ function normalizeScanTag(epc) {
     return epc == null ? '' : String(epc).trim();
 }
 
+function parseScannedTagEntry(entry) {
+    if (typeof entry === 'string') {
+        return { epc: normalizeScanTag(entry), rssi: null };
+    }
+    if (entry && typeof entry === 'object') {
+        const rawRssi = entry.rssi ?? entry.RSSI ?? entry.signal;
+        const rssi = rawRssi == null ? null : parseInt(String(rawRssi), 10);
+        return {
+            epc: normalizeScanTag(entry.epc ?? entry.EPC ?? entry.id ?? entry.tag),
+            rssi: Number.isNaN(rssi) ? null : rssi,
+        };
+    }
+    return { epc: '', rssi: null };
+}
+
+function normalizeScannedTags(rawTags) {
+    if (!Array.isArray(rawTags)) return [];
+    return rawTags.map(parseScannedTagEntry).filter((t) => t.epc);
+}
+
+function recordNearFieldReads(tagEntries, settings) {
+    const nearGate = parseInt(settings.rssi_near_gate, 10) || -55;
+    const now = Date.now();
+    let recorded = 0;
+
+    tagEntries.forEach(({ epc, rssi }) => {
+        if (!epc || rssi == null || Number.isNaN(rssi)) return;
+        if (rssi >= nearGate) {
+            nearFieldBuffer.unshift({ epc, rssi, timestamp: now });
+            recorded += 1;
+        }
+    });
+
+    while (nearFieldBuffer.length > NEAR_FIELD_BUFFER_MAX) {
+        nearFieldBuffer.pop();
+    }
+
+    if (recorded > 0) {
+        console.log(`📡 Near-field buffer: +${recorded} ultra-near read(s) (gate ≥ ${nearGate} dBm)`);
+    }
+}
+
+function findLatestUnassignedNearField(sinceMs, nearGate) {
+    const candidates = nearFieldBuffer.filter(
+        (read) => read.timestamp > sinceMs && read.rssi >= nearGate
+    );
+    if (!candidates.length) return null;
+
+    candidates.sort((a, b) => b.rssi - a.rssi || b.timestamp - a.timestamp);
+    return candidates[0];
+}
+
 function findSpatialZoneMatch(scannedTags, containers) {
     const tagSet = new Set(scannedTags.map(normalizeScanTag).filter(Boolean));
 
@@ -246,8 +302,75 @@ function processScannedTags(scannedTags, targetContainerEpc) {
     });
 }
 
+// 📡 Near-field ingest (onboarding listener — does not mutate inventory)
+app.post('/api/scan/near-field-ingest', async (req, res) => {
+    const { scanned_tags } = req.body;
+    const tagEntries = normalizeScannedTags(scanned_tags);
+
+    if (!tagEntries.length) {
+        return res.status(400).json({ error: 'scanned_tags array required (with epc + rssi)' });
+    }
+
+    try {
+        const settings = await getSystemSettings();
+        recordNearFieldReads(tagEntries, settings);
+        const nearGate = parseInt(settings.rssi_near_gate, 10) || -55;
+        res.json({
+            status: 'success',
+            recorded: tagEntries.filter((t) => t.rssi != null && t.rssi >= nearGate).length,
+            rssi_near_gate: nearGate,
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 🏷️ Latest ultra-near unassigned tag for onboarding wizard
+app.get('/api/scan/latest-near-field', async (req, res) => {
+    const since = parseInt(String(req.query.since || '0'), 10) || 0;
+
+    try {
+        const settings = await getSystemSettings();
+        const nearGate = parseInt(settings.rssi_near_gate, 10) || -55;
+        const candidate = findLatestUnassignedNearField(since, nearGate);
+
+        if (!candidate) {
+            return res.json({
+                captured: false,
+                rssi_near_gate: nearGate,
+                rssi_far_gate: parseInt(settings.rssi_far_gate, 10) || -85,
+            });
+        }
+
+        db.get(`SELECT epc_id, name FROM items WHERE epc_id = ?`, [candidate.epc], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            if (row) {
+                return res.json({
+                    captured: false,
+                    reason: 'already_registered',
+                    epc: candidate.epc,
+                    existing_name: row.name,
+                    rssi_near_gate: nearGate,
+                });
+            }
+
+            res.json({
+                captured: true,
+                epc: candidate.epc,
+                rssi: candidate.rssi,
+                timestamp: candidate.timestamp,
+                rssi_near_gate: nearGate,
+                rssi_far_gate: parseInt(settings.rssi_far_gate, 10) || -85,
+            });
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 📡 The Endpoint: Processes bulk scans and updates item locations
-app.post('/api/scan', (req, res) => {
+app.post('/api/scan', async (req, res) => {
     const { target_container_epc, scanned_tags } = req.body;
 
     console.log(`\n--- 📡 Processing Scan: ${scanned_tags ? scanned_tags.length : 0} tags ---`);
@@ -256,7 +379,15 @@ app.post('/api/scan', (req, res) => {
         return res.status(200).json({ status: 'success', message: 'No tags received.' });
     }
 
-    const normalizedTags = scanned_tags.map(normalizeScanTag).filter(Boolean);
+    const tagEntries = normalizeScannedTags(scanned_tags);
+    const normalizedTags = tagEntries.map((t) => t.epc);
+
+    try {
+        const settings = await getSystemSettings();
+        recordNearFieldReads(tagEntries, settings);
+    } catch (err) {
+        console.warn('Near-field record failed:', err.message);
+    }
 
     db.all(
         `SELECT id, name, boundary_tag_a, boundary_tag_b FROM containers

@@ -189,7 +189,10 @@ async function simulateInventoryScan(containerEpc, totalTags) {
     const payload = {
         scanner_id: SCANNER_ID,
         target_container_epc: containerEpc,
-        scanned_tags: selected,
+        scanned_tags: selected.map((epc) => ({
+            epc,
+            rssi: -45 - Math.floor(Math.random() * 25),
+        })),
     };
 
     try {

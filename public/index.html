@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>📦 RFID Home Inventory Hub</title>
     <link rel="stylesheet" href="/app.css">
+    <link rel="stylesheet" href="/onboarding-wizard.css">
     <style>
         h2 { font-size: 18px; margin-top: 0; border-bottom: 1px solid #334155; padding-bottom: 10px; }
         table {
@@ -299,6 +300,7 @@
                 <p>Real-world physical asset synchronization mapping</p>
             </div>
             <div class="header-actions">
+                <button type="button" class="btn" id="open-onboard-wizard">🏷️ Register New Tag</button>
                 <button type="button" class="btn primary" id="open-add-item">➕ Add Item</button>
                 <div id="connection-status" class="badge success">● Live Sync Active</div>
             </div>
@@ -400,12 +402,50 @@
         </div>
     </div>
 
+    <div id="onboard-modal" class="modal-overlay" aria-hidden="true">
+        <div class="modal onboard-wizard" role="dialog" aria-labelledby="onboard-title">
+            <h3 id="onboard-title">🏷️ Register New Tag</h3>
+            <p class="onboard-subtitle">Ultra-near onboarding — only unregistered tags at high RSSI are captured.</p>
+            <div id="onboard-listen-zone" class="onboard-listen-zone">
+                <div id="onboard-radar" class="onboard-radar listening">
+                    <span class="onboard-radar-icon">📡</span>
+                </div>
+                <p id="onboard-listen-text" class="onboard-listen-text">Hold a new tag against the antenna and pull the trigger…</p>
+                <p class="onboard-rssi-hint">Listening for ≥ <strong id="onboard-gate-display">—</strong> dBm (from admin RSSI gates)</p>
+            </div>
+            <div id="onboard-form-zone" class="onboard-form-zone hidden">
+                <label for="onboard-epc">EPC (locked)</label>
+                <input type="text" id="onboard-epc" class="onboard-epc-locked" readonly>
+                <p id="onboard-capture-meta" class="onboard-rssi-hint" style="margin-top:-8px;margin-bottom:14px;"></p>
+                <form id="onboard-register-form">
+                    <label for="onboard-name">Item name</label>
+                    <input type="text" id="onboard-name" required placeholder="e.g. DeWalt Impact Wrench">
+                    <label for="onboard-home-bin">Home container</label>
+                    <select id="onboard-home-bin"></select>
+                    <label for="onboard-category">Category</label>
+                    <input type="text" id="onboard-category" placeholder="Tools, Electronics…">
+                    <label for="onboard-description">Description</label>
+                    <textarea id="onboard-description" placeholder="Optional notes"></textarea>
+                    <div class="onboard-actions">
+                        <button type="button" class="btn" id="onboard-rescan">↺ Re-scan tag</button>
+                        <button type="button" class="btn" id="onboard-cancel">Cancel</button>
+                        <button type="submit" class="btn onboard-register" id="onboard-register-btn" disabled>✓ Register asset</button>
+                    </div>
+                </form>
+            </div>
+            <div class="onboard-actions" id="onboard-listen-actions">
+                <button type="button" class="btn" id="onboard-cancel-listen">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <div id="batch-action-bar" aria-hidden="true">
         <span class="batch-count"><strong id="batch-selected-count">0</strong><span id="batch-count-label"> items selected</span></span>
         <button type="button" class="btn hunt-batch" id="hunt-selected-btn">🔍 Hunt Selected Items</button>
     </div>
 
     <script src="/inventory-shared.js"></script>
+    <script src="/onboarding-wizard.js"></script>
     <script>
         let activeSearchQueue = [];
         let availableContainers = [];
@@ -871,6 +911,12 @@
             } catch (err) {
                 alert(err.message);
             }
+        });
+
+        MerlinOnboarding.init({
+            onRegistered: async () => {
+                await fetchDashboardData();
+            },
         });
 
         loadContainersFromApi();
