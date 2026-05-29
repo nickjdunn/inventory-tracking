@@ -27,14 +27,15 @@
             <header class="page-header">
                 <div>
                     <h2>🗃️ Bin & Location Manager</h2>
-                    <p>Register physical totes and shelf bins for RFID tracking</p>
+                    <p>Create, edit, and remove physical totes and shelf bins</p>
                 </div>
             </header>
 
             <div class="container">
                 <section class="card">
-                    <h3>Create New Container / Bin</h3>
+                    <h3 id="bin-form-title">Create New Container / Bin</h3>
                     <form id="create-bin-form">
+                        <input type="hidden" id="editing-bin-id" value="">
                         <div class="form-field">
                             <label for="bin-id">Bin Code / ID</label>
                             <input type="text" id="bin-id" name="id" placeholder="BIN-GARAGE-01" required autocomplete="off">
@@ -55,7 +56,10 @@
                             <label for="boundary-tag-b">Boundary Tag B (Right/Back EPC)</label>
                             <input type="text" id="boundary-tag-b" name="boundary_tag_b" placeholder="EPC of right/back boundary tag" autocomplete="off">
                         </div>
-                        <button type="submit" class="btn primary">➕ Create Bin</button>
+                        <div class="bin-form-actions">
+                            <button type="submit" class="btn primary" id="bin-form-submit">➕ Create Bin</button>
+                            <button type="button" class="btn" id="bin-form-cancel" style="display:none;">Cancel edit</button>
+                        </div>
                         <div id="form-status" class="form-status" style="display:none;" role="status"></div>
                     </form>
                 </section>
@@ -71,6 +75,10 @@
     </div>
 
     <script>
+        let editingBinId = null;
+        let toastHideTimer = null;
+        let binById = {};
+
         function escapeHtml(str) {
             return String(str ?? '')
                 .replace(/&/g, '&amp;')
@@ -79,11 +87,46 @@
                 .replace(/"/g, '&quot;');
         }
 
-        function showFormStatus(message, type) {
+        function showFormStatus(message, type, autoFade) {
             const el = document.getElementById('form-status');
+            if (toastHideTimer) {
+                clearTimeout(toastHideTimer);
+                toastHideTimer = null;
+            }
             el.style.display = 'block';
-            el.className = 'form-status ' + type;
+            el.className = 'form-status ' + type + (autoFade ? ' toast-fade' : '');
             el.textContent = message;
+            if (autoFade) {
+                toastHideTimer = setTimeout(() => {
+                    el.style.display = 'none';
+                    el.classList.remove('toast-fade');
+                }, 3200);
+            }
+        }
+
+        function resetBinForm() {
+            editingBinId = null;
+            document.getElementById('editing-bin-id').value = '';
+            document.getElementById('create-bin-form').reset();
+            document.getElementById('bin-id').disabled = false;
+            document.getElementById('bin-form-title').textContent = 'Create New Container / Bin';
+            document.getElementById('bin-form-submit').textContent = '➕ Create Bin';
+            document.getElementById('bin-form-cancel').style.display = 'none';
+        }
+
+        function startEditBin(bin) {
+            editingBinId = bin.id;
+            document.getElementById('editing-bin-id').value = bin.id;
+            document.getElementById('bin-id').value = bin.id;
+            document.getElementById('bin-id').disabled = true;
+            document.getElementById('bin-name').value = bin.name || '';
+            document.getElementById('bin-description').value = bin.description || '';
+            document.getElementById('boundary-tag-a').value = bin.boundary_tag_a || '';
+            document.getElementById('boundary-tag-b').value = bin.boundary_tag_b || '';
+            document.getElementById('bin-form-title').textContent = 'Update Container / Bin';
+            document.getElementById('bin-form-submit').textContent = '💾 Save changes';
+            document.getElementById('bin-form-cancel').style.display = 'inline-block';
+            document.getElementById('bin-form-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         async function loadBins() {
@@ -92,6 +135,8 @@
                 const res = await fetch('/api/containers');
                 const bins = await res.json();
                 if (!res.ok) throw new Error(bins.error || 'Failed to load bins');
+
+                binById = Object.fromEntries(bins.map((b) => [b.id, b]));
 
                 if (!bins.length) {
                     grid.innerHTML = '<p style="color: var(--text-muted);">No bins registered yet. Create one above.</p>';
@@ -105,23 +150,61 @@
                         ? `<p class="bin-boundaries">🔗 Boundaries: ${escapeHtml(tagA || '—')} | ${escapeHtml(tagB || '—')}</p>`
                         : '';
                     return `
-                    <article class="bin-card">
+                    <article class="bin-card" data-bin-id="${escapeHtml(bin.id)}">
                         <h4>${escapeHtml(bin.name)}</h4>
                         <div class="bin-id">${escapeHtml(bin.id)}</div>
                         <p class="bin-desc">${escapeHtml(bin.description || 'No description')}</p>
                         ${boundariesHtml}
+                        <div class="bin-card-actions">
+                            <button type="button" class="btn small edit-bin-btn">✏️ Edit</button>
+                            <button type="button" class="btn small danger delete-bin-btn">🗑️ Delete</button>
+                        </div>
                     </article>
                 `;
                 }).join('');
+
+                grid.querySelectorAll('.edit-bin-btn').forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        const card = btn.closest('.bin-card');
+                        const bin = binById[card.dataset.binId];
+                        if (bin) startEditBin(bin);
+                    });
+                });
+
+                grid.querySelectorAll('.delete-bin-btn').forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        const card = btn.closest('.bin-card');
+                        const bin = binById[card.dataset.binId];
+                        if (bin) deleteBin(bin);
+                    });
+                });
             } catch (err) {
                 grid.innerHTML = '<p style="color: #fecaca;">Could not load bins: ' + escapeHtml(err.message) + '</p>';
+            }
+        }
+
+        async function deleteBin(bin) {
+            const msg = `Delete bin "${bin.name}" (${bin.id})?\n\nItems currently in this bin will be unlinked (not deleted).`;
+            if (!confirm(msg)) return;
+
+            try {
+                const res = await fetch('/api/containers/' + encodeURIComponent(bin.id), {
+                    method: 'DELETE',
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Delete failed');
+
+                if (editingBinId === bin.id) resetBinForm();
+                showFormStatus('✅ Bin deleted: ' + bin.name, 'ok', true);
+                await loadBins();
+            } catch (err) {
+                showFormStatus('❌ ' + err.message, 'err');
             }
         }
 
         document.getElementById('create-bin-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const payload = {
-                id: document.getElementById('bin-id').value.trim(),
                 name: document.getElementById('bin-name').value.trim(),
                 description: document.getElementById('bin-description').value.trim() || null,
                 boundary_tag_a: document.getElementById('boundary-tag-a').value.trim(),
@@ -129,20 +212,38 @@
             };
 
             try {
-                const res = await fetch('/api/containers', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Create failed');
-
-                showFormStatus('✅ Bin created: ' + data.name, 'ok');
-                document.getElementById('create-bin-form').reset();
+                if (editingBinId) {
+                    const res = await fetch('/api/containers/' + encodeURIComponent(editingBinId), {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'Update failed');
+                    resetBinForm();
+                    showFormStatus('✅ Bin updated: ' + data.name, 'ok', true);
+                } else {
+                    const binId = document.getElementById('bin-id').value.trim();
+                    if (!binId) throw new Error('Bin ID is required');
+                    const res = await fetch('/api/containers', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: binId, ...payload }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'Create failed');
+                    resetBinForm();
+                    showFormStatus('✅ Bin created: ' + data.name, 'ok', true);
+                }
                 await loadBins();
             } catch (err) {
                 showFormStatus('❌ ' + err.message, 'err');
             }
+        });
+
+        document.getElementById('bin-form-cancel').addEventListener('click', () => {
+            resetBinForm();
+            showFormStatus('Edit cancelled', 'info', true);
         });
 
         loadBins();

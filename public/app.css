@@ -188,6 +188,17 @@ body {
     border-color: var(--accent);
 }
 .btn.primary:hover { background: #0284c7; }
+.btn.small {
+    font-size: 13px;
+    padding: 8px 12px;
+}
+.btn.danger {
+    background: #7f1d1d;
+    color: #fecaca;
+}
+.btn.danger:hover {
+    background: #991b1b;
+}
 
 .form-field {
     margin-bottom: 14px;
@@ -224,6 +235,14 @@ body {
 }
 .form-status.ok { background: #064e3b; color: var(--success); }
 .form-status.err { background: #7f1d1d; color: #fecaca; }
+.form-status.info { background: #1e3a8a; color: #93c5fd; }
+.form-status.toast-fade {
+    animation: toastFade 3.2s ease forwards;
+}
+@keyframes toastFade {
+    0%, 72% { opacity: 1; }
+    100% { opacity: 0; }
+}
 
 .bin-grid {
     display: grid;
@@ -251,6 +270,25 @@ body {
     color: var(--text-muted);
     font-size: 14px;
     margin: 0;
+}
+.bin-card .bin-boundaries {
+    color: var(--text-muted);
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    margin: 8px 0 0;
+    word-break: break-all;
+}
+.bin-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+}
+.bin-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
 }
 
 .admin-placeholder {

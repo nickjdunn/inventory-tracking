@@ -458,45 +458,95 @@ app.post('/api/containers', (req, res) => {
     );
 });
 
+function normalizeBoundaryTag(value) {
+    const trimmed = value == null ? '' : String(value).trim();
+    return trimmed === '' ? null : trimmed;
+}
+
 // 📦 Update an existing bin by ID (upsert for scan-time registration)
 app.put('/api/containers/:id', (req, res) => {
     const { id: paramId } = req.params;
-    const { name, description } = req.body;
+    const { name, description, boundary_tag_a, boundary_tag_b } = req.body;
 
     if (!name || typeof name !== 'string' || !name.trim()) {
         return res.status(400).json({ error: 'name is required' });
     }
+
+    const desc = description == null || String(description).trim() === ''
+        ? null
+        : String(description).trim();
+    const boundaryA = normalizeBoundaryTag(boundary_tag_a);
+    const boundaryB = normalizeBoundaryTag(boundary_tag_b);
 
     db.get(`SELECT id FROM containers WHERE id = ?`, [paramId], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
 
         if (row) {
             db.run(
-                `UPDATE containers SET name = ?, description = COALESCE(?, description) WHERE id = ?`,
-                [name.trim(), description ?? null, paramId],
+                `UPDATE containers
+                 SET name = ?, description = ?, boundary_tag_a = ?, boundary_tag_b = ?
+                 WHERE id = ?`,
+                [name.trim(), desc, boundaryA, boundaryB, paramId],
                 function (updateErr) {
                     if (updateErr) return res.status(500).json({ error: updateErr.message });
                     res.json({
                         id: paramId,
                         name: name.trim(),
-                        description: description ?? null,
+                        description: desc,
+                        boundary_tag_a: boundaryA,
+                        boundary_tag_b: boundaryB,
                     });
                 }
             );
         } else {
             db.run(
-                `INSERT INTO containers (id, name, description) VALUES (?, ?, ?)`,
-                [paramId, name.trim(), description ?? null],
+                `INSERT INTO containers (id, name, description, boundary_tag_a, boundary_tag_b)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [paramId, name.trim(), desc, boundaryA, boundaryB],
                 function (insertErr) {
                     if (insertErr) return res.status(500).json({ error: insertErr.message });
                     res.status(201).json({
                         id: paramId,
                         name: name.trim(),
-                        description: description ?? null,
+                        description: desc,
+                        boundary_tag_a: boundaryA,
+                        boundary_tag_b: boundaryB,
                     });
                 }
             );
         }
+    });
+});
+
+// 🗑️ Delete a bin (clears item references, then removes container row)
+app.delete('/api/containers/:id', (req, res) => {
+    const binId = req.params.id;
+
+    db.get(`SELECT id, name FROM containers WHERE id = ?`, [binId], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: 'Bin not found' });
+
+        db.serialize(() => {
+            db.run(`UPDATE items SET container_id = NULL WHERE container_id = ?`, [binId]);
+            db.run(`UPDATE items SET home_container_id = NULL WHERE home_container_id = ?`, [binId], function (clearErr) {
+                if (clearErr) return res.status(500).json({ error: clearErr.message });
+
+                const clearedLinks = this.changes;
+
+                db.run(`DELETE FROM containers WHERE id = ?`, [binId], function (delErr) {
+                    if (delErr) return res.status(500).json({ error: delErr.message });
+                    if (this.changes === 0) {
+                        return res.status(404).json({ error: 'Bin not found' });
+                    }
+                    res.json({
+                        status: 'success',
+                        id: binId,
+                        name: row.name,
+                        cleared_item_links: clearedLinks,
+                    });
+                });
+            });
+        });
     });
 });
 
