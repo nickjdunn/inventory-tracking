@@ -222,6 +222,74 @@
             border-color: var(--cold);
             box-shadow: 0 0 20px rgba(100, 116, 139, 0.25);
         }
+        .proximity-meter {
+            background: #0f172a;
+            border: 2px solid #334155;
+            border-radius: 14px;
+            margin-bottom: 18px;
+            padding: 14px 16px;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .proximity-meter.geiger-pulse {
+            border-color: var(--accent);
+            box-shadow: 0 0 28px rgba(56, 189, 248, 0.55);
+        }
+        .proximity-meter.geiger-pulse.hot {
+            border-color: var(--success);
+            box-shadow: 0 0 36px rgba(74, 222, 128, 0.65);
+        }
+        .proximity-meter.geiger-pulse.warm {
+            border-color: var(--warning);
+            box-shadow: 0 0 32px rgba(251, 191, 36, 0.5);
+        }
+        .proximity-meter-label {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+        .proximity-meter-row {
+            align-items: center;
+            display: flex;
+            gap: 12px;
+            justify-content: space-between;
+        }
+        .proximity-meter-value {
+            font-size: 22px;
+            font-weight: 800;
+            min-width: 64px;
+            text-align: right;
+        }
+        .geiger-bars {
+            display: flex;
+            flex: 1;
+            gap: 4px;
+            height: 28px;
+        }
+        .geiger-bar {
+            background: #334155;
+            border-radius: 3px;
+            flex: 1;
+            transition: background 0.12s ease, transform 0.12s ease;
+        }
+        .geiger-bar.lit {
+            background: var(--accent);
+            transform: scaleY(1.15);
+        }
+        .geiger-bar.lit.hot { background: var(--success); }
+        .geiger-bar.lit.warm { background: var(--warning); }
+        .scan-toggle-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        .scan-toggle-row .btn-giant { flex: 1; margin: 0; min-height: 56px; }
+        .btn-giant.scanning {
+            background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
+            box-shadow: 0 6px 0 #14532d, 0 12px 24px rgba(34, 197, 94, 0.35);
+        }
         .radar-pct {
             font-size: 48px;
             font-weight: 800;
@@ -400,15 +468,18 @@
             <div class="card">
                 <h2>📥 Quick Scan</h2>
                 <label for="bin-select">Target Bin</label>
-                <select id="bin-select">
-                    <option value="BIN-GARAGE-TOOL-001">Garage Tool Bin</option>
-                    <option value="BIN-BASEMENT-CABLE-002">Basement Cable Tote</option>
-                    <option value="BIN-SHED-GEAR-003">Shed Outdoor Gear</option>
+                <select id="bin-select" disabled>
+                    <option value="">Loading bins from server…</option>
                 </select>
                 <label for="bin-epc-custom">Or type Bin EPC</label>
-                <input type="text" id="bin-epc-custom" placeholder="BIN-GARAGE-TOOL-001" autocomplete="off">
+                <input type="text" id="bin-epc-custom" placeholder="Override bin ID" autocomplete="off">
+                <div class="scan-toggle-row">
+                    <button type="button" class="btn-giant" id="scan-toggle" aria-pressed="false">
+                        ▶ Start continuous scan
+                    </button>
+                </div>
                 <button type="button" class="btn-giant" id="trigger-scan">
-                    🎯 SIMULATE TRIGGER PULL
+                    🎯 Single trigger pull
                 </button>
                 <div id="scan-status" class="status-toast" style="display:none;"></div>
                 <div id="scan-tag-list" class="tag-list"></div>
@@ -425,6 +496,22 @@
                 <h2>🔍 Signal Proximity Radar</h2>
                 <p class="batch-position-label" id="batch-position-label" style="display:none;"></p>
                 <div class="find-active-zone">
+                    <div class="proximity-meter cold" id="proximity-meter" aria-live="polite">
+                        <div class="proximity-meter-label">Geiger proximity signal</div>
+                        <div class="proximity-meter-row">
+                            <div class="geiger-bars" id="geiger-bars">
+                                <span class="geiger-bar"></span>
+                                <span class="geiger-bar"></span>
+                                <span class="geiger-bar"></span>
+                                <span class="geiger-bar"></span>
+                                <span class="geiger-bar"></span>
+                                <span class="geiger-bar"></span>
+                                <span class="geiger-bar"></span>
+                                <span class="geiger-bar"></span>
+                            </div>
+                            <span class="proximity-meter-value" id="proximity-dbm">— dBm</span>
+                        </div>
+                    </div>
                     <p class="radar-target-name" id="radar-name">—</p>
                     <p class="radar-epc" id="radar-epc">—</p>
                     <div class="radar-ring cold" id="radar-ring">
@@ -432,7 +519,7 @@
                         <span class="radar-zone" id="radar-zone">COLD</span>
                     </div>
                     <div class="rssi-label">
-                        <span>Signal strength (simulated RSSI)</span>
+                        <span>Signal strength (RSSI)</span>
                         <span id="rssi-pct-text">0%</span>
                     </div>
                     <div class="rssi-bar-wrap">
@@ -527,11 +614,15 @@
         const SCANNER_ID = 'MERLIN-MOBILE-001';
         const TARGET_POLL_MS = 1500;
         const RSSI_TICK_MS = 280;
+        const CONTINUOUS_SCAN_MS = 2200;
 
         let activeView = 'scan';
         let findPollTimer = null;
         let rssiAnimTimer = null;
+        let continuousScanTimer = null;
+        let isContinuousScanning = false;
         let simulatedRssi = 30;
+        let currentRssiDbm = -85;
         let activeSearchQueue = [];
         let radarFocusEpc = null;
         let lastUpNextKey = '';
@@ -540,6 +631,119 @@
         let registeredContainers = [];
         let rssiNearGate = -55;
         let rssiFarGate = -85;
+        let lastUnknownToneAt = 0;
+
+        const MerlinAudio = (() => {
+            let ctx = null;
+            let geigerTimer = null;
+            let unlocked = false;
+
+            function getCtx() {
+                if (!ctx) {
+                    const Ctx = window.AudioContext || window.webkitAudioContext;
+                    if (Ctx) ctx = new Ctx();
+                }
+                return ctx;
+            }
+
+            async function unlock() {
+                const ac = getCtx();
+                if (!ac) return false;
+                if (ac.state === 'suspended') await ac.resume();
+                unlocked = ac.state === 'running';
+                return unlocked;
+            }
+
+            function stopGeiger() {
+                if (geigerTimer) {
+                    clearInterval(geigerTimer);
+                    geigerTimer = null;
+                }
+            }
+
+            function stopAll() {
+                stopGeiger();
+            }
+
+            function playTone(freq, duration, type, gain, when) {
+                const ac = getCtx();
+                if (!ac || !unlocked) return;
+                const t0 = when ?? ac.currentTime;
+                const osc = ac.createOscillator();
+                const g = ac.createGain();
+                osc.type = type || 'sine';
+                osc.frequency.setValueAtTime(freq, t0);
+                g.gain.setValueAtTime(0.0001, t0);
+                g.gain.exponentialRampToValueAtTime(gain, t0 + 0.008);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+                osc.connect(g);
+                g.connect(ac.destination);
+                osc.start(t0);
+                osc.stop(t0 + duration + 0.02);
+            }
+
+            function playChirp(rssiDbm) {
+                const ac = getCtx();
+                if (!ac || !unlocked) return;
+                const near = rssiNearGate;
+                const far = rssiFarGate;
+                const t = clamp((rssiDbm - far) / (near - far), 0, 1);
+                const freq = 380 + t * 1420;
+                const gain = 0.06 + t * 0.14;
+                playTone(freq, 0.045 + t * 0.02, 'square', gain);
+            }
+
+            function playSpatialChime() {
+                const ac = getCtx();
+                if (!ac || !unlocked) return;
+                const t0 = ac.currentTime;
+                [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
+                    playTone(freq, 0.14, 'sine', 0.12, t0 + i * 0.1);
+                });
+            }
+
+            function playUnknownWarning() {
+                const ac = getCtx();
+                if (!ac || !unlocked) return;
+                const t0 = ac.currentTime;
+                playTone(180, 0.07, 'triangle', 0.2, t0);
+                playTone(140, 0.09, 'triangle', 0.22, t0 + 0.12);
+            }
+
+            function rssiToGeigerIntervalMs(dbm) {
+                const near = rssiNearGate;
+                const far = rssiFarGate;
+                const t = clamp((dbm - far) / (near - far), 0, 1);
+                return Math.round(1900 - t * 1750);
+            }
+
+            function startGeiger(getRssiDbm, onTick) {
+                stopGeiger();
+                const tick = () => {
+                    const dbm = getRssiDbm();
+                    playChirp(dbm);
+                    if (typeof onTick === 'function') onTick(dbm);
+                };
+                const schedule = () => {
+                    const dbm = getRssiDbm();
+                    const interval = rssiToGeigerIntervalMs(dbm);
+                    tick();
+                    geigerTimer = setTimeout(schedule, interval);
+                };
+                schedule();
+            }
+
+            return {
+                unlock,
+                stopAll,
+                stopGeiger,
+                startGeiger,
+                playChirp,
+                playSpatialChime,
+                playUnknownWarning,
+                isUnlocked: () => unlocked,
+            };
+        })();
 
         function pickRandomTags(min, max) {
             const count = min + Math.floor(Math.random() * (max - min + 1));
@@ -565,11 +769,44 @@
             el.textContent = msg;
         }
 
+        function isUnknownTagEpc(epc) {
+            const item = itemLookup[epc];
+            if (!item) return true;
+            return String(item.name || '').startsWith('Unknown RFID Tag');
+        }
+
+        async function postScanPayload(binEpc, tags) {
+            const hadUnknownInBuffer = tags.some((epc) => !itemLookup[epc] || isUnknownTagEpc(epc));
+            const res = await fetch('/api/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    scanner_id: SCANNER_ID,
+                    target_container_epc: binEpc,
+                    scanned_tags: tags,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Scan failed');
+            await refreshItemLookup();
+            const stillUnknown = tags.some(isUnknownTagEpc);
+            if (hadUnknownInBuffer || stillUnknown) {
+                const now = Date.now();
+                if (now - lastUnknownToneAt > 900) {
+                    MerlinAudio.playUnknownWarning();
+                    lastUnknownToneAt = now;
+                }
+            }
+            if (data.spatial_zone) MerlinAudio.playSpatialChime();
+            return data;
+        }
+
         async function triggerQuickScan() {
+            await MerlinAudio.unlock();
             const btn = document.getElementById('trigger-scan');
             const binEpc = getTargetBinEpc();
             if (!binEpc) {
-                showScanStatus('Enter or select a target bin EPC.', 'err');
+                showScanStatus('Select a bin from the server list or enter a bin EPC.', 'err');
                 return;
             }
 
@@ -577,26 +814,68 @@
             btn.disabled = true;
 
             document.getElementById('scan-tag-list').textContent =
-                'Transmitting ' + tags.length + ' tags: ' + tags.map(t => t.slice(-8)).join(', ');
+                'Transmitting ' + tags.length + ' tags: ' + tags.map((t) => t.slice(-8)).join(', ');
 
             try {
-                const res = await fetch('/api/scan', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        scanner_id: SCANNER_ID,
-                        target_container_epc: binEpc,
-                        scanned_tags: tags,
-                    }),
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Scan failed');
-                showScanStatus('✅ ' + (data.message || 'Scan processed'), 'ok');
+                const data = await postScanPayload(binEpc, tags);
+                const zone = data.spatial_zone;
+                const zoneMsg = zone
+                    ? ' · Spatial zone: ' + zone.container_name
+                    : '';
+                showScanStatus('✅ ' + (data.message || 'Scan processed') + zoneMsg, 'ok');
             } catch (err) {
                 showScanStatus('❌ ' + err.message, 'err');
             } finally {
                 btn.disabled = false;
             }
+        }
+
+        function stopContinuousScan() {
+            isContinuousScanning = false;
+            if (continuousScanTimer) {
+                clearInterval(continuousScanTimer);
+                continuousScanTimer = null;
+            }
+            const toggle = document.getElementById('scan-toggle');
+            toggle.classList.remove('scanning');
+            toggle.setAttribute('aria-pressed', 'false');
+            toggle.textContent = '▶ Start continuous scan';
+            MerlinAudio.stopAll();
+        }
+
+        async function startContinuousScan() {
+            await MerlinAudio.unlock();
+            const binEpc = getTargetBinEpc();
+            if (!binEpc) {
+                showScanStatus('Select a bin from the server list or enter a bin EPC.', 'err');
+                return;
+            }
+            isContinuousScanning = true;
+            const toggle = document.getElementById('scan-toggle');
+            toggle.classList.add('scanning');
+            toggle.setAttribute('aria-pressed', 'true');
+            toggle.textContent = '⏹ Stop continuous scan';
+
+            const runScan = async () => {
+                if (!isContinuousScanning) return;
+                const tags = pickRandomTags(2, 6);
+                try {
+                    await postScanPayload(binEpc, tags);
+                    document.getElementById('scan-tag-list').textContent =
+                        'Last burst: ' + tags.length + ' tag(s)';
+                } catch (err) {
+                    showScanStatus('❌ ' + err.message, 'err');
+                    stopContinuousScan();
+                }
+            };
+
+            await runScan();
+            continuousScanTimer = setInterval(runScan, CONTINUOUS_SCAN_MS);
+        }
+
+        function toggleContinuousScan() {
+            if (isContinuousScanning) stopContinuousScan();
+            else startContinuousScan();
         }
 
         function rssiZoneFromDbm(dbm) {
@@ -622,19 +901,32 @@
         }
 
         async function loadContainersForSelect() {
+            const sel = document.getElementById('bin-select');
             try {
                 const res = await fetch('/api/containers');
-                if (res.ok) registeredContainers = await res.json();
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed to load containers');
+                registeredContainers = Array.isArray(data) ? data : [];
                 populateBinSelect();
                 populateMobileHomeBinSelect();
-            } catch (_) { /* keep existing */ }
+            } catch (err) {
+                registeredContainers = [];
+                sel.innerHTML = '<option value="">Could not load bins — check server</option>';
+                sel.disabled = true;
+                console.warn('Container registry fetch failed:', err);
+            }
         }
 
         function populateBinSelect() {
             const sel = document.getElementById('bin-select');
-            if (!registeredContainers.length) return;
+            if (!registeredContainers.length) {
+                sel.innerHTML = '<option value="">No bins registered — add bins on desktop</option>';
+                sel.disabled = true;
+                return;
+            }
+            sel.disabled = false;
             sel.innerHTML = registeredContainers.map((c) =>
-                `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`
+                `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${escapeHtml(c.id)})</option>`
             ).join('');
         }
 
@@ -691,23 +983,55 @@
             return Math.max(lo, Math.min(hi, n));
         }
 
+        function pctToDbm(pct) {
+            return Math.round(-30 - (pct / 100) * 70);
+        }
+
+        function dbmToPct(dbm) {
+            return Math.round(clamp((dbm + 100) / 70 * 100, 0, 100));
+        }
+
         function nextSimulatedRssi() {
             simulatedRssi += (Math.random() - 0.46) * 18;
             simulatedRssi = clamp(simulatedRssi, 0, 100);
+            currentRssiDbm = pctToDbm(simulatedRssi);
             return Math.round(simulatedRssi);
+        }
+
+        function pulseProximityMeter(zoneCls) {
+            const meter = document.getElementById('proximity-meter');
+            meter.classList.remove('geiger-pulse', 'hot', 'warm', 'cold');
+            void meter.offsetWidth;
+            meter.classList.add('geiger-pulse', zoneCls || 'cold');
+            setTimeout(() => meter.classList.remove('geiger-pulse'), 120);
+        }
+
+        function updateGeigerBars(pct, zoneCls) {
+            const litCount = Math.max(1, Math.round((pct / 100) * 8));
+            document.querySelectorAll('#geiger-bars .geiger-bar').forEach((bar, i) => {
+                const lit = i < litCount;
+                bar.classList.toggle('lit', lit);
+                bar.classList.toggle('hot', lit && zoneCls === 'hot');
+                bar.classList.toggle('warm', lit && zoneCls === 'warm');
+            });
         }
 
         function updateRadarVisual(pct) {
             const zone = rssiZone(pct);
+            currentRssiDbm = pctToDbm(pct);
             document.getElementById('radar-pct').textContent = pct;
             document.getElementById('radar-zone').textContent = zone.label;
             document.getElementById('rssi-pct-text').textContent = pct + '%';
+            document.getElementById('proximity-dbm').textContent = currentRssiDbm + ' dBm';
 
             const ring = document.getElementById('radar-ring');
             const bar = document.getElementById('rssi-bar');
+            const meter = document.getElementById('proximity-meter');
             ring.className = 'radar-ring ' + zone.cls;
             bar.className = 'rssi-bar-fill ' + zone.cls;
             bar.style.width = pct + '%';
+            meter.className = 'proximity-meter ' + zone.cls;
+            updateGeigerBars(pct, zone.cls);
         }
 
         function resolveItemName(epc) {
@@ -730,6 +1054,7 @@
             document.getElementById('find-standby').style.display = 'block';
             document.getElementById('find-radar').style.display = 'none';
             stopRssiAnimation();
+            MerlinAudio.stopAll();
             radarFocusEpc = null;
             lastUpNextKey = '';
         }
@@ -776,6 +1101,7 @@
                 simulatedRssi = 12 + Math.random() * 28;
                 nameEl.textContent = nextName;
                 epcEl.textContent = primary;
+                MerlinAudio.unlock();
                 startRssiAnimation();
             } else if (nameEl.textContent !== nextName) {
                 nameEl.textContent = nextName;
@@ -855,6 +1181,15 @@
 
         function startRssiAnimation() {
             stopRssiAnimation();
+            MerlinAudio.startGeiger(
+                () => currentRssiDbm,
+                (dbm) => {
+                    const pct = dbmToPct(dbm);
+                    const zone = rssiZoneFromDbm(dbm);
+                    pulseProximityMeter(zone.cls);
+                    updateGeigerBars(pct, zone.cls);
+                }
+            );
             rssiAnimTimer = setInterval(() => {
                 if (activeView !== 'find' || !radarFocusEpc) return;
                 updateRadarVisual(nextSimulatedRssi());
@@ -862,6 +1197,7 @@
         }
 
         function stopRssiAnimation() {
+            MerlinAudio.stopGeiger();
             if (rssiAnimTimer) {
                 clearInterval(rssiAnimTimer);
                 rssiAnimTimer = null;
@@ -880,6 +1216,7 @@
                 findPollTimer = null;
             }
             stopRssiAnimation();
+            MerlinAudio.stopAll();
         }
 
         async function clearHuntTarget() {
@@ -899,37 +1236,43 @@
         async function loadBins() {
             const container = document.getElementById('bins-list');
             try {
-                const res = await fetch('/api/dashboard');
-                const data = await res.json();
-                const bins = new Map();
+                const [containersRes, dashRes] = await Promise.all([
+                    fetch('/api/containers'),
+                    fetch('/api/dashboard'),
+                ]);
+                const containers = containersRes.ok ? await containersRes.json() : [];
+                const data = dashRes.ok ? await dashRes.json() : { items: [] };
+                const countByBin = new Map();
 
                 (data.items || []).forEach((item) => {
                     const id = item.container_id;
                     if (!id) return;
-                    if (!bins.has(id)) {
-                        bins.set(id, {
-                            epc: id,
-                            name: item.container_name || id,
-                            count: 0,
-                        });
-                    }
-                    bins.get(id).count += 1;
+                    countByBin.set(id, (countByBin.get(id) || 0) + 1);
                 });
 
-                if (bins.size === 0) {
-                    container.innerHTML = '<p class="standby">No items assigned to bins yet. Run a Quick Scan first.</p>';
+                if (!containers.length) {
+                    container.innerHTML = '<p class="standby">No bins registered on the server yet. Add bins from the desktop Bin Manager.</p>';
                     return;
                 }
 
-                container.innerHTML = [...bins.values()]
+                container.innerHTML = containers
                     .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((bin) => `
+                    .map((bin) => {
+                        const count = countByBin.get(bin.id) || 0;
+                        const tagA = (bin.boundary_tag_a || '').trim();
+                        const tagB = (bin.boundary_tag_b || '').trim();
+                        const boundaries = (tagA || tagB)
+                            ? `<div class="epc">🔗 ${escapeHtml(tagA || '—')} | ${escapeHtml(tagB || '—')}</div>`
+                            : '';
+                        return `
                         <div class="bin-card">
                             <h3>${escapeHtml(bin.name)}</h3>
-                            <div class="epc">${escapeHtml(bin.epc)}</div>
-                            <div class="count">${bin.count} item${bin.count === 1 ? '' : 's'} registered</div>
+                            <div class="epc">${escapeHtml(bin.id)}</div>
+                            ${boundaries}
+                            <div class="count">${count} item${count === 1 ? '' : 's'} here now</div>
                         </div>
-                    `).join('');
+                    `;
+                    }).join('');
             } catch (err) {
                 container.innerHTML = '<p class="standby">Could not load bins. Check server connection.</p>';
             }
@@ -952,10 +1295,16 @@
             });
 
             if (view === 'find') {
+                MerlinAudio.unlock();
                 startFindPolling();
                 pollSearchTarget();
             } else {
                 stopRssiAnimation();
+                MerlinAudio.stopAll();
+            }
+
+            if (view !== 'scan' && isContinuousScanning) {
+                stopContinuousScan();
             }
 
             if (view === 'bins') loadBins();
@@ -971,7 +1320,11 @@
         });
 
         document.getElementById('trigger-scan').addEventListener('click', triggerQuickScan);
-        document.getElementById('clear-hunt').addEventListener('click', clearHuntTarget);
+        document.getElementById('scan-toggle').addEventListener('click', toggleContinuousScan);
+        document.getElementById('clear-hunt').addEventListener('click', async () => {
+            await MerlinAudio.unlock();
+            clearHuntTarget();
+        });
         document.getElementById('confirm-found-next').addEventListener('click', confirmFoundNext);
 
         document.getElementById('bin-select').addEventListener('change', () => {
@@ -1040,9 +1393,20 @@
             }
         });
 
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                stopContinuousScan();
+                MerlinAudio.stopAll();
+            }
+        });
+
         loadAdminSettings();
-        loadContainersForSelect();
         refreshItemLookup();
+        loadContainersForSelect().then(() => {
+            if (registeredContainers.length && !document.getElementById('bin-epc-custom').value.trim()) {
+                document.getElementById('bin-select').selectedIndex = 0;
+            }
+        });
         startFindPolling();
     </script>
 </body>
