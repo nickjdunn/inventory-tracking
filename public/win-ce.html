@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>RFID Inventory — Win CE / Legacy</title>
+    <style type="text/css">
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Tahoma, Arial, sans-serif;
+            font-size: 13px;
+            background: #0f172a;
+            color: #f8fafc;
+        }
+        a { color: #38bdf8; }
+        .page-header {
+            padding: 8px 10px;
+            border-bottom: 2px solid #334155;
+            background: #1e293b;
+        }
+        .page-header h1 {
+            margin: 0 0 4px 0;
+            font-size: 16px;
+            color: #38bdf8;
+        }
+        .page-header p {
+            margin: 0;
+            font-size: 11px;
+            color: #94a3b8;
+        }
+        .nav-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #1e293b;
+            border-bottom: 2px solid #334155;
+        }
+        .nav-table td {
+            width: 20%;
+            text-align: center;
+            vertical-align: middle;
+            padding: 4px 2px;
+            border-right: 1px solid #334155;
+        }
+        .nav-table td.last-cell { border-right: none; }
+        .nav-btn {
+            display: block;
+            width: 100%;
+            padding: 8px 2px;
+            font-size: 10px;
+            font-weight: bold;
+            color: #94a3b8;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+        }
+        .nav-btn-active {
+            color: #38bdf8;
+            background: #0f172a;
+        }
+        .view-panel {
+            display: none;
+            padding: 8px 10px 80px 10px;
+        }
+        .view-panel-active { display: block; }
+        .card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .card h2 {
+            margin: 0 0 10px 0;
+            font-size: 15px;
+            color: #38bdf8;
+        }
+        label {
+            display: block;
+            font-size: 11px;
+            font-weight: bold;
+            color: #94a3b8;
+            margin: 8px 0 4px 0;
+        }
+        input[type="text"], input[type="search"], select, textarea {
+            width: 96%;
+            padding: 8px;
+            font-size: 14px;
+            border: 2px solid #475569;
+            background: #0f172a;
+            color: #f8fafc;
+        }
+        textarea { height: 60px; }
+        .btn-block {
+            display: block;
+            width: 100%;
+            margin: 8px 0;
+            padding: 12px 8px;
+            font-size: 14px;
+            font-weight: bold;
+            border: 2px solid #0369a1;
+            background: #0ea5e9;
+            color: #ffffff;
+            cursor: pointer;
+        }
+        .btn-block:active { background: #0369a1; }
+        .btn-secondary {
+            background: #334155;
+            border-color: #475569;
+        }
+        .btn-danger {
+            background: #b91c1c;
+            border-color: #7f1d1d;
+        }
+        .btn-small {
+            display: inline-block;
+            padding: 4px 8px;
+            font-size: 11px;
+            margin: 2px 2px 2px 0;
+            border: 1px solid #475569;
+            background: #334155;
+            color: #f8fafc;
+            cursor: pointer;
+        }
+        .btn-small-active {
+            background: #15803d;
+            border-color: #4ade80;
+        }
+        .status-msg {
+            padding: 8px;
+            margin-top: 8px;
+            border: 1px solid #334155;
+            display: none;
+        }
+        .status-ok { background: #064e3b; color: #4ade80; display: block; }
+        .status-err { background: #7f1d1d; color: #fecaca; display: block; }
+        .status-info { background: #1e3a8a; color: #93c5fd; display: block; }
+        .sync-line {
+            font-size: 11px;
+            margin-bottom: 8px;
+            color: #4ade80;
+        }
+        .sync-warn { color: #fbbf24; }
+        .filter-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
+        }
+        .filter-table td {
+            padding: 3px;
+            text-align: center;
+        }
+        .filter-btn {
+            width: 100%;
+            padding: 6px 2px;
+            font-size: 10px;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: #94a3b8;
+            cursor: pointer;
+        }
+        .filter-btn-on {
+            border-color: #38bdf8;
+            color: #38bdf8;
+            background: #1e3a5f;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .data-table th {
+            background: #0f172a;
+            color: #94a3b8;
+            font-size: 10px;
+            padding: 5px 3px;
+            border: 1px solid #475569;
+            text-align: left;
+        }
+        .data-table td {
+            padding: 5px 3px;
+            border: 1px solid #334155;
+            font-size: 11px;
+            vertical-align: top;
+            word-wrap: break-word;
+        }
+        .row-hunt td { background: #1e3a5f; }
+        .mono { font-family: Courier New, monospace; font-size: 10px; color: #94a3b8; }
+        .badge-home { color: #4ade80; }
+        .badge-mis { color: #fecaca; }
+        .badge-float { color: #93c5fd; }
+        .badge-un { color: #fde68a; }
+        .standby {
+            text-align: center;
+            color: #94a3b8;
+            padding: 16px 8px;
+        }
+        .rssi-box {
+            border: 3px solid #475569;
+            text-align: center;
+            padding: 16px;
+            margin: 10px 0;
+        }
+        .rssi-pct {
+            font-size: 36px;
+            font-weight: bold;
+        }
+        .rssi-zone {
+            font-size: 14px;
+            font-weight: bold;
+            margin-top: 6px;
+        }
+        .rssi-bar-outer {
+            height: 20px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            margin-top: 10px;
+        }
+        .rssi-bar-inner {
+            height: 100%;
+            background: #64748b;
+            width: 0%;
+        }
+        .rssi-hot { border-color: #4ade80; }
+        .rssi-warm { border-color: #fbbf24; }
+        .rssi-bar-hot { background: #4ade80; }
+        .rssi-bar-warm { background: #fbbf24; }
+        .edit-overlay {
+            display: none;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            z-index: 200;
+            background: #0f172a;
+            padding: 10px;
+        }
+        .edit-overlay-open { display: block; }
+        .clear { clear: both; height: 0; overflow: hidden; }
+        .hidden { display: none; }
+        .step-hidden { display: none; }
+        .experimental {
+            background: #422006;
+            border: 1px solid #b45309;
+            color: #fde68a;
+            padding: 8px;
+            font-size: 11px;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="page-header">
+    <h1>RFID Inventory — Legacy Handheld</h1>
+    <p>Win CE / Pocket IE — ES5 + tables + XMLHttpRequest</p>
+    <p><a href="/mobile.html">Modern mobile view</a> &nbsp;|&nbsp; <a href="/index.html">Desktop</a></p>
+</div>
+
+<table class="nav-table" cellpadding="0" cellspacing="0" role="navigation">
+    <tr>
+        <td><button type="button" class="nav-btn nav-btn-active" id="nav-scan" onclick="WinCE.switchView('scan')">Scan</button></td>
+        <td><button type="button" class="nav-btn" id="nav-inventory" onclick="WinCE.switchView('inventory')">Items</button></td>
+        <td><button type="button" class="nav-btn" id="nav-find" onclick="WinCE.switchView('find')">Find</button></td>
+        <td><button type="button" class="nav-btn" id="nav-add" onclick="WinCE.switchView('add')">Add</button></td>
+        <td class="last-cell"><button type="button" class="nav-btn" id="nav-bins" onclick="WinCE.switchView('bins')">Bins</button></td>
+    </tr>
+</table>
+
+<!-- SCAN -->
+<div id="view-scan" class="view-panel view-panel-active">
+    <div class="card">
+        <h2>Quick Scan</h2>
+        <label for="scan-bin-select">Target bin</label>
+        <select id="scan-bin-select"><option value="">Loading bins…</option></select>
+        <label for="scan-bin-custom">Or bin EPC</label>
+        <input type="text" id="scan-bin-custom" value="" autocomplete="off">
+        <button type="button" class="btn-block" id="btn-scan-once" onclick="WinCE.triggerScan()">Single trigger pull</button>
+        <div id="scan-status" class="status-msg"></div>
+        <div id="scan-zone" class="experimental" style="display:none;"></div>
+        <p id="scan-tags" class="mono"></p>
+    </div>
+</div>
+
+<!-- INVENTORY -->
+<div id="view-inventory" class="view-panel">
+    <div class="card">
+        <h2>Inventory</h2>
+        <p id="inventory-sync" class="sync-line">Syncing…</p>
+        <label for="inventory-search">Search name, EPC, UPC, bin</label>
+        <input type="search" id="inventory-search" value="" onkeyup="WinCE.onInventorySearch()" onchange="WinCE.onInventorySearch()">
+        <table class="filter-table" cellpadding="0" cellspacing="0">
+            <tr>
+                <td><button type="button" class="filter-btn filter-btn-on" id="filt-all" onclick="WinCE.setStatusFilter('ALL')">All</button></td>
+                <td><button type="button" class="filter-btn" id="filt-home" onclick="WinCE.setStatusFilter('HOME')">Home</button></td>
+                <td><button type="button" class="filter-btn" id="filt-mis" onclick="WinCE.setStatusFilter('MISPLACED')">Mispl.</button></td>
+            </tr>
+            <tr>
+                <td><button type="button" class="filter-btn" id="filt-float" onclick="WinCE.setStatusFilter('FLOATING')">Missing</button></td>
+                <td><button type="button" class="filter-btn" id="filt-un" onclick="WinCE.setStatusFilter('UNASSIGNED')">Unass.</button></td>
+                <td><button type="button" class="filter-btn" id="filt-hunt" onclick="WinCE.switchView('find')">Hunt</button></td>
+            </tr>
+        </table>
+        <div id="inventory-table-wrap">
+            <p class="standby">Loading inventory…</p>
+        </div>
+    </div>
+</div>
+
+<!-- FIND -->
+<div id="view-find" class="view-panel">
+    <div class="card" id="find-standby">
+        <h2>Find mode</h2>
+        <p class="standby">No hunt target. Use Find on an item in Inventory.</p>
+    </div>
+    <div class="card hidden" id="find-active">
+        <h2>Signal proximity</h2>
+        <p id="find-batch-label" class="mono"></p>
+        <p id="find-target-name" style="font-size:16px;font-weight:bold;margin:4px 0;"></p>
+        <p id="find-target-epc" class="mono"></p>
+        <div class="rssi-box rssi-cold" id="rssi-box">
+            <div class="rssi-pct" id="rssi-pct">0</div>
+            <div class="rssi-zone" id="rssi-zone">COLD</div>
+        </div>
+        <div class="rssi-bar-outer"><div class="rssi-bar-inner" id="rssi-bar"></div></div>
+        <button type="button" class="btn-block hidden" id="btn-confirm-next" onclick="WinCE.confirmFoundNext()">Confirm found — next</button>
+        <div id="up-next-wrap"></div>
+        <button type="button" class="btn-block btn-danger" onclick="WinCE.clearHunt()">Clear hunt</button>
+    </div>
+</div>
+
+<!-- ADD -->
+<div id="view-add" class="view-panel">
+    <div class="card">
+        <h2>Add item</h2>
+        <div id="add-step-upc">
+            <label for="add-upc">UPC barcode</label>
+            <input type="text" id="add-upc" value="" inputmode="numeric">
+            <button type="button" class="btn-block" onclick="WinCE.lookupUpc()">Look up product</button>
+            <button type="button" class="btn-block btn-secondary" onclick="WinCE.showAddDetails(null)">Skip — manual</button>
+        </div>
+        <div id="add-step-details" class="step-hidden">
+            <div id="add-preview" class="hidden" style="border:1px solid #334155;padding:8px;margin-bottom:8px;"></div>
+            <label for="add-name">Product name</label>
+            <input type="text" id="add-name" value="">
+            <label for="add-category">Category</label>
+            <input type="text" id="add-category" value="">
+            <label for="add-desc">Description</label>
+            <textarea id="add-desc"></textarea>
+            <label for="add-epc">RFID EPC</label>
+            <input type="text" id="add-epc" value="">
+            <label for="add-home">Home bin</label>
+            <select id="add-home"><option value="">— No home —</option></select>
+            <button type="button" class="btn-block" onclick="WinCE.saveNewItem()">Create item</button>
+        </div>
+        <div id="add-status" class="status-msg"></div>
+    </div>
+</div>
+
+<!-- BINS -->
+<div id="view-bins" class="view-panel">
+    <div class="card">
+        <h2>Browse bins</h2>
+        <div class="experimental">Spatial boundary tags (A/B) are experimental — field-test with Merlin.</div>
+        <label for="bins-search">Filter bins</label>
+        <input type="search" id="bins-search" value="" onkeyup="WinCE.onBinsSearch()" onchange="WinCE.onBinsSearch()">
+        <div id="bins-table-wrap"><p class="standby">Loading bins…</p></div>
+    </div>
+</div>
+
+<!-- EDIT ITEM (full-screen overlay) -->
+<div id="edit-overlay" class="edit-overlay">
+    <div class="card">
+        <h2>Edit item</h2>
+        <input type="hidden" id="edit-epc" value="">
+        <label for="edit-name">Name</label>
+        <input type="text" id="edit-name" value="">
+        <label for="edit-category">Category</label>
+        <input type="text" id="edit-category" value="">
+        <label for="edit-desc">Description</label>
+        <textarea id="edit-desc"></textarea>
+        <label for="edit-upc">UPC</label>
+        <input type="text" id="edit-upc" value="">
+        <label for="edit-home">Home bin</label>
+        <select id="edit-home"></select>
+        <label for="edit-current">Current bin</label>
+        <select id="edit-current"></select>
+        <p id="edit-status-preview" style="margin:8px 0;"></p>
+        <p id="edit-epc-line" class="mono"></p>
+        <button type="button" class="btn-block" onclick="WinCE.saveEditItem()">Save changes</button>
+        <button type="button" class="btn-block" onclick="WinCE.huntEditItem()">Hunt this item</button>
+        <button type="button" class="btn-block btn-danger" onclick="WinCE.deleteEditItem()">Delete item</button>
+        <button type="button" class="btn-block btn-secondary" onclick="WinCE.closeEdit()">Cancel</button>
+        <div id="edit-status" class="status-msg"></div>
+    </div>
+</div>
+
+<script type="text/javascript">
+/* eslint-disable */
+var WinCE = (function () {
+    var SCANNER_ID = 'MERLIN-WINCE-001';
+    var TARGET_POLL_MS = 1500;
+    var INVENTORY_SYNC_MS = 2000;
+    var RSSI_TICK_MS = 300;
+
+    var MOCK_EPCS = [
+        'EPC301833B2A1TOOL00001',
+        'EPC301833B2A1TOOL00002',
+        'EPC301833B2A1CABL00003',
+        'EPC301833B2A1CABL00004',
+        'EPC301833B2A1GEAR00005'
+    ];
+
+    var activeView = 'scan';
+    var inventoryItems = [];
+    var displayItems = [];
+    var itemLookup = {};
+    var registeredContainers = [];
+    var mobileBinsList = [];
+    var mobileBinsCount = {};
+    var inventorySearchQuery = '';
+    var inventoryStatusFilter = 'ALL';
+    var binsSearchQuery = '';
+    var activeSearchQueue = [];
+    var findPollTimer = null;
+    var inventorySyncTimer = null;
+    var rssiAnimTimer = null;
+    var radarFocusEpc = null;
+    var simulatedRssi = 25;
+    var rssiNearGate = -55;
+    var rssiFarGate = -85;
+    var isAdvancingQueue = false;
+    var boundUpc = '';
+
+    var FILTER_IDS = {
+        ALL: 'filt-all',
+        HOME: 'filt-home',
+        MISPLACED: 'filt-mis',
+        FLOATING: 'filt-float',
+        UNASSIGNED: 'filt-un'
+    };
+
+    function trimStr(s) {
+        if (s == null) return '';
+        return String(s).replace(/^\s+|\s+$/g, '');
+    }
+
+    function escapeHtml(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function xhrJson(method, url, body, callback) {
+        var xhr;
+        try {
+            xhr = new XMLHttpRequest();
+        } catch (e) {
+            callback(0, null, 'XMLHttpRequest not supported');
+            return;
+        }
+        xhr.open(method, url, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4) return;
+            var data = null;
+            var errText = '';
+            try {
+                if (xhr.responseText) data = JSON.parse(xhr.responseText);
+            } catch (parseErr) {
+                errText = xhr.responseText || parseErr.message;
+            }
+            callback(xhr.status, data, errText);
+        };
+        if (body != null) {
+            xhr.send(JSON.stringify(body));
+        } else {
+            xhr.send();
+        }
+    }
+
+    function normalizeContainerId(value) {
+        var trimmed = trimStr(value);
+        return trimmed === '' ? null : trimmed;
+    }
+
+    function computeItemStatus(item) {
+        var currentId = normalizeContainerId(item.container_id);
+        var homeId = normalizeContainerId(item.home_container_id);
+        if (currentId && homeId && currentId === homeId) return 'HOME';
+        if (!currentId && homeId) return 'FLOATING';
+        if (currentId && !homeId) return 'UNASSIGNED';
+        if (currentId && homeId && currentId !== homeId) return 'MISPLACED';
+        return 'UNASSIGNED';
+    }
+
+    function enrichItems(items) {
+        var out = [];
+        var i;
+        for (i = 0; i < items.length; i++) {
+            var copy = {};
+            var src = items[i];
+            var key;
+            for (key in src) {
+                if (src.hasOwnProperty(key)) copy[key] = src[key];
+            }
+            copy.status = copy.status || computeItemStatus(copy);
+            out.push(copy);
+        }
+        return out;
+    }
+
+    function matchesSearch(item, query) {
+        var q = trimStr(query).toLowerCase();
+        if (!q) return true;
+        var fields = [
+            item.name, item.epc_id, item.upc,
+            item.container_name, item.container_id,
+            item.home_container_name, item.home_container_id
+        ];
+        var i;
+        for (i = 0; i < fields.length; i++) {
+            if (String(fields[i] || '').toLowerCase().indexOf(q) >= 0) return true;
+        }
+        return false;
+    }
+
+    function filterItems(items, query, statusFilter) {
+        var enriched = enrichItems(items);
+        var out = [];
+        var i;
+        for (i = 0; i < enriched.length; i++) {
+            var item = enriched[i];
+            if (statusFilter !== 'ALL' && item.status !== statusFilter) continue;
+            if (!matchesSearch(item, query)) continue;
+            out.push(item);
+        }
+        return out;
+    }
+
+    function statusBadgeText(item) {
+        if (item.status === 'HOME') return '<span class="badge-home">Home</span>';
+        if (item.status === 'FLOATING') return '<span class="badge-float">Missing</span>';
+        if (item.status === 'MISPLACED') {
+            var home = item.home_container_name || item.home_container_id || '?';
+            return '<span class="badge-mis">Misplaced</span> ' + escapeHtml(home);
+        }
+        return '<span class="badge-un">Unassigned</span>';
+    }
+
+    function resolveItemName(epc) {
+        return itemLookup[epc] ? itemLookup[epc].name : 'Unknown';
+    }
+
+    function clamp(n, lo, hi) {
+        return n < lo ? lo : (n > hi ? hi : n);
+    }
+
+    function showEl(id, show) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.style.display = show ? 'block' : 'none';
+    }
+
+    function setStatusMsg(id, msg, type) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.className = 'status-msg';
+        if (!msg) {
+            el.style.display = 'none';
+            el.innerHTML = '';
+            return;
+        }
+        el.style.display = 'block';
+        if (type === 'ok') el.className = 'status-msg status-ok';
+        else if (type === 'err') el.className = 'status-msg status-err';
+        else el.className = 'status-msg status-info';
+        el.innerHTML = escapeHtml(msg);
+    }
+
+    function rebuildItemLookup() {
+        itemLookup = {};
+        var i;
+        for (i = 0; i < inventoryItems.length; i++) {
+            itemLookup[inventoryItems[i].epc_id] = inventoryItems[i];
+        }
+    }
+
+    function populateBinSelects() {
+        var scanSel = document.getElementById('scan-bin-select');
+        var addHome = document.getElementById('add-home');
+        var html = '';
+        var i;
+        if (!registeredContainers.length) {
+            scanSel.innerHTML = '<option value="">No bins on server</option>';
+            addHome.innerHTML = '<option value="">— No home —</option>';
+            return;
+        }
+        for (i = 0; i < registeredContainers.length; i++) {
+            var c = registeredContainers[i];
+            html += '<option value="' + escapeHtml(c.id) + '">' + escapeHtml(c.name) + '</option>';
+        }
+        scanSel.innerHTML = html;
+        addHome.innerHTML = '<option value="">— No home —</option>' + html;
+    }
+
+    function loadContainers(callback) {
+        xhrJson('GET', '/api/containers', null, function (status, data) {
+            if (status >= 200 && status < 300 && data && data.length !== undefined) {
+                registeredContainers = data;
+            } else {
+                registeredContainers = [];
+            }
+            populateBinSelects();
+            if (callback) callback();
+        });
+    }
+
+    function loadAdminSettings() {
+        xhrJson('GET', '/api/admin/settings', null, function (status, data) {
+            if (status >= 200 && status < 300 && data) {
+                rssiNearGate = parseInt(data.rssi_near_gate, 10) || -55;
+                rssiFarGate = parseInt(data.rssi_far_gate, 10) || -85;
+            }
+        });
+    }
+
+    function syncFromServer(callback) {
+        var syncEl = document.getElementById('inventory-sync');
+        xhrJson('GET', '/api/dashboard', null, function (dashStatus, dashData) {
+            xhrJson('GET', '/api/search/target', null, function (searchStatus, searchData) {
+                if (dashStatus >= 200 && dashStatus < 300 && dashData) {
+                    if (dashData.containers && dashData.containers.length) {
+                        registeredContainers = dashData.containers;
+                        populateBinSelects();
+                    }
+                    inventoryItems = enrichItems(dashData.items || []);
+                    rebuildItemLookup();
+                    if (syncEl) {
+                        syncEl.className = 'sync-line';
+                        syncEl.innerHTML = 'Live sync active — ' + inventoryItems.length + ' items';
+                    }
+                } else if (syncEl) {
+                    syncEl.className = 'sync-line sync-warn';
+                    syncEl.innerHTML = 'Sync interrupted';
+                }
+                if (searchStatus >= 200 && searchStatus < 300 && searchData) {
+                    activeSearchQueue = searchData.activeSearchQueue || [];
+                }
+                if (activeView === 'inventory') renderInventoryTable();
+                if (activeView === 'find') updateFindView();
+                if (callback) callback();
+            });
+        });
+    }
+
+    function startInventorySync() {
+        if (inventorySyncTimer) return;
+        syncFromServer();
+        inventorySyncTimer = setInterval(function () {
+            if (activeView === 'inventory' || activeView === 'find') {
+                syncFromServer();
+            }
+        }, INVENTORY_SYNC_MS);
+    }
+
+    function setStatusFilter(status) {
+        inventoryStatusFilter = status;
+        var key;
+        for (key in FILTER_IDS) {
+            if (FILTER_IDS.hasOwnProperty(key)) {
+                var btn = document.getElementById(FILTER_IDS[key]);
+                if (btn) {
+                    btn.className = key === status ? 'filter-btn filter-btn-on' : 'filter-btn';
+                }
+            }
+        }
+        renderInventoryTable();
+    }
+
+    function onInventorySearch() {
+        inventorySearchQuery = document.getElementById('inventory-search').value;
+        renderInventoryTable();
+    }
+
+    function renderInventoryTable() {
+        var wrap = document.getElementById('inventory-table-wrap');
+        displayItems = filterItems(inventoryItems, inventorySearchQuery, inventoryStatusFilter);
+
+        if (!inventoryItems.length) {
+            wrap.innerHTML = '<p class="standby">No items yet.</p>';
+            return;
+        }
+        if (!displayItems.length) {
+            wrap.innerHTML = '<p class="standby">No matches.</p>';
+            return;
+        }
+
+        var html = '<table class="data-table" cellpadding="0" cellspacing="0">';
+        html += '<thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+        var i;
+        for (i = 0; i < displayItems.length; i++) {
+            var item = displayItems[i];
+            var isHunt = false;
+            var h;
+            for (h = 0; h < activeSearchQueue.length; h++) {
+                if (activeSearchQueue[h] === item.epc_id) { isHunt = true; break; }
+            }
+            var loc = item.container_id ? (item.container_name || item.container_id) : 'Open';
+            var rowClass = isHunt ? ' class="row-hunt"' : '';
+            html += '<tr' + rowClass + '>';
+            html += '<td><strong>' + escapeHtml(item.name) + '</strong><br><span class="mono">' + escapeHtml(item.epc_id) + '</span><br>' + escapeHtml(loc) + '</td>';
+            html += '<td>' + statusBadgeText(item) + '</td>';
+            html += '<td>';
+            html += '<button type="button" class="btn-small" onclick="WinCE.openEditByIndex(' + i + ')">Edit</button><br>';
+            html += '<button type="button" class="btn-small' + (isHunt ? ' btn-small-active' : '') + '" onclick="WinCE.toggleFindByIndex(' + i + ')">' + (isHunt ? 'Hunting' : 'Find') + '</button>';
+            html += '</td></tr>';
+        }
+        html += '</tbody></table>';
+        wrap.innerHTML = html;
+    }
+
+    function openEditByIndex(idx) {
+        var item = displayItems[idx];
+        if (!item) return;
+        openEditItem(item);
+    }
+
+    function toggleFindByIndex(idx) {
+        var item = displayItems[idx];
+        if (!item) toggleFind(item.epc_id);
+    }
+
+    function openEditItem(item) {
+        document.getElementById('edit-epc').value = item.epc_id;
+        document.getElementById('edit-name').value = item.name || '';
+        document.getElementById('edit-category').value = item.category || '';
+        document.getElementById('edit-desc').value = item.description || '';
+        document.getElementById('edit-upc').value = item.upc || '';
+        document.getElementById('edit-epc-line').innerHTML = 'EPC: ' + escapeHtml(item.epc_id);
+
+        var homeSel = document.getElementById('edit-home');
+        var curSel = document.getElementById('edit-current');
+        var opts = '<option value="">— None —</option>';
+        var i;
+        for (i = 0; i < registeredContainers.length; i++) {
+            var c = registeredContainers[i];
+            opts += '<option value="' + escapeHtml(c.id) + '">' + escapeHtml(c.name) + '</option>';
+        }
+        homeSel.innerHTML = opts;
+        curSel.innerHTML = opts;
+        homeSel.value = item.home_container_id || '';
+        curSel.value = item.container_id || '';
+        updateEditStatusPreview();
+        document.getElementById('edit-overlay').className = 'edit-overlay edit-overlay-open';
+    }
+
+    function closeEdit() {
+        document.getElementById('edit-overlay').className = 'edit-overlay';
+        setStatusMsg('edit-status', '', '');
+    }
+
+    function updateEditStatusPreview() {
+        var draft = {
+            container_id: document.getElementById('edit-current').value || null,
+            home_container_id: document.getElementById('edit-home').value || null
+        };
+        draft.status = computeItemStatus(draft);
+        document.getElementById('edit-status-preview').innerHTML = statusBadgeText(draft);
+    }
+
+    function saveEditItem() {
+        var epc = document.getElementById('edit-epc').value;
+        var payload = {
+            name: trimStr(document.getElementById('edit-name').value),
+            category: trimStr(document.getElementById('edit-category').value) || null,
+            description: trimStr(document.getElementById('edit-desc').value) || null,
+            upc: trimStr(document.getElementById('edit-upc').value) || null,
+            home_container_id: document.getElementById('edit-home').value || null,
+            container_id: document.getElementById('edit-current').value || null
+        };
+        if (!payload.name) {
+            setStatusMsg('edit-status', 'Name required', 'err');
+            return;
+        }
+        xhrJson('PUT', '/api/items/' + encodeURIComponent(epc), payload, function (status, data) {
+            if (status >= 200 && status < 300) {
+                closeEdit();
+                syncFromServer();
+            } else {
+                setStatusMsg('edit-status', (data && data.error) ? data.error : 'Save failed', 'err');
+            }
+        });
+    }
+
+    function deleteEditItem() {
+        var epc = document.getElementById('edit-epc').value;
+        var name = trimStr(document.getElementById('edit-name').value) || epc;
+        if (!confirm('Delete "' + name + '"? Cannot undo.')) return;
+        xhrJson('DELETE', '/api/items/' + encodeURIComponent(epc), null, function (status, data) {
+            if (status >= 200 && status < 300) {
+                closeEdit();
+                syncFromServer();
+            } else {
+                setStatusMsg('edit-status', (data && data.error) ? data.error : 'Delete failed', 'err');
+            }
+        });
+    }
+
+    function huntEditItem() {
+        var epc = document.getElementById('edit-epc').value;
+        closeEdit();
+        postSearchQueue([epc], function () {
+            switchView('find');
+        });
+    }
+
+    function postSearchQueue(epcIds, callback) {
+        xhrJson('POST', '/api/search/target', { epc_ids: epcIds }, function (status, data) {
+            if (status >= 200 && status < 300 && data) {
+                activeSearchQueue = data.activeSearchQueue || [];
+            }
+            if (activeView === 'inventory') renderInventoryTable();
+            if (callback) callback();
+        });
+    }
+
+    function toggleFind(epc) {
+        var next = [];
+        var i;
+        var found = false;
+        for (i = 0; i < activeSearchQueue.length; i++) {
+            if (activeSearchQueue[i] === epc) found = true;
+        }
+        if (found) {
+            for (i = 0; i < activeSearchQueue.length; i++) {
+                if (activeSearchQueue[i] !== epc) next.push(activeSearchQueue[i]);
+            }
+        } else {
+            next = [epc];
+        }
+        postSearchQueue(next, function () {
+            if (!found) switchView('find');
+        });
+    }
+
+    function pickRandomTags(min, max) {
+        var count = min + Math.floor(Math.random() * (max - min + 1));
+        var pool = MOCK_EPCS.slice(0);
+        var picked = [];
+        while (picked.length < count && pool.length) {
+            var idx = Math.floor(Math.random() * pool.length);
+            picked.push(pool.splice(idx, 1)[0]);
+        }
+        return picked;
+    }
+
+    function tagsWithRssi(epcs) {
+        var out = [];
+        var i;
+        for (i = 0; i < epcs.length; i++) {
+            out.push({
+                epc: epcs[i],
+                rssi: -72 - Math.floor(Math.random() * 18)
+            });
+        }
+        return out;
+    }
+
+    function getScanBinEpc() {
+        var custom = trimStr(document.getElementById('scan-bin-custom').value);
+        if (custom) return custom;
+        return document.getElementById('scan-bin-select').value;
+    }
+
+    function triggerScan() {
+        var binEpc = getScanBinEpc();
+        if (!binEpc) {
+            setStatusMsg('scan-status', 'Select or enter a bin EPC', 'err');
+            return;
+        }
+        var tags = pickRandomTags(3, 5);
+        document.getElementById('scan-tags').innerHTML = 'Sending ' + tags.length + ' tag(s)…';
+        xhrJson('POST', '/api/scan', {
+            scanner_id: SCANNER_ID,
+            target_container_epc: binEpc,
+            scanned_tags: tagsWithRssi(tags)
+        }, function (status, data) {
+            if (status >= 200 && status < 300) {
+                var msg = (data && data.message) ? data.message : 'Scan OK';
+                setStatusMsg('scan-status', msg, 'ok');
+                var zoneEl = document.getElementById('scan-zone');
+                if (data && data.spatial_zone) {
+                    var z = data.spatial_zone;
+                    zoneEl.style.display = 'block';
+                    zoneEl.innerHTML = 'Spatial (experimental): ' + escapeHtml(z.zone_hint || z.message || '');
+                } else {
+                    zoneEl.style.display = 'none';
+                }
+                syncFromServer();
+            } else {
+                setStatusMsg('scan-status', (data && data.error) ? data.error : 'Scan failed', 'err');
+            }
+        });
+    }
+
+    function rssiZoneFromDbm(dbm) {
+        if (dbm >= rssiNearGate) return { cls: 'hot', label: 'CLOSE' };
+        if (dbm >= rssiFarGate) return { cls: 'warm', label: 'WARM' };
+        return { cls: 'cold', label: 'COLD' };
+    }
+
+    function rssiZoneFromPct(pct) {
+        var dbm = Math.round(-30 - (pct / 100) * 70);
+        return rssiZoneFromDbm(dbm);
+    }
+
+    function nextSimulatedRssi() {
+        simulatedRssi += (Math.random() - 0.46) * 18;
+        simulatedRssi = clamp(simulatedRssi, 0, 100);
+        return Math.round(simulatedRssi);
+    }
+
+    function updateRadarVisual(pct) {
+        var zone = rssiZoneFromPct(pct);
+        document.getElementById('rssi-pct').innerHTML = String(pct);
+        document.getElementById('rssi-zone').innerHTML = zone.label;
+        document.getElementById('rssi-bar').style.width = pct + '%';
+        document.getElementById('rssi-bar').className = 'rssi-bar-inner rssi-bar-' + zone.cls;
+        document.getElementById('rssi-box').className = 'rssi-box rssi-' + zone.cls;
+    }
+
+    function updateFindView() {
+        if (!activeSearchQueue.length) {
+            showEl('find-standby', true);
+            document.getElementById('find-active').className = 'card hidden';
+            stopRssiAnimation();
+            radarFocusEpc = null;
+            return;
+        }
+        showEl('find-standby', false);
+        document.getElementById('find-active').className = 'card';
+
+        var primary = activeSearchQueue[0];
+        var isBatch = activeSearchQueue.length >= 2;
+
+        if (isBatch) {
+            document.getElementById('find-batch-label').innerHTML = 'Target 1 of ' + activeSearchQueue.length;
+            showEl('find-batch-label', true);
+            document.getElementById('btn-confirm-next').className = 'btn-block';
+        } else {
+            document.getElementById('find-batch-label').innerHTML = '';
+            showEl('find-batch-label', false);
+            document.getElementById('btn-confirm-next').className = 'btn-block hidden';
+        }
+
+        document.getElementById('find-target-name').innerHTML = escapeHtml(resolveItemName(primary));
+        document.getElementById('find-target-epc').innerHTML = escapeHtml(primary);
+
+        if (radarFocusEpc !== primary) {
+            radarFocusEpc = primary;
+            simulatedRssi = 12 + Math.floor(Math.random() * 28);
+            startRssiAnimation();
+        }
+
+        var upHtml = '';
+        if (isBatch && activeSearchQueue.length > 1) {
+            upHtml = '<table class="data-table" cellpadding="0" cellspacing="0"><tbody>';
+            var u;
+            for (u = 1; u < activeSearchQueue.length; u++) {
+                upHtml += '<tr><td>' + (u + 1) + '. ' + escapeHtml(resolveItemName(activeSearchQueue[u])) +
+                    '<br><span class="mono">' + escapeHtml(activeSearchQueue[u]) + '</span></td></tr>';
+            }
+            upHtml += '</tbody></table>';
+        }
+        document.getElementById('up-next-wrap').innerHTML = upHtml;
+    }
+
+    function pollSearchTarget() {
+        if (isAdvancingQueue) return;
+        xhrJson('GET', '/api/search/target', null, function (status, data) {
+            if (status >= 200 && status < 300 && data) {
+                activeSearchQueue = data.activeSearchQueue || [];
+            }
+            if (activeView === 'find') {
+                var needsLookup = false;
+                var i;
+                for (i = 0; i < activeSearchQueue.length; i++) {
+                    if (!itemLookup[activeSearchQueue[i]]) needsLookup = true;
+                }
+                if (needsLookup) {
+                    syncFromServer(function () { updateFindView(); });
+                } else {
+                    updateFindView();
+                }
+            }
+        });
+    }
+
+    function startFindPolling() {
+        if (findPollTimer) return;
+        pollSearchTarget();
+        findPollTimer = setInterval(pollSearchTarget, TARGET_POLL_MS);
+    }
+
+    function stopFindPolling() {
+        if (findPollTimer) {
+            clearInterval(findPollTimer);
+            findPollTimer = null;
+        }
+    }
+
+    function startRssiAnimation() {
+        stopRssiAnimation();
+        rssiAnimTimer = setInterval(function () {
+            if (activeView !== 'find' || !radarFocusEpc) return;
+            updateRadarVisual(nextSimulatedRssi());
+        }, RSSI_TICK_MS);
+    }
+
+    function stopRssiAnimation() {
+        if (rssiAnimTimer) {
+            clearInterval(rssiAnimTimer);
+            rssiAnimTimer = null;
+        }
+    }
+
+    function confirmFoundNext() {
+        if (activeSearchQueue.length < 2 || isAdvancingQueue) return;
+        isAdvancingQueue = true;
+        var nextQueue = activeSearchQueue.slice(1);
+        xhrJson('POST', '/api/search/target', { epc_ids: nextQueue }, function (status, data) {
+            isAdvancingQueue = false;
+            if (status >= 200 && status < 300 && data) {
+                activeSearchQueue = data.activeSearchQueue || nextQueue;
+            }
+            updateFindView();
+        });
+    }
+
+    function clearHunt() {
+        xhrJson('POST', '/api/search/target', { epc_ids: [] }, function () {
+            activeSearchQueue = [];
+            updateFindView();
+            if (activeView === 'inventory') renderInventoryTable();
+        });
+    }
+
+    function matchesBinSearch(bin, query) {
+        var q = trimStr(query).toLowerCase();
+        if (!q) return true;
+        var fields = [bin.name, bin.id, bin.description, bin.boundary_tag_a, bin.boundary_tag_b];
+        var i;
+        for (i = 0; i < fields.length; i++) {
+            if (String(fields[i] || '').toLowerCase().indexOf(q) >= 0) return true;
+        }
+        return false;
+    }
+
+    function onBinsSearch() {
+        binsSearchQuery = document.getElementById('bins-search').value;
+        renderBinsTable();
+    }
+
+    function renderBinsTable() {
+        var wrap = document.getElementById('bins-table-wrap');
+        if (!mobileBinsList.length) {
+            wrap.innerHTML = '<p class="standby">No bins registered.</p>';
+            return;
+        }
+        var filtered = [];
+        var i;
+        for (i = 0; i < mobileBinsList.length; i++) {
+            if (matchesBinSearch(mobileBinsList[i], binsSearchQuery)) {
+                filtered.push(mobileBinsList[i]);
+            }
+        }
+        if (!filtered.length) {
+            wrap.innerHTML = '<p class="standby">No bins match.</p>';
+            return;
+        }
+        var html = '<table class="data-table" cellpadding="0" cellspacing="0">';
+        html += '<thead><tr><th>Name / ID</th><th>Items</th><th>Zone tags</th></tr></thead><tbody>';
+        for (i = 0; i < filtered.length; i++) {
+            var bin = filtered[i];
+            var count = mobileBinsCount[bin.id] || 0;
+            var tagA = trimStr(bin.boundary_tag_a);
+            var tagB = trimStr(bin.boundary_tag_b);
+            var tags = (tagA || tagB) ? escapeHtml(tagA || '—') + ' | ' + escapeHtml(tagB || '—') : '—';
+            html += '<tr><td><strong>' + escapeHtml(bin.name) + '</strong><br><span class="mono">' + escapeHtml(bin.id) + '</span></td>';
+            html += '<td>' + count + '</td><td class="mono">' + tags + '</td></tr>';
+        }
+        html += '</tbody></table>';
+        wrap.innerHTML = html;
+    }
+
+    function loadBins() {
+        xhrJson('GET', '/api/containers', null, function (cStatus, containers) {
+            xhrJson('GET', '/api/dashboard', null, function (dStatus, dash) {
+                mobileBinsList = (cStatus >= 200 && cStatus < 300 && containers) ? containers : [];
+                mobileBinsCount = {};
+                var items = (dStatus >= 200 && dStatus < 300 && dash && dash.items) ? dash.items : [];
+                var j;
+                for (j = 0; j < items.length; j++) {
+                    var cid = items[j].container_id;
+                    if (cid) mobileBinsCount[cid] = (mobileBinsCount[cid] || 0) + 1;
+                }
+                renderBinsTable();
+            });
+        });
+    }
+
+    function lookupUpc() {
+        var code = trimStr(document.getElementById('add-upc').value);
+        if (!code) {
+            setStatusMsg('add-status', 'Enter a UPC first', 'err');
+            return;
+        }
+        xhrJson('GET', '/api/upc/lookup/' + encodeURIComponent(code), null, function (status, data) {
+            if (status >= 200 && status < 300 && data && data.found) {
+                boundUpc = data.upc || code;
+                showAddDetails(data);
+            } else if (confirm((data && data.message) ? data.message : 'Not found. Enter manually?')) {
+                boundUpc = '';
+                showAddDetails(null);
+            }
+        });
+    }
+
+    function showAddDetails(lookup) {
+        document.getElementById('add-step-upc').className = 'step-hidden';
+        document.getElementById('add-step-details').className = '';
+        var preview = document.getElementById('add-preview');
+        if (lookup && lookup.found) {
+            preview.className = '';
+            preview.innerHTML = '<strong>' + escapeHtml(lookup.name) + '</strong>';
+            document.getElementById('add-name').value = lookup.name || '';
+            document.getElementById('add-category').value = lookup.category || '';
+            document.getElementById('add-desc').value = lookup.description || '';
+        } else {
+            preview.className = 'hidden';
+            document.getElementById('add-name').value = '';
+            document.getElementById('add-category').value = '';
+            document.getElementById('add-desc').value = '';
+        }
+        populateBinSelects();
+    }
+
+    function saveNewItem() {
+        var name = trimStr(document.getElementById('add-name').value);
+        var epc = trimStr(document.getElementById('add-epc').value);
+        if (!name) { setStatusMsg('add-status', 'Name required', 'err'); return; }
+        if (!epc) { setStatusMsg('add-status', 'EPC required', 'err'); return; }
+        var upcVal = boundUpc || trimStr(document.getElementById('add-upc').value) || null;
+        var payload = {
+            epc_id: epc,
+            name: name,
+            category: trimStr(document.getElementById('add-category').value) || null,
+            description: trimStr(document.getElementById('add-desc').value) || null,
+            upc: upcVal,
+            home_container_id: document.getElementById('add-home').value || null
+        };
+        xhrJson('POST', '/api/items', payload, function (status, data) {
+            if (status >= 200 && status < 300) {
+                setStatusMsg('add-status', 'Item created: ' + name, 'ok');
+                boundUpc = '';
+                document.getElementById('add-upc').value = '';
+                document.getElementById('add-step-upc').className = '';
+                document.getElementById('add-step-details').className = 'step-hidden';
+                syncFromServer();
+            } else {
+                setStatusMsg('add-status', (data && data.error) ? data.error : 'Create failed', 'err');
+            }
+        });
+    }
+
+    function switchView(view) {
+        activeView = view;
+        var views = ['scan', 'inventory', 'find', 'add', 'bins'];
+        var v;
+        for (v = 0; v < views.length; v++) {
+            var panel = document.getElementById('view-' + views[v]);
+            if (panel) {
+                panel.className = views[v] === view ? 'view-panel view-panel-active' : 'view-panel';
+            }
+        }
+        var navIds = ['nav-scan', 'nav-inventory', 'nav-find', 'nav-add', 'nav-bins'];
+        var navViews = ['scan', 'inventory', 'find', 'add', 'bins'];
+        var n;
+        for (n = 0; n < navIds.length; n++) {
+            var btn = document.getElementById(navIds[n]);
+            if (btn) {
+                btn.className = navViews[n] === view ? 'nav-btn nav-btn-active' : 'nav-btn';
+            }
+        }
+
+        if (view === 'find') {
+            startFindPolling();
+            pollSearchTarget();
+        } else {
+            stopRssiAnimation();
+        }
+
+        if (view === 'inventory') {
+            renderInventoryTable();
+            syncFromServer();
+        }
+        if (view === 'bins') loadBins();
+        if (view === 'add') {
+            loadContainers(function () {
+                document.getElementById('add-step-upc').className = '';
+                document.getElementById('add-step-details').className = 'step-hidden';
+            });
+        }
+    }
+
+    function init() {
+        loadAdminSettings();
+        loadContainers();
+        startInventorySync();
+        startFindPolling();
+
+        var editHome = document.getElementById('edit-home');
+        var editCur = document.getElementById('edit-current');
+        if (editHome) {
+            editHome.onchange = updateEditStatusPreview;
+        }
+        if (editCur) {
+            editCur.onchange = updateEditStatusPreview;
+        }
+    }
+
+    if (window.addEventListener) {
+        window.addEventListener('load', init, false);
+    } else if (window.attachEvent) {
+        window.attachEvent('onload', init);
+    } else {
+        init();
+    }
+
+    return {
+        switchView: switchView,
+        triggerScan: triggerScan,
+        setStatusFilter: setStatusFilter,
+        onInventorySearch: onInventorySearch,
+        onBinsSearch: onBinsSearch,
+        openEditByIndex: openEditByIndex,
+        toggleFindByIndex: toggleFindByIndex,
+        toggleFind: toggleFind,
+        closeEdit: closeEdit,
+        saveEditItem: saveEditItem,
+        deleteEditItem: deleteEditItem,
+        huntEditItem: huntEditItem,
+        confirmFoundNext: confirmFoundNext,
+        clearHunt: clearHunt,
+        lookupUpc: lookupUpc,
+        showAddDetails: showAddDetails,
+        saveNewItem: saveNewItem
+    };
+})();
+</script>
+
+</body>
+</html>
