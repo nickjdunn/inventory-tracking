@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="/handheld-detect.js"></script>
     <title>📦 RFID Home Inventory Hub</title>
     <link rel="stylesheet" href="/app.css">
     <link rel="stylesheet" href="/onboarding-wizard.css">
@@ -291,9 +292,10 @@
                 <a class="sidebar-link" href="/admin.html">⚙️ Admin Settings</a>
             </nav>
             <div class="sidebar-footer">
-                <a href="/mobile.html">📱 Handheld Mobile View</a>
-                <a href="/emulator.html" style="display:block;margin-top:8px;">📡 Test Control Deck</a>
-                <a href="/win-ce.html" style="display:block;margin-top:8px;">🖥️ Win CE Legacy View</a>
+                <a href="/deploy/" id="handheld-hub-link">📡 Handheld / Scanner hub</a>
+                <a href="/deploy/ce-wifi-test.html" style="display:block;margin-top:8px;">📶 Wi‑Fi test (scanner)</a>
+                <a href="/mobile.html" style="display:block;margin-top:8px;">📱 Full mobile web UI</a>
+                <a href="/emulator.html" style="display:block;margin-top:8px;">🧪 Test Control Deck</a>
             </div>
         </aside>
 

@@ -2,3 +2,6 @@ secrets.yaml
 node_modules/
 inventory.db
 .env
+public/deploy/*.cab
+public/deploy/*.exe
+archive/artifacts/

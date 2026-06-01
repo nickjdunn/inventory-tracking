@@ -1,6 +1,8 @@
 const http = require('http');
 const express = require('express');
 const WebSocket = require('ws');
+const fs = require('fs');
+const path = require('path');
 const db = require('./database'); // Import our database setup
 const {
     lookupUpcHybrid,
@@ -26,6 +28,7 @@ const {
     validateContainerSaveAsync,
     toNearFieldReason,
 } = require('./epc-registry');
+const { dbAll, dbRun } = require('./db-async');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -95,6 +98,9 @@ const ALLOWED_SETTING_KEYS = new Set([
     'upcitemdb_api_key',
 ]);
 
+const SETTINGS_CACHE_MS = 5000;
+let settingsCache = { value: null, at: 0 };
+
 function getSystemSettings() {
     return new Promise((resolve, reject) => {
         db.all(`SELECT key, value FROM system_settings`, [], (err, rows) => {
@@ -106,6 +112,20 @@ function getSystemSettings() {
             resolve(settings);
         });
     });
+}
+
+function invalidateSettingsCache() {
+    settingsCache = { value: null, at: 0 };
+}
+
+async function getSystemSettingsCached() {
+    const now = Date.now();
+    if (settingsCache.value && now - settingsCache.at < SETTINGS_CACHE_MS) {
+        return settingsCache.value;
+    }
+    const value = await getSystemSettings();
+    settingsCache = { value, at: now };
+    return value;
 }
 
 const DEFAULT_SYSTEM_SETTINGS_FALLBACK = {
@@ -247,6 +267,37 @@ async function notifyHomeAssistant(payload) {
 }
 
 app.use(express.json());
+
+const DEPLOY_DIR = path.join(__dirname, 'public', 'deploy');
+const DEPLOY_CAB_NAME = 'MerlinInventoryTest.cab';
+
+function getDeployCabInfo() {
+    const cabPath = path.join(DEPLOY_DIR, DEPLOY_CAB_NAME);
+    if (!fs.existsSync(cabPath)) {
+        return { cab_available: false, cab_filename: DEPLOY_CAB_NAME };
+    }
+    const stat = fs.statSync(cabPath);
+    return {
+        cab_available: true,
+        cab_filename: DEPLOY_CAB_NAME,
+        cab_url: '/deploy/' + DEPLOY_CAB_NAME,
+        cab_size_kb: Math.round(stat.size / 1024),
+        cab_modified: stat.mtime.toISOString(),
+    };
+}
+
+// 📦 Handheld / deploy hub — Wi‑Fi CAB update metadata
+app.get('/api/deploy/info', (req, res) => {
+    res.json({
+        app: 'MerlinInventoryTest',
+        version: '0.1.0-test',
+        server_time: Date.now(),
+        deploy_page: '/deploy/',
+        wifi_test_page: '/deploy/ce-wifi-test.html',
+        ...getDeployCabInfo(),
+    });
+});
+
 // Serves index.html, mobile.html, emulator.html, and /public assets — no route conflict with /api/*
 app.use(express.static('public'));
 
@@ -699,60 +750,79 @@ function findSpatialZoneMatch(scannedTags, containers) {
     return null;
 }
 
-function processScannedTags(scannedTags, targetContainerEpc) {
-    const logStmt = db.prepare(
-        `INSERT INTO scan_history (scanned_epc, parent_container_epc, action) VALUES (?, ?, ?)`
-    );
-    const updateItemStmt = db.prepare(`UPDATE items SET container_id = ? WHERE epc_id = ?`);
+async function processScannedTags(scannedTags, targetContainerEpc) {
+    if (!scannedTags.length) return;
 
-    db.serialize(() => {
-        scannedTags.forEach((epc) => {
-            db.get(
-                `SELECT name, container_id, home_container_id FROM items WHERE epc_id = ?`,
-                [epc],
-                (err, item) => {
-                    if (err) console.error(err);
+    const uniqueTags = [...new Set(scannedTags.map((t) => normalizeScanTag(t)).filter(Boolean))];
+    if (!uniqueTags.length) return;
 
-                    if (item) {
-                        if (item.container_id !== targetContainerEpc) {
-                            console.log(
-                                `📦 MOVED: '${item.name}' [${epc}] moved to bin [${targetContainerEpc}]`
-                            );
-                            updateItemStmt.run(targetContainerEpc, epc);
-                            logStmt.run(epc, targetContainerEpc, 'MOVED');
-                            maybeNotifyMisplaced(item, epc, targetContainerEpc);
-                        } else {
-                            console.log(
-                                `🎯 CONFIRMED: '${item.name}' is still in bin [${targetContainerEpc}]`
-                            );
-                            logStmt.run(epc, targetContainerEpc, 'FOUND');
-                            maybeNotifyMisplaced(item, epc, targetContainerEpc);
-                        }
-                    } else {
-                        checkEpcForRole(epc, { role: 'item' }, (regErr, regResult) => {
-                            if (regErr) {
-                                console.error(regErr);
-                                return;
-                            }
-                            if (!regResult.valid) {
-                                console.log(
-                                    `⚠️ Skipped auto-register [${epc}]: ${regResult.message}`
-                                );
-                                logStmt.run(epc, targetContainerEpc, 'REJECTED');
-                                return;
-                            }
-                            console.log(`🆕 UNKNOWN TAG DETECTED: [${epc}]. Creating placeholder entry.`);
-                            db.run(
-                                `INSERT INTO items (epc_id, name, container_id) VALUES (?, ?, ?)`,
-                                [epc, `Unknown RFID Tag (${epc.slice(-4)})`, targetContainerEpc]
-                            );
-                            logStmt.run(epc, targetContainerEpc, 'REGISTERED');
-                        });
-                    }
-                }
+    const lowerTags = uniqueTags.map((t) => t.toLowerCase());
+    const placeholders = lowerTags.map(() => '?').join(',');
+
+    let rows = [];
+    try {
+        rows = await dbAll(
+            `SELECT epc_id, name, container_id, home_container_id FROM items
+             WHERE LOWER(epc_id) IN (${placeholders})`,
+            lowerTags
+        );
+    } catch (err) {
+        console.error('processScannedTags batch load:', err);
+        return;
+    }
+
+    const itemByLowerEpc = new Map(rows.map((row) => [row.epc_id.toLowerCase(), row]));
+    const unknownTags = uniqueTags.filter((epc) => !itemByLowerEpc.has(epc.toLowerCase()));
+
+    for (const epc of uniqueTags) {
+        const item = itemByLowerEpc.get(epc.toLowerCase());
+        if (!item) continue;
+
+        if (item.container_id !== targetContainerEpc) {
+            console.log(`📦 MOVED: '${item.name}' [${epc}] moved to bin [${targetContainerEpc}]`);
+            await dbRun(`UPDATE items SET container_id = ? WHERE epc_id = ?`, [
+                targetContainerEpc,
+                item.epc_id,
+            ]);
+            await dbRun(
+                `INSERT INTO scan_history (scanned_epc, parent_container_epc, action) VALUES (?, ?, ?)`,
+                [item.epc_id, targetContainerEpc, 'MOVED']
             );
-        });
-    });
+            maybeNotifyMisplaced(item, item.epc_id, targetContainerEpc);
+        } else {
+            console.log(`🎯 CONFIRMED: '${item.name}' is still in bin [${targetContainerEpc}]`);
+            await dbRun(
+                `INSERT INTO scan_history (scanned_epc, parent_container_epc, action) VALUES (?, ?, ?)`,
+                [item.epc_id, targetContainerEpc, 'FOUND']
+            );
+            maybeNotifyMisplaced(item, item.epc_id, targetContainerEpc);
+        }
+    }
+
+    for (const epc of unknownTags) {
+        try {
+            const regResult = await checkEpcForRoleAsync(epc, { role: 'item' });
+            if (!regResult.valid) {
+                console.log(`⚠️ Skipped auto-register [${epc}]: ${regResult.message}`);
+                await dbRun(
+                    `INSERT INTO scan_history (scanned_epc, parent_container_epc, action) VALUES (?, ?, ?)`,
+                    [epc, targetContainerEpc, 'REJECTED']
+                );
+                continue;
+            }
+            console.log(`🆕 UNKNOWN TAG DETECTED: [${epc}]. Creating placeholder entry.`);
+            await dbRun(
+                `INSERT INTO items (epc_id, name, container_id) VALUES (?, ?, ?)`,
+                [epc, `Unknown RFID Tag (${epc.slice(-4)})`, targetContainerEpc]
+            );
+            await dbRun(
+                `INSERT INTO scan_history (scanned_epc, parent_container_epc, action) VALUES (?, ?, ?)`,
+                [epc, targetContainerEpc, 'REGISTERED']
+            );
+        } catch (err) {
+            console.error(`processScannedTags unknown [${epc}]:`, err);
+        }
+    }
 }
 
 // 🧪 Spatial diagnostics live feed (poll from diagnostics.html)
@@ -965,7 +1035,7 @@ app.post('/api/scan/near-field-ingest', async (req, res) => {
     }
 
     try {
-        const settings = await getSystemSettings();
+        const settings = await getSystemSettingsCached();
         recordNearFieldReads(tagEntries, settings);
         const nearGate = parseInt(settings.rssi_near_gate, 10) || -55;
         res.json({
@@ -1039,7 +1109,7 @@ app.get('/api/scan/latest-near-field', async (req, res) => {
     const excludeBinId = normalizeExcludeId(req.query.exclude_bin_id);
 
     try {
-        const settings = await getSystemSettings();
+        const settings = await getSystemSettingsCached();
         const nearGate = parseInt(settings.rssi_near_gate, 10) || -55;
         const candidate = findLatestUnassignedNearField(since, nearGate);
 
@@ -1101,13 +1171,9 @@ app.post('/api/scan', async (req, res) => {
     const tagEntries = normalizeScannedTags(scanned_tags);
 
     try {
-        const settings = await getSystemSettings();
+        const settings = await getSystemSettingsCached();
         recordNearFieldReads(tagEntries, settings);
-    } catch (err) {
-        console.warn('Near-field record failed:', err.message);
-    }
 
-    try {
         const result = await runInventoryScan(targetContainerEpc, tagEntries, {
             source: 'api-scan',
         });
@@ -1336,7 +1402,7 @@ app.get('/api/upc/lookup/:code', async (req, res) => {
             });
         }
 
-        const settings = await getSystemSettings();
+        const settings = await getSystemSettingsCached();
         const key = settings.upcitemdb_api_key || process.env.UPCITEMDB_API_KEY || '';
         const result = await lookupUpcHybrid(upc, { upcitemdbKey: key });
 
@@ -1829,36 +1895,69 @@ app.post('/api/search/target', (req, res) => {
         .catch((err) => res.status(500).json({ error: err.message }));
 });
 
-// 🌐 API to get all current inventory and history for the frontend dashboard
-app.get('/api/dashboard', (req, res) => {
-    const data = {};
-    
-    // Get all items and their current bin assignments
-    db.all(`SELECT items.*,
-                   containers.name AS container_name,
-                   home_containers.name AS home_container_name
-            FROM items 
-            LEFT JOIN containers ON items.container_id = containers.id
-            LEFT JOIN containers AS home_containers ON items.home_container_id = home_containers.id`, [], (err, items) => {
-        if (err) return res.status(500).json({ error: err.message });
-        data.items = items.map((item) => ({
-            ...item,
-            status: computeItemStatus(item)
-        }));
+// 📱 Compact sync payload for native Windows CE handheld (cache + offline Find)
+app.get('/api/handheld/sync', async (req, res) => {
+    try {
+        const [items, containers, settings] = await Promise.all([
+            dbAll(
+                `SELECT items.epc_id, items.name, items.category, items.upc,
+                        items.container_id, items.home_container_id,
+                        containers.name AS container_name,
+                        home_containers.name AS home_container_name
+                 FROM items
+                 LEFT JOIN containers ON items.container_id = containers.id
+                 LEFT JOIN containers AS home_containers ON items.home_container_id = home_containers.id
+                 ORDER BY items.name ASC`
+            ),
+            dbAll(
+                `SELECT id, name, boundary_tag_a, boundary_tag_b FROM containers ORDER BY name ASC`
+            ),
+            getSystemSettingsCached(),
+        ]);
 
-        db.all(`SELECT id, name, description FROM containers ORDER BY name ASC`, [], (err, containers) => {
-            if (err) return res.status(500).json({ error: err.message });
-            data.containers = containers;
-
-            // Get the latest 10 scans for the live history feed
-            db.all(`SELECT * FROM scan_history ORDER BY timestamp DESC LIMIT 10`, [], (err, history) => {
-                if (err) return res.status(500).json({ error: err.message });
-                data.history = history;
-
-                res.json(data);
-            });
+        res.json({
+            synced_at: Date.now(),
+            items: items.map((item) => ({
+                ...item,
+                status: computeItemStatus(item),
+            })),
+            containers,
+            activeSearchQueue: [...activeSearchQueue],
+            rssi_near_gate: parseInt(settings.rssi_near_gate, 10) || -55,
+            rssi_far_gate: parseInt(settings.rssi_far_gate, 10) || -85,
         });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 🌐 API to get all current inventory and history for the frontend dashboard
+app.get('/api/dashboard', async (req, res) => {
+    try {
+        const [items, containers, history] = await Promise.all([
+            dbAll(
+                `SELECT items.*,
+                        containers.name AS container_name,
+                        home_containers.name AS home_container_name
+                 FROM items
+                 LEFT JOIN containers ON items.container_id = containers.id
+                 LEFT JOIN containers AS home_containers ON items.home_container_id = home_containers.id`
+            ),
+            dbAll(`SELECT id, name, description FROM containers ORDER BY name ASC`),
+            dbAll(`SELECT * FROM scan_history ORDER BY timestamp DESC LIMIT 10`),
+        ]);
+
+        res.json({
+            items: items.map((item) => ({
+                ...item,
+                status: computeItemStatus(item),
+            })),
+            containers,
+            history,
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 function dbAllAsync(sql, params = []) {
@@ -1975,8 +2074,12 @@ app.post('/api/admin/settings', (req, res) => {
         keys.forEach((key) => stmt.run(key, sanitized[key]));
         stmt.finalize((finalizeErr) => {
             if (finalizeErr) return res.status(500).json({ error: finalizeErr.message });
+            invalidateSettingsCache();
             getSystemSettings()
-                .then((settings) => res.json({ status: 'success', settings }))
+                .then((settings) => {
+                    settingsCache = { value: settings, at: Date.now() };
+                    res.json({ status: 'success', settings });
+                })
                 .catch((e) => res.status(500).json({ error: e.message }));
         });
     });

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CE Wi‑Fi Test</title>
+    <style>
+        body { font-family: Tahoma, sans-serif; background: #0f172a; color: #f8fafc; margin: 10px; font-size: 16px; }
+        h1 { font-size: 17px; color: #38bdf8; }
+        button { width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; background: #0369a1; color: #fff; border: none; border-radius: 6px; }
+        #log { background: #1e293b; padding: 10px; min-height: 120px; font-size: 14px; white-space: pre-wrap; word-break: break-all; }
+        .pass { color: #4ade80; }
+        .fail { color: #fecaca; }
+        input { width: 100%; box-sizing: border-box; padding: 10px; margin: 6px 0; font-size: 15px; }
+        label { font-size: 13px; color: #94a3b8; }
+    </style>
+</head>
+<body>
+    <h1>📶 Wi‑Fi + API test</h1>
+    <p>No install — runs in the scanner browser.</p>
+    <label>Server (leave blank = this host)</label>
+    <input type="text" id="server" placeholder="10.17.17.17:3000">
+    <button type="button" id="run">Run all tests</button>
+    <button type="button" id="hb">Heartbeat only</button>
+    <div id="log">Tap Run…</div>
+    <p style="font-size:12px;color:#94a3b8;"><a href="/deploy/">← Deploy menu</a></p>
+    <script>
+        function base() {
+            var v = document.getElementById('server').value.replace(/^\s+|\s+$/g, '');
+            if (v) {
+                if (v.indexOf('http') !== 0) v = 'http://' + v;
+                return v.replace(/\/$/, '');
+            }
+            return location.protocol + '//' + location.host;
+        }
+        function log(msg, ok) {
+            var el = document.getElementById('log');
+            var line = document.createElement('div');
+            line.className = ok ? 'pass' : 'fail';
+            line.appendChild(document.createTextNode(msg));
+            el.appendChild(line);
+        }
+        function clear() { document.getElementById('log').innerHTML = ''; }
+        function xhr(method, url, body, cb) {
+            try {
+                var x = new XMLHttpRequest();
+                x.open(method, url, true);
+                x.setRequestHeader('Content-Type', 'application/json');
+                x.onreadystatechange = function () {
+                    if (x.readyState !== 4) return;
+                    var ok = x.status >= 200 && x.status < 300;
+                    var text = x.responseText || '';
+                    cb(ok, x.status, text);
+                };
+                x.send(body ? JSON.stringify(body) : null);
+            } catch (e) {
+                cb(false, 0, String(e.message || e));
+            }
+        }
+        function runAll() {
+            clear();
+            var b = base();
+            log('Base URL: ' + b, true);
+            xhr('GET', b + '/api/deploy/info', null, function (ok, st, text) {
+                log('Deploy info: HTTP ' + st + (ok ? ' OK' : ' FAIL'), ok);
+                if (ok) log(text.substring(0, 200), true);
+            });
+            xhr('POST', b + '/api/scanner/heartbeat', {
+                scanner_id: 'merlin-ce-browser-test',
+                mode: 'wifi-test'
+            }, function (ok, st, text) {
+                log('Heartbeat: HTTP ' + st + (ok ? ' OK' : ' FAIL'), ok);
+            });
+            xhr('GET', b + '/api/handheld/sync', null, function (ok, st, text) {
+                log('Handheld sync: HTTP ' + st + (ok ? ' OK' : ' FAIL'), ok);
+                if (ok) {
+                    try {
+                        var d = JSON.parse(text);
+                        log('Items: ' + (d.items ? d.items.length : 0) + ', bins: ' + (d.containers ? d.containers.length : 0), true);
+                    } catch (e) { log('Parse sync JSON failed', false); }
+                }
+            });
+        }
+        document.getElementById('run').onclick = runAll;
+        document.getElementById('hb').onclick = function () {
+            clear();
+            var b = base();
+            xhr('POST', b + '/api/scanner/heartbeat', { scanner_id: 'merlin-ce-browser-test' }, function (ok, st) {
+                log('Heartbeat HTTP ' + st, ok);
+            });
+        };
+    </script>
+</body>
+</html>

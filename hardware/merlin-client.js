@@ -279,6 +279,14 @@ async function sendNearFieldCapture(epc, rssi) {
 /**
  * Heartbeat ping — keeps dashboard "scanner online" badge fresh.
  */
+/**
+ * Pull compact inventory + bins + hunt queue for native handheld cache.
+ * @returns {Promise<object>}
+ */
+async function fetchHandheldSync() {
+    return dispatch('GET', '/api/handheld/sync');
+}
+
 async function sendHeartbeat(extra = {}) {
     const payload = {
         scanner_id: CONFIG.SCANNER_ID,
@@ -342,6 +350,7 @@ module.exports = {
     sendBulkInventoryScan,
     sendMerlinWedge,
     sendNearFieldCapture,
+    fetchHandheldSync,
     sendHeartbeat,
     startHeartbeat,
     stopHeartbeat,

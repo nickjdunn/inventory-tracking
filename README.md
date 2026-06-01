@@ -15,7 +15,9 @@ Server listens on port **3000** by default (`PORT` env override).
 |----|-----|
 | Desktop dashboard | http://localhost:3000/index.html |
 | Modern mobile | http://localhost:3000/mobile.html |
-| **Win CE (HTE00072)** | http://localhost:3000/win-ce.html |
+| **Handheld hub (Merlin)** | http://localhost:3000/deploy/ |
+| **Wi‑Fi test (scanner)** | http://localhost:3000/deploy/ce-wifi-test.html |
+| Win CE legacy (redirect) | http://localhost:3000/win-ce.html → `/deploy/` |
 | Test simulator (dev only) | http://localhost:3000/emulator.html |
 
 ---
@@ -29,7 +31,7 @@ Use this section when deploying the gun on your warehouse floor with the legacy 
 | Setting | Value |
 |---------|--------|
 | **Server ingestion endpoint** | `http://10.17.17.17:3000/api/hardware/merlin-wedge` |
-| **Device browser bookmark** | `http://10.17.17.17:3000/win-ce.html` |
+| **Device browser bookmark** | `http://10.17.17.17:3000/deploy/` (or open `/index.html` — auto-redirects on scanner) |
 | **Scanner ID** | `HTE00072` (sent as `scanner_id` in JSON bodies) |
 | **Heartbeat interval** | **30 seconds** via `hardware/merlin-client.js` |
 
@@ -89,9 +91,9 @@ For **Find mode**, wedge reads with RSSI should still hit the server (via HTTP P
 ### 3. Bookmark the legacy UI on the Merlin
 
 1. Open Pocket Internet Explorer on the device.  
-2. Navigate to: **http://10.17.17.17:3000/win-ce.html**  
-3. Add to Favorites.  
-4. Use **Items** to search inventory, **Find** to hunt (live RSSI from server — no simulated signal on this page).
+2. Navigate to: **http://10.17.17.17:3000/deploy/ce-wifi-test.html** (test), then **http://10.17.17.17:3000/mobile.html** (full UI).  
+3. Or open **http://10.17.17.17:3000/index.html** — the scanner is detected and sent to `/deploy/` automatically.  
+4. Add **/deploy/** to Favorites on the gun.
 
 ### 4. Find mode behavior (production)
 

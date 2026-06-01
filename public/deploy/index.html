@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Merlin Handheld</title>
+    <style>
+        body { font-family: Tahoma, sans-serif; background: #0f172a; color: #f8fafc; margin: 12px; font-size: 15px; }
+        h1 { font-size: 18px; color: #38bdf8; margin: 0 0 8px; }
+        a.big { display: block; background: #0369a1; color: #fff; text-decoration: none; padding: 16px; margin: 10px 0; border-radius: 8px; text-align: center; font-weight: bold; }
+        a.big.secondary { background: #334155; }
+        p { color: #94a3b8; line-height: 1.4; margin: 8px 0; }
+        .ok { color: #4ade80; }
+        .warn { color: #fbbf24; }
+        code { background: #1e293b; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h1>📡 Merlin handheld</h1>
+    <p>Server: <strong id="host"></strong></p>
+    <p class="ok">Opened from scanner — bookmark this page.</p>
+
+    <a class="big" href="/deploy/ce-wifi-test.html">📶 Wi‑Fi + API test</a>
+    <p>Run first — no install. Confirms connection to inventory server.</p>
+
+    <a class="big secondary" href="/mobile.html">📱 Inventory mobile UI</a>
+    <p>Full scan / find / add workflow in the browser.</p>
+
+    <a class="big secondary" href="#" id="cab-link" style="display:none;">⬇ Install native test app (.cab)</a>
+    <p id="cab-hint" class="warn">Native .cab not on server yet — build on PC, copy to <code>public/deploy/</code>.</p>
+
+    <p style="font-size:12px;"><a href="/index.html?desktop=1">Desktop dashboard</a></p>
+
+    <script>
+        document.getElementById('host').textContent = location.host;
+        function xhr(method, url, body, cb) {
+            try {
+                var x = new XMLHttpRequest();
+                x.open(method, url, true);
+                if (body) x.setRequestHeader('Content-Type', 'application/json');
+                x.onreadystatechange = function () {
+                    if (x.readyState !== 4) return;
+                    cb(x.status >= 200 && x.status < 300, x.status, x.responseText || '');
+                };
+                x.send(body ? JSON.stringify(body) : null);
+            } catch (e) { cb(false, 0, String(e.message || e)); }
+        }
+        xhr('GET', '/api/deploy/info', null, function (ok, st, text) {
+            if (!ok) return;
+            try {
+                var d = JSON.parse(text);
+                if (d.cab_available) {
+                    var a = document.getElementById('cab-link');
+                    a.style.display = 'block';
+                    a.href = d.cab_url;
+                    document.getElementById('cab-hint').innerHTML =
+                        '<span class="ok">CAB ready: ' + d.cab_filename + ' (' + d.cab_size_kb + ' KB)</span>';
+                }
+            } catch (e) {}
+        });
+        xhr('POST', '/api/scanner/heartbeat', { scanner_id: 'merlin-handheld-hub', mode: 'deploy-page' }, function () {});
+    </script>
+</body>
+</html>
