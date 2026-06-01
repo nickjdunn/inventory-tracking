@@ -349,6 +349,32 @@
                 <div id="tag-grid" class="tag-grid"></div>
             </section>
 
+            <!-- Find mode test rig -->
+            <section class="tool-card">
+                <h3>🔍 Find Mode Test Rig</h3>
+                <p class="hint">Simulates Merlin hunt RSSI for the active queue (production mobile/desktop shows real wedge reads only).</p>
+                <div class="btn-row" style="margin-bottom:10px;">
+                    <button type="button" class="btn emu" id="btn-refresh-hunt">↻ Refresh hunt queue</button>
+                </div>
+                <p class="rssi-readout" id="hunt-queue-display">Queue: (none)</p>
+                <label class="field-label">Hunt target EPC</label>
+                <input type="text" id="hunt-epc" placeholder="TEST-EPC-0001A or live EPC" autocomplete="off">
+                <label class="field-label">Simulated RSSI (dBm)</label>
+                <p class="rssi-readout" id="hunt-rssi-label">−60 dBm</p>
+                <input type="range" id="hunt-rssi" min="-90" max="-10" value="-60" step="1">
+                <div class="btn-row" style="margin-top:12px;">
+                    <button type="button" class="btn emu primary" id="btn-fire-hunt-read">Fire hunt RSSI read</button>
+                    <button type="button" class="btn emu" id="btn-set-hunt-queue">Set as sole hunt target</button>
+                </div>
+                <div class="proximity-meter cold" id="emu-find-meter" style="margin-top:14px;padding:12px;border:1px solid #334155;border-radius:8px;">
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Emulator-only signal preview</div>
+                    <div class="rssi-readout" id="emu-find-zone">WAITING</div>
+                    <div style="height:8px;background:#0f172a;border-radius:4px;margin-top:8px;">
+                        <div id="emu-find-bar" style="height:100%;width:0%;background:#64748b;border-radius:4px;"></div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Mode 3: Autopilot -->
             <section class="tool-card">
                 <h3>🤖 Autonomous Inventory Traffic</h3>
@@ -371,7 +397,7 @@
     </div>
 
     <script>
-        const SCANNER_ID = 'BROWSER-EMU-001';
+        const SCANNER_ID = 'HTE00072-EMU';
         const TEST_EPC_PREFIX = 'TEST-EPC-';
 
         const DEFAULT_TEST_ARSENAL = [
@@ -723,6 +749,61 @@
             logCount = 0;
             document.getElementById('log-count').textContent = '0 events';
         });
+        function updateHuntRssiLabel() {
+            const v = parseInt(document.getElementById('hunt-rssi').value, 10);
+            const el = document.getElementById('hunt-rssi-label');
+            el.textContent = v + ' dBm';
+            el.style.color = v >= adminNearGate ? '#4ade80' : '#fbbf24';
+            const pct = Math.round(Math.max(0, Math.min(100, ((v + 100) / 70) * 100)));
+            const zone = v >= adminNearGate ? 'CLOSE' : v >= -85 ? 'WARM' : 'COLD';
+            document.getElementById('emu-find-zone').textContent = zone + ' · ' + v + ' dBm';
+            document.getElementById('emu-find-bar').style.width = pct + '%';
+            document.getElementById('emu-find-bar').style.background =
+                zone === 'CLOSE' ? '#4ade80' : zone === 'WARM' ? '#fbbf24' : '#64748b';
+        }
+
+        async function refreshHuntQueue() {
+            const res = await fetch('/api/search/target');
+            const data = await res.json();
+            const q = data.activeSearchQueue || [];
+            document.getElementById('hunt-queue-display').textContent =
+                q.length ? 'Queue: ' + q.join(' → ') : 'Queue: (none)';
+            if (q[0]) document.getElementById('hunt-epc').value = q[0];
+            return data;
+        }
+
+        async function fireHuntRssiRead() {
+            const epc = ensureTestEpc(document.getElementById('hunt-epc').value);
+            document.getElementById('hunt-epc').value = epc;
+            const rssi = parseInt(document.getElementById('hunt-rssi').value, 10);
+            await apiPost('/api/scan/near-field-ingest', buildNearFieldPayload(epc, rssi), 'near-field');
+            updateHuntRssiLabel();
+        }
+
+        async function setHuntQueueFromInput() {
+            const epc = document.getElementById('hunt-epc').value.trim();
+            if (!epc) return alert('Enter an EPC for hunt target');
+            const res = await fetch('/api/search/target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ epc_ids: [epc] }),
+            });
+            const data = await res.json();
+            appendLog('info', 'POST', '/api/search/target', { epc_ids: [epc] }, data);
+            await refreshHuntQueue();
+        }
+
+        document.getElementById('hunt-rssi').addEventListener('input', updateHuntRssiLabel);
+        document.getElementById('btn-refresh-hunt').addEventListener('click', () =>
+            refreshHuntQueue().catch((e) => alert(e.message))
+        );
+        document.getElementById('btn-fire-hunt-read').addEventListener('click', () =>
+            fireHuntRssiRead().catch((e) => alert(e.message))
+        );
+        document.getElementById('btn-set-hunt-queue').addEventListener('click', () =>
+            setHuntQueueFromInput().catch((e) => alert(e.message))
+        );
+
         document.getElementById('autopilot-toggle').addEventListener('click', () => {
             const on = !document.getElementById('autopilot-toggle').classList.contains('on');
             setAutopilot(on);
@@ -731,9 +812,11 @@
 
         loadAdminGates();
         updateOnboardRssiLabel();
+        updateHuntRssiLabel();
         document.getElementById('onboard-epc').value = testTagArsenal[0] || nextTestEpc();
         renderTagGrid();
         refreshContainers().catch(console.error);
+        refreshHuntQueue().catch(console.error);
         appendLog('info', 'LOCAL', 'simulator', { message: 'Merlin Test Control Deck ready — autopilot OFF' }, null);
     </script>
 </body>

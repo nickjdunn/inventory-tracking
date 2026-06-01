@@ -252,15 +252,15 @@
 <body>
 
 <div class="page-header">
-    <h1>RFID Inventory — Legacy Handheld</h1>
-    <p>Win CE / Pocket IE — ES5 + tables + XMLHttpRequest</p>
+    <h1>Merlin HTE00072 — Legacy</h1>
+    <p>Win CE / Pocket IE — production find &amp; inventory (no simulated RSSI)</p>
     <p><a href="/mobile.html">Modern mobile view</a> &nbsp;|&nbsp; <a href="/index.html">Desktop</a></p>
 </div>
 
 <table class="nav-table" cellpadding="0" cellspacing="0" role="navigation">
     <tr>
-        <td><button type="button" class="nav-btn nav-btn-active" id="nav-scan" onclick="WinCE.switchView('scan')">Scan</button></td>
-        <td><button type="button" class="nav-btn" id="nav-inventory" onclick="WinCE.switchView('inventory')">Items</button></td>
+        <td><button type="button" class="nav-btn" id="nav-scan" onclick="WinCE.switchView('scan')">Scan</button></td>
+        <td><button type="button" class="nav-btn nav-btn-active" id="nav-inventory" onclick="WinCE.switchView('inventory')">Items</button></td>
         <td><button type="button" class="nav-btn" id="nav-find" onclick="WinCE.switchView('find')">Find</button></td>
         <td><button type="button" class="nav-btn" id="nav-add" onclick="WinCE.switchView('add')">Add</button></td>
         <td class="last-cell"><button type="button" class="nav-btn" id="nav-bins" onclick="WinCE.switchView('bins')">Bins</button></td>
@@ -268,7 +268,7 @@
 </table>
 
 <!-- SCAN -->
-<div id="view-scan" class="view-panel view-panel-active">
+<div id="view-scan" class="view-panel">
     <div class="card">
         <h2>Quick Scan</h2>
         <label for="scan-bin-select">Target bin</label>
@@ -286,7 +286,7 @@
 </div>
 
 <!-- INVENTORY -->
-<div id="view-inventory" class="view-panel">
+<div id="view-inventory" class="view-panel view-panel-active">
     <div class="card">
         <h2>Inventory</h2>
         <p id="inventory-sync" class="sync-line">Syncing…</p>
@@ -317,11 +317,19 @@
         <p class="standby">No hunt target. Use Find on an item in Inventory.</p>
     </div>
     <div class="card hidden" id="find-active">
-        <h2>Signal proximity</h2>
+        <h2>Find item</h2>
         <p id="find-batch-label" class="mono"></p>
         <p id="find-target-name" style="font-size:16px;font-weight:bold;margin:4px 0;"></p>
         <p id="find-target-epc" class="mono"></p>
-        <p id="find-hunt-status" style="font-size:13px;color:#93c5fd;margin:10px 0;">Awaiting Merlin hardware RSSI via wedge.</p>
+        <p style="font-size:11px;color:#94a3b8;margin:8px 0;">Live signal from gun wedge — polls server every 1.5s. No simulated RSSI.</p>
+        <div class="rssi-box rssi-cold" id="find-rssi-box">
+            <div class="rssi-zone" id="find-zone-label">NO SIGNAL</div>
+            <div class="rssi-pct" id="find-dbm-label">— dBm</div>
+        </div>
+        <div class="rssi-bar-outer">
+            <div class="rssi-bar-inner" id="find-rssi-bar"></div>
+        </div>
+        <p id="find-signal-status" style="font-size:12px;color:#93c5fd;margin:10px 0;"></p>
         <button type="button" class="btn-block hidden" id="btn-confirm-next" onclick="WinCE.confirmFoundNext()">Confirm found — next</button>
         <div id="up-next-wrap"></div>
         <button type="button" class="btn-block btn-danger" onclick="WinCE.clearHunt()">Clear hunt</button>
@@ -397,10 +405,11 @@
 <script type="text/javascript">
 /* eslint-disable */
 var WinCE = (function () {
-    var SCANNER_ID = 'MERLIN-WINCE-001';
+    var SCANNER_ID = 'HTE00072';
     var TARGET_POLL_MS = 1500;
     var INVENTORY_SYNC_MS = 2000;
-    var activeView = 'scan';
+    var activeView = 'inventory';
+    var lastHuntSignal = null;
     var inventoryItems = [];
     var displayItems = [];
     var itemLookup = {};
@@ -635,6 +644,10 @@ var WinCE = (function () {
                 }
                 if (searchStatus >= 200 && searchStatus < 300 && searchData) {
                     activeSearchQueue = searchData.activeSearchQueue || [];
+                    applySearchTargetMeta(searchData);
+                    if (activeView === 'find') {
+                        applyHuntSignal(searchData.hunt_signal || null);
+                    }
                 }
                 if (activeView === 'inventory') renderInventoryTable();
                 if (activeView === 'find') updateFindView();
@@ -717,7 +730,93 @@ var WinCE = (function () {
 
     function toggleFindByIndex(idx) {
         var item = displayItems[idx];
-        if (!item) toggleFind(item.epc_id);
+        if (item) toggleFind(item.epc_id);
+    }
+
+    function applySearchTargetMeta(data) {
+        if (!data) return;
+        if (data.rssi_near_gate != null) {
+            rssiNearGate = parseInt(data.rssi_near_gate, 10);
+            if (isNaN(rssiNearGate)) rssiNearGate = -55;
+        }
+        if (data.rssi_far_gate != null) {
+            rssiFarGate = parseInt(data.rssi_far_gate, 10);
+            if (isNaN(rssiFarGate)) rssiFarGate = -85;
+        }
+    }
+
+    function zoneClassFromLabel(zone) {
+        if (zone === 'CLOSE') return 'hot';
+        if (zone === 'WARM') return 'warm';
+        if (zone === 'COLD') return 'cold';
+        return 'cold';
+    }
+
+    function dbmToPct(dbm) {
+        var span = rssiNearGate - rssiFarGate;
+        if (span <= 0) span = 1;
+        var pct = Math.round(((dbm - rssiFarGate) / span) * 100);
+        if (pct < 0) return 0;
+        if (pct > 100) return 100;
+        return pct;
+    }
+
+    function setRssiBoxClass(cls) {
+        var box = document.getElementById('find-rssi-box');
+        var bar = document.getElementById('find-rssi-bar');
+        if (!box || !bar) return;
+        box.className = 'rssi-box ' + (cls === 'hot' ? 'rssi-hot' : cls === 'warm' ? 'rssi-warm' : 'rssi-cold');
+        bar.className = 'rssi-bar-inner' + (cls === 'hot' ? ' rssi-bar-hot' : cls === 'warm' ? ' rssi-bar-warm' : '');
+    }
+
+    function applyHuntSignal(signal) {
+        lastHuntSignal = signal;
+        var statusEl = document.getElementById('find-signal-status');
+        var zoneEl = document.getElementById('find-zone-label');
+        var dbmEl = document.getElementById('find-dbm-label');
+        var barEl = document.getElementById('find-rssi-bar');
+
+        if (!signal) {
+            if (zoneEl) zoneEl.innerHTML = 'NO SIGNAL';
+            if (dbmEl) dbmEl.innerHTML = '— dBm';
+            if (barEl) barEl.style.width = '0%';
+            setRssiBoxClass('cold');
+            if (statusEl) statusEl.innerHTML = '';
+            return;
+        }
+
+        var zoneLabel = signal.zone ? String(signal.zone) : 'NO_SIGNAL';
+        var cls = zoneClassFromLabel(zoneLabel);
+        var pct = 0;
+        var hasRssi = signal.rssi != null && !isNaN(signal.rssi);
+
+        if (hasRssi) {
+            pct = dbmToPct(signal.rssi);
+            if (zoneEl) zoneEl.innerHTML = zoneLabel.replace(/_/g, ' ');
+            if (dbmEl) dbmEl.innerHTML = String(signal.rssi) + ' dBm';
+        } else {
+            if (zoneEl) zoneEl.innerHTML = 'NO SIGNAL';
+            if (dbmEl) dbmEl.innerHTML = '— dBm';
+        }
+
+        if (barEl) barEl.style.width = hasRssi ? String(pct) + '%' : '0%';
+        setRssiBoxClass(cls);
+
+        if (statusEl) {
+            var msg = '';
+            if (signal.message) msg = signal.message;
+            if (signal.stale) {
+                msg = 'Stale read — pull trigger on Merlin again.';
+            } else if (hasRssi) {
+                msg = 'Live Merlin wedge read';
+                if (signal.age_ms != null) {
+                    msg = msg + ' (' + String(Math.round(signal.age_ms / 100) / 10) + 's ago)';
+                }
+            } else if (!msg) {
+                msg = 'Pull trigger on Merlin to read hunt target RSSI.';
+            }
+            statusEl.innerHTML = escapeHtml(msg);
+        }
     }
 
     function openEditItem(item) {
@@ -808,6 +907,8 @@ var WinCE = (function () {
         xhrJson('POST', '/api/search/target', { epc_ids: epcIds }, function (status, data) {
             if (status >= 200 && status < 300 && data) {
                 activeSearchQueue = data.activeSearchQueue || [];
+                applySearchTargetMeta(data);
+                if (activeView === 'find') applyHuntSignal(data.hunt_signal || null);
             }
             if (activeView === 'inventory') renderInventoryTable();
             if (callback) callback();
@@ -892,11 +993,16 @@ var WinCE = (function () {
         });
     }
 
+    function showFindStandby() {
+        showEl('find-standby', true);
+        document.getElementById('find-active').className = 'card hidden';
+        radarFocusEpc = null;
+        applyHuntSignal(null);
+    }
+
     function updateFindView() {
         if (!activeSearchQueue.length) {
-            showEl('find-standby', true);
-            document.getElementById('find-active').className = 'card hidden';
-            radarFocusEpc = null;
+            showFindStandby();
             return;
         }
         showEl('find-standby', false);
@@ -917,8 +1023,6 @@ var WinCE = (function () {
 
         document.getElementById('find-target-name').innerHTML = escapeHtml(resolveItemName(primary));
         document.getElementById('find-target-epc').innerHTML = escapeHtml(primary);
-        document.getElementById('find-hunt-status').innerHTML =
-            'Hunt active — proximity comes from Merlin wedge RSSI (no local simulation).';
 
         radarFocusEpc = primary;
 
@@ -933,14 +1037,23 @@ var WinCE = (function () {
             upHtml += '</tbody></table>';
         }
         document.getElementById('up-next-wrap').innerHTML = upHtml;
+        if (lastHuntSignal) applyHuntSignal(lastHuntSignal);
     }
 
     function pollSearchTarget() {
         if (isAdvancingQueue) return;
         xhrJson('GET', '/api/search/target', null, function (status, data) {
-            if (status >= 200 && status < 300 && data) {
-                activeSearchQueue = data.activeSearchQueue || [];
+            if (status < 200 || status >= 300 || !data) return;
+
+            activeSearchQueue = data.activeSearchQueue || [];
+            applySearchTargetMeta(data);
+            applyHuntSignal(data.hunt_signal || null);
+
+            if (!activeSearchQueue.length) {
+                if (activeView === 'find') showFindStandby();
+                return;
             }
+
             if (activeView === 'find') {
                 var needsLookup = false;
                 var i;
@@ -948,7 +1061,10 @@ var WinCE = (function () {
                     if (!itemLookup[activeSearchQueue[i]]) needsLookup = true;
                 }
                 if (needsLookup) {
-                    syncFromServer(function () { updateFindView(); });
+                    syncFromServer(function () {
+                        updateFindView();
+                        applyHuntSignal(data.hunt_signal || null);
+                    });
                 } else {
                     updateFindView();
                 }
@@ -969,8 +1085,6 @@ var WinCE = (function () {
         }
     }
 
-    function stopRssiAnimation() { /* no local RSSI simulation on Win CE */ }
-
     function confirmFoundNext() {
         if (activeSearchQueue.length < 2 || isAdvancingQueue) return;
         isAdvancingQueue = true;
@@ -979,15 +1093,18 @@ var WinCE = (function () {
             isAdvancingQueue = false;
             if (status >= 200 && status < 300 && data) {
                 activeSearchQueue = data.activeSearchQueue || nextQueue;
+                applySearchTargetMeta(data);
+                applyHuntSignal(data.hunt_signal || null);
             }
             updateFindView();
         });
     }
 
     function clearHunt() {
-        xhrJson('POST', '/api/search/target', { epc_ids: [] }, function () {
+        xhrJson('POST', '/api/search/target', { epc_ids: [] }, function (status, data) {
             activeSearchQueue = [];
-            updateFindView();
+            applyHuntSignal(null);
+            showFindStandby();
             if (activeView === 'inventory') renderInventoryTable();
         });
     }
@@ -1143,6 +1260,8 @@ var WinCE = (function () {
         if (view === 'find') {
             startFindPolling();
             pollSearchTarget();
+        } else {
+            stopFindPolling();
         }
 
         if (view === 'inventory') {
@@ -1162,7 +1281,6 @@ var WinCE = (function () {
         loadAdminSettings();
         loadContainers();
         startInventorySync();
-        startFindPolling();
 
         var editHome = document.getElementById('edit-home');
         var editCur = document.getElementById('edit-current');

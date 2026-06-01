@@ -643,8 +643,8 @@
 </head>
 <body>
     <header class="app-header">
-        <h1>📱 Merlin Handheld</h1>
-        <p>Nordic ID UHF — mobile scanner interface</p>
+        <h1>📱 Merlin HTE00072</h1>
+        <p>Nordic ID UHF handheld — production inventory &amp; find</p>
         <a class="desktop-link" href="/index.html">🖥️ Switch to Desktop Dashboard</a>
         <div class="header-util-row">
             <button type="button" class="btn-register-tag" id="open-onboard-wizard">🏷️ Register New Tag</button>
@@ -685,11 +685,14 @@
                 <p class="standby">Standby: No active hunt target selected from main dashboard.</p>
             </div>
             <div class="card" id="find-radar" style="display:none;">
-                <h2>🔍 Signal Proximity Radar</h2>
+                <h2>🔍 Find Item</h2>
                 <p class="batch-position-label" id="batch-position-label" style="display:none;"></p>
+                <p id="find-hardware-hint" class="standby" style="text-align:left;padding:0 0 12px;font-size:13px;">
+                    RSSI comes from the Merlin wedge when you pull the trigger. No simulated signal on this screen.
+                </p>
                 <div class="find-active-zone">
                     <div class="proximity-meter cold" id="proximity-meter" aria-live="polite">
-                        <div class="proximity-meter-label">Geiger proximity signal</div>
+                        <div class="proximity-meter-label">Live RSSI (from gun)</div>
                         <div class="proximity-meter-row">
                             <div class="geiger-bars" id="geiger-bars">
                                 <span class="geiger-bar"></span>
@@ -707,16 +710,17 @@
                     <p class="radar-target-name" id="radar-name">—</p>
                     <p class="radar-epc" id="radar-epc">—</p>
                     <div class="radar-ring cold" id="radar-ring">
-                        <span class="radar-pct" id="radar-pct">0</span>
-                        <span class="radar-zone" id="radar-zone">COLD</span>
+                        <span class="radar-pct" id="radar-pct">—</span>
+                        <span class="radar-zone" id="radar-zone">WAITING</span>
                     </div>
                     <div class="rssi-label">
-                        <span>Signal strength (RSSI)</span>
-                        <span id="rssi-pct-text">0%</span>
+                        <span>Merlin signal</span>
+                        <span id="rssi-pct-text">—</span>
                     </div>
                     <div class="rssi-bar-wrap">
                         <div class="rssi-bar-fill cold" id="rssi-bar"></div>
                     </div>
+                    <p id="find-signal-status" class="standby" style="text-align:left;font-size:12px;margin-top:10px;"></p>
                     <button type="button" class="btn-giant confirm-next" id="confirm-found-next" style="display:none;">
                         🎯 Confirm Found (Next Item)
                     </button>
@@ -883,10 +887,9 @@
     <script src="/inventory-shared.js"></script>
     <script src="/onboarding-wizard.js"></script>
     <script>
-        const SCANNER_ID = 'MERLIN-MOBILE-001';
+        const SCANNER_ID = 'HTE00072';
         const TARGET_POLL_MS = 1500;
         const INVENTORY_SYNC_MS = 2000;
-        const RSSI_TICK_MS = 280;
         let activeView = 'scan';
         let inventorySyncTimer = null;
         let inventoryItems = [];
@@ -897,10 +900,8 @@
         let inventoryStatusFilter = 'ALL';
         let sheetEditEpc = null;
         let findPollTimer = null;
-        let rssiAnimTimer = null;
-        let simulatedRssi = 30;
-        let currentRssiDbm = -85;
         let activeSearchQueue = [];
+        let lastHuntSignal = null;
         let radarFocusEpc = null;
         let lastUpNextKey = '';
         let isAdvancingQueue = false;
@@ -908,119 +909,6 @@
         let registeredContainers = [];
         let rssiNearGate = -55;
         let rssiFarGate = -85;
-        let lastUnknownToneAt = 0;
-
-        const MerlinAudio = (() => {
-            let ctx = null;
-            let geigerTimer = null;
-            let unlocked = false;
-
-            function getCtx() {
-                if (!ctx) {
-                    const Ctx = window.AudioContext || window.webkitAudioContext;
-                    if (Ctx) ctx = new Ctx();
-                }
-                return ctx;
-            }
-
-            async function unlock() {
-                const ac = getCtx();
-                if (!ac) return false;
-                if (ac.state === 'suspended') await ac.resume();
-                unlocked = ac.state === 'running';
-                return unlocked;
-            }
-
-            function stopGeiger() {
-                if (geigerTimer) {
-                    clearInterval(geigerTimer);
-                    geigerTimer = null;
-                }
-            }
-
-            function stopAll() {
-                stopGeiger();
-            }
-
-            function playTone(freq, duration, type, gain, when) {
-                const ac = getCtx();
-                if (!ac || !unlocked) return;
-                const t0 = when ?? ac.currentTime;
-                const osc = ac.createOscillator();
-                const g = ac.createGain();
-                osc.type = type || 'sine';
-                osc.frequency.setValueAtTime(freq, t0);
-                g.gain.setValueAtTime(0.0001, t0);
-                g.gain.exponentialRampToValueAtTime(gain, t0 + 0.008);
-                g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
-                osc.connect(g);
-                g.connect(ac.destination);
-                osc.start(t0);
-                osc.stop(t0 + duration + 0.02);
-            }
-
-            function playChirp(rssiDbm) {
-                const ac = getCtx();
-                if (!ac || !unlocked) return;
-                const near = rssiNearGate;
-                const far = rssiFarGate;
-                const t = clamp((rssiDbm - far) / (near - far), 0, 1);
-                const freq = 380 + t * 1420;
-                const gain = 0.06 + t * 0.14;
-                playTone(freq, 0.045 + t * 0.02, 'square', gain);
-            }
-
-            function playSpatialChime() {
-                const ac = getCtx();
-                if (!ac || !unlocked) return;
-                const t0 = ac.currentTime;
-                [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
-                    playTone(freq, 0.14, 'sine', 0.12, t0 + i * 0.1);
-                });
-            }
-
-            function playUnknownWarning() {
-                const ac = getCtx();
-                if (!ac || !unlocked) return;
-                const t0 = ac.currentTime;
-                playTone(180, 0.07, 'triangle', 0.2, t0);
-                playTone(140, 0.09, 'triangle', 0.22, t0 + 0.12);
-            }
-
-            function rssiToGeigerIntervalMs(dbm) {
-                const near = rssiNearGate;
-                const far = rssiFarGate;
-                const t = clamp((dbm - far) / (near - far), 0, 1);
-                return Math.round(1900 - t * 1750);
-            }
-
-            function startGeiger(getRssiDbm, onTick) {
-                stopGeiger();
-                const tick = () => {
-                    const dbm = getRssiDbm();
-                    playChirp(dbm);
-                    if (typeof onTick === 'function') onTick(dbm);
-                };
-                const schedule = () => {
-                    const dbm = getRssiDbm();
-                    const interval = rssiToGeigerIntervalMs(dbm);
-                    tick();
-                    geigerTimer = setTimeout(schedule, interval);
-                };
-                schedule();
-            }
-
-            return {
-                unlock,
-                stopAll,
-                stopGeiger,
-                startGeiger,
-                playChirp,
-                playSpatialChime,
-                playUnknownWarning,
-                isUnlocked: () => unlocked,
-            };
-        })();
 
         function parseManualScanTags(text, defaultRssi) {
             const parts = String(text || '')
@@ -1058,15 +946,8 @@
             el.textContent = msg;
         }
 
-        function isUnknownTagEpc(epc) {
-            const item = itemLookup[epc];
-            if (!item) return true;
-            return String(item.name || '').startsWith('Unknown RFID Tag');
-        }
-
         async function postScanPayload(binEpc, tags) {
             const epcList = tags.map((t) => (typeof t === 'string' ? t : t.epc));
-            const hadUnknownInBuffer = epcList.some((epc) => !itemLookup[epc] || isUnknownTagEpc(epc));
 
             if (typeof MerlinOnboarding !== 'undefined' && MerlinOnboarding.isOpen()) {
                 await MerlinOnboarding.ingestNearFieldTags(tagsWithRssi(epcList, true));
@@ -1092,21 +973,11 @@
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Scan failed');
             await refreshItemLookup();
-            const stillUnknown = epcList.some(isUnknownTagEpc);
-            if (hadUnknownInBuffer || stillUnknown) {
-                const now = Date.now();
-                if (now - lastUnknownToneAt > 900) {
-                    MerlinAudio.playUnknownWarning();
-                    lastUnknownToneAt = now;
-                }
-            }
-            if (data.spatial_zone) MerlinAudio.playSpatialChime();
             await syncInventoryFromServer();
             return data;
         }
 
         async function triggerQuickScan() {
-            await MerlinAudio.unlock();
             const btn = document.getElementById('trigger-scan');
             const binEpc = getTargetBinEpc();
             if (!binEpc) {
@@ -1140,17 +1011,6 @@
             } finally {
                 btn.disabled = false;
             }
-        }
-
-        function rssiZoneFromDbm(dbm) {
-            if (dbm >= rssiNearGate) return { cls: 'hot', label: 'CLOSE' };
-            if (dbm >= rssiFarGate) return { cls: 'warm', label: 'WARM' };
-            return { cls: 'cold', label: 'COLD' };
-        }
-
-        function rssiZone(pct) {
-            const dbm = -30 - (pct / 100) * 70;
-            return rssiZoneFromDbm(Math.round(dbm));
         }
 
         async function loadAdminSettings() {
@@ -1247,27 +1107,15 @@
             return Math.max(lo, Math.min(hi, n));
         }
 
-        function pctToDbm(pct) {
-            return Math.round(-30 - (pct / 100) * 70);
+        function zoneClassFromLabel(zone) {
+            if (zone === 'CLOSE') return 'hot';
+            if (zone === 'WARM') return 'warm';
+            if (zone === 'COLD') return 'cold';
+            return 'cold';
         }
 
         function dbmToPct(dbm) {
             return Math.round(clamp((dbm + 100) / 70 * 100, 0, 100));
-        }
-
-        function nextSimulatedRssi() {
-            simulatedRssi += (Math.random() - 0.46) * 18;
-            simulatedRssi = clamp(simulatedRssi, 0, 100);
-            currentRssiDbm = pctToDbm(simulatedRssi);
-            return Math.round(simulatedRssi);
-        }
-
-        function pulseProximityMeter(zoneCls) {
-            const meter = document.getElementById('proximity-meter');
-            meter.classList.remove('geiger-pulse', 'hot', 'warm', 'cold');
-            void meter.offsetWidth;
-            meter.classList.add('geiger-pulse', zoneCls || 'cold');
-            setTimeout(() => meter.classList.remove('geiger-pulse'), 120);
         }
 
         function updateGeigerBars(pct, zoneCls) {
@@ -1280,22 +1128,53 @@
             });
         }
 
-        function updateRadarVisual(pct) {
-            const zone = rssiZone(pct);
-            currentRssiDbm = pctToDbm(pct);
-            document.getElementById('radar-pct').textContent = pct;
-            document.getElementById('radar-zone').textContent = zone.label;
-            document.getElementById('rssi-pct-text').textContent = pct + '%';
-            document.getElementById('proximity-dbm').textContent = currentRssiDbm + ' dBm';
+        function applyHuntSignal(signal) {
+            lastHuntSignal = signal;
+            const statusEl = document.getElementById('find-signal-status');
+            if (!signal) {
+                document.getElementById('proximity-dbm').textContent = '— dBm';
+                document.getElementById('radar-pct').textContent = '—';
+                document.getElementById('radar-zone').textContent = 'WAITING';
+                document.getElementById('rssi-pct-text').textContent = '—';
+                document.getElementById('rssi-bar').style.width = '0%';
+                if (statusEl) statusEl.textContent = '';
+                return;
+            }
+
+            const zoneLabel = signal.zone || 'NO_SIGNAL';
+            const cls = zoneClassFromLabel(zoneLabel);
+            let pct = 0;
+            let dbmText = '— dBm';
+
+            if (signal.rssi != null && !Number.isNaN(signal.rssi)) {
+                pct = dbmToPct(signal.rssi);
+                dbmText = signal.rssi + ' dBm';
+            }
+
+            document.getElementById('proximity-dbm').textContent = dbmText;
+            document.getElementById('radar-pct').textContent =
+                signal.rssi != null ? String(signal.rssi) : '—';
+            document.getElementById('radar-zone').textContent = zoneLabel.replace('_', ' ');
+            document.getElementById('rssi-pct-text').textContent =
+                signal.rssi != null ? pct + '% of gate span' : 'No read yet';
 
             const ring = document.getElementById('radar-ring');
             const bar = document.getElementById('rssi-bar');
             const meter = document.getElementById('proximity-meter');
-            ring.className = 'radar-ring ' + zone.cls;
-            bar.className = 'rssi-bar-fill ' + zone.cls;
+            ring.className = 'radar-ring ' + cls;
+            bar.className = 'rssi-bar-fill ' + cls;
             bar.style.width = pct + '%';
-            meter.className = 'proximity-meter ' + zone.cls;
-            updateGeigerBars(pct, zone.cls);
+            meter.className = 'proximity-meter ' + cls;
+            updateGeigerBars(pct, cls);
+
+            if (statusEl) {
+                let msg = signal.message || '';
+                if (signal.stale && !msg) msg = 'Signal stale — pull trigger on the Merlin again.';
+                if (signal.age_ms != null && signal.rssi != null) {
+                    msg = (msg ? msg + ' ' : '') + '(' + Math.round(signal.age_ms / 100) / 10 + 's ago)';
+                }
+                statusEl.textContent = msg;
+            }
         }
 
         function resolveItemName(epc) {
@@ -1325,6 +1204,15 @@
                     registeredContainers = data.containers;
                 }
                 activeSearchQueue = searchData.activeSearchQueue || [];
+                if (searchData.rssi_near_gate != null) {
+                    rssiNearGate = parseInt(searchData.rssi_near_gate, 10) || rssiNearGate;
+                }
+                if (searchData.rssi_far_gate != null) {
+                    rssiFarGate = parseInt(searchData.rssi_far_gate, 10) || rssiFarGate;
+                }
+                if (activeView === 'find' && activeSearchQueue.length) {
+                    applyHuntSignal(searchData.hunt_signal || null);
+                }
                 applyLocalInventoryState(data.items || []);
                 if (badge) {
                     badge.textContent = '● Live sync active';
@@ -1513,7 +1401,6 @@
         }
 
         async function toggleFindFromInventory(epc) {
-            await MerlinAudio.unlock();
             if (activeSearchQueue.includes(epc)) {
                 const next = activeSearchQueue.filter((id) => id !== epc);
                 await fetch('/api/search/target', {
@@ -1541,10 +1428,9 @@
         function showFindStandby() {
             document.getElementById('find-standby').style.display = 'block';
             document.getElementById('find-radar').style.display = 'none';
-            stopRssiAnimation();
-            MerlinAudio.stopAll();
             radarFocusEpc = null;
             lastUpNextKey = '';
+            applyHuntSignal(null);
         }
 
         function renderUpNextList(upNext) {
@@ -1586,11 +1472,8 @@
 
             if (radarFocusEpc !== primary) {
                 radarFocusEpc = primary;
-                simulatedRssi = 12 + Math.random() * 28;
                 nameEl.textContent = nextName;
                 epcEl.textContent = primary;
-                MerlinAudio.unlock();
-                startRssiAnimation();
             } else if (nameEl.textContent !== nextName) {
                 nameEl.textContent = nextName;
             }
@@ -1602,10 +1485,6 @@
                 renderUpNextList(upNext);
             } else {
                 lastUpNextKey = '';
-            }
-
-            if (!rssiAnimTimer && activeView === 'find') {
-                startRssiAnimation();
             }
         }
 
@@ -1651,6 +1530,12 @@
                 const queue = Array.isArray(data.activeSearchQueue) ? data.activeSearchQueue : [];
 
                 activeSearchQueue = queue;
+                if (data.rssi_near_gate != null) {
+                    rssiNearGate = parseInt(data.rssi_near_gate, 10) || rssiNearGate;
+                }
+                if (data.rssi_far_gate != null) {
+                    rssiFarGate = parseInt(data.rssi_far_gate, 10) || rssiFarGate;
+                }
 
                 if (!queue.length) {
                     if (activeView === 'find') showFindStandby();
@@ -1661,34 +1546,10 @@
                     const needsLookup = queue.some((epc) => !itemLookup[epc]);
                     if (needsLookup) await refreshItemLookup();
                     syncFocusedHunt(queue);
+                    applyHuntSignal(data.hunt_signal || null);
                 }
             } catch (err) {
                 console.warn('Find poll failed:', err);
-            }
-        }
-
-        function startRssiAnimation() {
-            stopRssiAnimation();
-            MerlinAudio.startGeiger(
-                () => currentRssiDbm,
-                (dbm) => {
-                    const pct = dbmToPct(dbm);
-                    const zone = rssiZoneFromDbm(dbm);
-                    pulseProximityMeter(zone.cls);
-                    updateGeigerBars(pct, zone.cls);
-                }
-            );
-            rssiAnimTimer = setInterval(() => {
-                if (activeView !== 'find' || !radarFocusEpc) return;
-                updateRadarVisual(nextSimulatedRssi());
-            }, RSSI_TICK_MS);
-        }
-
-        function stopRssiAnimation() {
-            MerlinAudio.stopGeiger();
-            if (rssiAnimTimer) {
-                clearInterval(rssiAnimTimer);
-                rssiAnimTimer = null;
             }
         }
 
@@ -1703,8 +1564,6 @@
                 clearInterval(findPollTimer);
                 findPollTimer = null;
             }
-            stopRssiAnimation();
-            MerlinAudio.stopAll();
         }
 
         async function clearHuntTarget() {
@@ -1803,12 +1662,8 @@
             });
 
             if (view === 'find') {
-                MerlinAudio.unlock();
                 startFindPolling();
                 pollSearchTarget();
-            } else {
-                stopRssiAnimation();
-                MerlinAudio.stopAll();
             }
 
             if (view === 'inventory') {
@@ -1828,10 +1683,7 @@
         });
 
         document.getElementById('trigger-scan').addEventListener('click', triggerQuickScan);
-        document.getElementById('clear-hunt').addEventListener('click', async () => {
-            await MerlinAudio.unlock();
-            clearHuntTarget();
-        });
+        document.getElementById('clear-hunt').addEventListener('click', clearHuntTarget);
         document.getElementById('confirm-found-next').addEventListener('click', confirmFoundNext);
 
         document.getElementById('bin-select').addEventListener('change', () => {
@@ -1898,10 +1750,6 @@
             } catch (err) {
                 showAddItemStatus('❌ ' + err.message, 'err');
             }
-        });
-
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) MerlinAudio.stopAll();
         });
 
         MerlinInventory.bindInstantSearch(document.getElementById('inventory-search'), (query) => {

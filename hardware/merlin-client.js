@@ -22,7 +22,7 @@ const https = require('https');
 const CONFIG = {
     SERVER_IP: process.env.MERLIN_SERVER_IP || '10.17.17.17',
     SERVER_PORT: parseInt(process.env.MERLIN_SERVER_PORT || '3000', 10),
-    SCANNER_ID: process.env.MERLIN_SCANNER_ID || 'nordic-merlin-handheld',
+    SCANNER_ID: process.env.MERLIN_SCANNER_ID || 'HTE00072',
     /** Optional default bin for bulk scans when not passed per-call */
     TARGET_CONTAINER_EPC: process.env.MERLIN_TARGET_BIN || '',
     HEARTBEAT_INTERVAL_MS: 30_000,

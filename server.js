@@ -30,6 +30,10 @@ const TEST_EPC_PREFIX = 'TEST-EPC-';
 const nearFieldBuffer = [];
 const NEAR_FIELD_BUFFER_MAX = 120;
 
+/** Latest RSSI per EPC while that tag is in the active hunt queue (Merlin wedge reads). */
+const huntRssiByEpc = new Map();
+const HUNT_SIGNAL_STALE_MS = 8000;
+
 /** Handheld scanner heartbeats (scanner_id → { lastSeen, ...meta }). */
 const scannerHeartbeats = new Map();
 const SCANNER_ONLINE_THRESHOLD_MS = 45_000;
@@ -244,8 +248,15 @@ function recordNearFieldReads(tagEntries, settings) {
 
     tagEntries.forEach(({ epc, rssi }) => {
         if (!epc || rssi == null || Number.isNaN(rssi)) return;
+
+        const normalized = normalizeScanTag(epc);
+        const isHuntTarget = activeSearchQueue.some((id) => epcEquals(id, normalized));
+        if (isHuntTarget) {
+            huntRssiByEpc.set(normalized, { epc: normalized, rssi, timestamp: now });
+        }
+
         if (rssi >= nearGate) {
-            nearFieldBuffer.unshift({ epc, rssi, timestamp: now });
+            nearFieldBuffer.unshift({ epc: normalized, rssi, timestamp: now });
             recorded += 1;
         }
     });
@@ -257,6 +268,59 @@ function recordNearFieldReads(tagEntries, settings) {
     if (recorded > 0) {
         console.log(`📡 Near-field buffer: +${recorded} ultra-near read(s) (gate ≥ ${nearGate} dBm)`);
     }
+}
+
+function rssiZoneLabel(rssi, nearGate, farGate) {
+    if (rssi == null || Number.isNaN(rssi)) return 'NO_SIGNAL';
+    if (rssi >= nearGate) return 'CLOSE';
+    if (rssi >= farGate) return 'WARM';
+    return 'COLD';
+}
+
+function buildHuntSignal(primaryEpc, nearGate, farGate) {
+    if (!primaryEpc) return null;
+    const normalized = normalizeScanTag(primaryEpc);
+    const read = huntRssiByEpc.get(normalized);
+    const now = Date.now();
+
+    if (!read) {
+        return {
+            epc: primaryEpc,
+            rssi: null,
+            zone: 'NO_SIGNAL',
+            message: 'Pull trigger on the Merlin — waiting for RFID read with RSSI.',
+            stale: false,
+        };
+    }
+
+    const ageMs = now - read.timestamp;
+    return {
+        epc: read.epc,
+        rssi: read.rssi,
+        timestamp: read.timestamp,
+        age_ms: ageMs,
+        zone: rssiZoneLabel(read.rssi, nearGate, farGate),
+        stale: ageMs > HUNT_SIGNAL_STALE_MS,
+        message:
+            ageMs > HUNT_SIGNAL_STALE_MS
+                ? 'Last read is stale — pull trigger again.'
+                : null,
+    };
+}
+
+async function buildSearchTargetPayload() {
+    const settings = await getSystemSettings();
+    const nearGate = parseInt(settings.rssi_near_gate, 10) || -55;
+    const farGate = parseInt(settings.rssi_far_gate, 10) || -85;
+    const primary = activeSearchQueue[0] || null;
+
+    return {
+        activeSearchQueue,
+        hunt_signal: buildHuntSignal(primary, nearGate, farGate),
+        rssi_near_gate: nearGate,
+        rssi_far_gate: farGate,
+        scanner_model: 'Nordic ID Merlin HTE00072',
+    };
 }
 
 function findLatestUnassignedNearField(sinceMs, nearGate) {
@@ -704,31 +768,57 @@ app.post('/api/hardware/merlin-wedge', (req, res, next) => {
 });
 
 // 🧪 Remove simulator test tags (TEST-EPC-* items, bins, and related scan logs)
+function purgeTestRssiBuffers() {
+    const prefix = TEST_EPC_PREFIX.toUpperCase();
+    huntRssiByEpc.forEach((_v, key) => {
+        if (String(key || '').toUpperCase().indexOf(prefix) === 0) {
+            huntRssiByEpc.delete(key);
+        }
+    });
+    for (let i = nearFieldBuffer.length - 1; i >= 0; i--) {
+        const epc = String(nearFieldBuffer[i].epc || '').toUpperCase();
+        if (epc.indexOf(prefix) === 0) {
+            nearFieldBuffer.splice(i, 1);
+        }
+    }
+}
+
 app.delete('/api/test/purge', (req, res) => {
     const likePattern = TEST_EPC_PREFIX + '%';
     const summary = { items: 0, containers: 0, scan_history: 0 };
 
     db.serialize(() => {
         db.run(
-            `DELETE FROM scan_history WHERE scanned_epc LIKE ? COLLATE NOCASE OR parent_container_epc LIKE ? COLLATE NOCASE`,
+            `DELETE FROM scan_history
+             WHERE scanned_epc LIKE ? COLLATE NOCASE
+                OR parent_container_epc LIKE ? COLLATE NOCASE`,
             [likePattern, likePattern],
             function (histErr) {
                 if (histErr) return res.status(500).json({ error: histErr.message });
                 summary.scan_history = this.changes;
 
                 db.run(
-                    `DELETE FROM items WHERE epc_id LIKE ? COLLATE NOCASE`,
-                    [likePattern],
+                    `DELETE FROM items
+                     WHERE epc_id LIKE ? COLLATE NOCASE
+                        OR name LIKE ? COLLATE NOCASE
+                        OR description LIKE ? COLLATE NOCASE
+                        OR upc LIKE ? COLLATE NOCASE`,
+                    [likePattern, likePattern, likePattern, likePattern],
                     function (itemsErr) {
                         if (itemsErr) return res.status(500).json({ error: itemsErr.message });
                         summary.items = this.changes;
 
                         db.run(
-                            `DELETE FROM containers WHERE id LIKE ? COLLATE NOCASE`,
-                            [likePattern],
+                            `DELETE FROM containers
+                             WHERE id LIKE ? COLLATE NOCASE
+                                OR name LIKE ? COLLATE NOCASE
+                                OR description LIKE ? COLLATE NOCASE`,
+                            [likePattern, likePattern, likePattern],
                             function (binErr) {
                                 if (binErr) return res.status(500).json({ error: binErr.message });
                                 summary.containers = this.changes;
+
+                                purgeTestRssiBuffers();
 
                                 activeSearchQueue = activeSearchQueue.filter(
                                     (epc) =>
@@ -745,7 +835,7 @@ app.delete('/api/test/purge', (req, res) => {
                                     status: 'success',
                                     prefix: TEST_EPC_PREFIX,
                                     deleted: summary,
-                                    message: `Purged test data with prefix ${TEST_EPC_PREFIX}`,
+                                    message: `Purged all rows matching prefix ${TEST_EPC_PREFIX}`,
                                 });
                             }
                         );
@@ -1143,9 +1233,11 @@ app.delete('/api/containers/:id', (req, res) => {
     });
 });
 
-// 🔍 Find Mode: Nordic scanner polls GET; dashboard sets batch queue via POST
+// 🔍 Find Mode: Merlin HTE00072 polls GET for queue + live hunt RSSI from wedge reads
 app.get('/api/search/target', (req, res) => {
-    res.json({ activeSearchQueue });
+    buildSearchTargetPayload()
+        .then((payload) => res.json(payload))
+        .catch((err) => res.status(500).json({ error: err.message }));
 });
 
 app.post('/api/search/target', (req, res) => {
@@ -1153,12 +1245,17 @@ app.post('/api/search/target', (req, res) => {
 
     if (!epc_ids || !Array.isArray(epc_ids) || epc_ids.length === 0) {
         activeSearchQueue = [];
+        huntRssiByEpc.clear();
     } else {
         activeSearchQueue = [...new Set(
             epc_ids
                 .map((id) => (id == null ? '' : String(id).trim()))
                 .filter(Boolean)
         )];
+        const allowed = new Set(activeSearchQueue.map((id) => normalizeScanTag(id)));
+        huntRssiByEpc.forEach((_v, key) => {
+            if (!allowed.has(key)) huntRssiByEpc.delete(key);
+        });
     }
 
     if (activeSearchQueue.length === 0) {
@@ -1168,7 +1265,9 @@ app.post('/api/search/target', (req, res) => {
         activeSearchQueue.forEach((epc, i) => console.log(`   ${i + 1}. ${epc}`));
     }
 
-    res.json({ activeSearchQueue });
+    buildSearchTargetPayload()
+        .then((payload) => res.json(payload))
+        .catch((err) => res.status(500).json({ error: err.message }));
 });
 
 // 🌐 API to get all current inventory and history for the frontend dashboard
