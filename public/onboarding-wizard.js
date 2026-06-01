@@ -11,6 +11,7 @@
     let wizardStep = 'identify';
     let staging = null;
     let boundUpc = null;
+    let lastPickProducts = [];
 
     function getEl(id) {
         return document.getElementById(id);
@@ -26,7 +27,7 @@
 
     function showStep(step) {
         wizardStep = step;
-        const steps = ['identify', 'review', 'rfid'];
+        const steps = ['identify', 'pick', 'review', 'rfid'];
         steps.forEach((name) => {
             const el = getEl('onboard-step-' + name);
             if (el) el.classList.toggle('hidden', name !== step);
@@ -34,9 +35,89 @@
         const title = getEl('onboard-title');
         if (title) {
             if (step === 'identify') title.textContent = '➕ Add item — Step 1: Identify';
+            else if (step === 'pick') title.textContent = '➕ Add item — Choose product';
             else if (step === 'review') title.textContent = '➕ Add item — Step 2: Keep / Edit / Review';
             else title.textContent = '➕ Add item — Step 3: Link RFID tag';
         }
+    }
+
+    function normalizeBoundUpc(upc, fallbackDigits) {
+        if (upc && /^\d{8,14}$/.test(String(upc).replace(/\D/g, ''))) {
+            return String(upc).replace(/\D/g, '');
+        }
+        return fallbackDigits || null;
+    }
+
+    function applyProductToStaging(product) {
+        boundUpc = normalizeBoundUpc(product.upc, null);
+        staging = {
+            title: product.title || '',
+            description: product.description || '',
+            category: product.category || '',
+            image_url: product.image_url || '',
+            source: product.source || 'lookup',
+        };
+    }
+
+    function thumbBlockHtml(imageUrl) {
+        const url = imageUrl ? String(imageUrl).trim() : '';
+        if (!url) {
+            return '<span class="onboard-pick-thumb-fallback" aria-hidden="true">📦</span>';
+        }
+        return (
+            '<span class="onboard-pick-thumb-wrap">' +
+            '<img src="' +
+            escapeHtml(url) +
+            '" width="50" height="50" alt="" class="onboard-pick-thumb-img" referrerpolicy="no-referrer" ' +
+            'onerror="this.style.display=\'none\';var n=this.nextElementSibling;if(n)n.style.display=\'flex\';">' +
+            '<span class="onboard-pick-thumb-fallback" style="display:none" aria-hidden="true">📦</span>' +
+            '</span>'
+        );
+    }
+
+    function renderPickList(products) {
+        const list = getEl('onboard-pick-list');
+        if (!list) return;
+        lastPickProducts = products || [];
+        if (!lastPickProducts.length) {
+            list.innerHTML = '<p class="onboard-pick-empty">No matches to display.</p>';
+            return;
+        }
+        list.innerHTML = lastPickProducts
+            .map((product, idx) => {
+                const cat = product.category ? escapeHtml(product.category) : '—';
+                return (
+                    '<button type="button" class="onboard-pick-row" data-pick-idx="' +
+                    idx +
+                    '">' +
+                    thumbBlockHtml(product.image_url) +
+                    '<span class="onboard-pick-text">' +
+                    '<strong class="onboard-pick-title">' +
+                    escapeHtml(product.title || 'Unknown') +
+                    '</strong>' +
+                    '<span class="onboard-pick-cat">' +
+                    cat +
+                    '</span>' +
+                    '</span>' +
+                    '</button>'
+                );
+            })
+            .join('');
+
+        list.querySelectorAll('.onboard-pick-row').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.getAttribute('data-pick-idx'), 10);
+                selectPickProduct(lastPickProducts[idx]);
+            });
+        });
+    }
+
+    function selectPickProduct(product) {
+        if (!product) return;
+        applyProductToStaging(product);
+        setLookupStatus('', false);
+        populateReviewFields();
+        showStep('review');
     }
 
     function emptyStaging() {
@@ -207,19 +288,19 @@
                 return;
             }
 
-            boundUpc = data.upc && /^\d{8,14}$/.test(String(data.upc).replace(/\D/g, ''))
-                ? String(data.upc).replace(/\D/g, '')
-                : isUpc
-                  ? digits
-                  : null;
+            if (data.multiple && Array.isArray(data.products) && data.products.length > 1) {
+                setLookupStatus(
+                    data.products.length + ' matches — tap the correct product',
+                    false
+                );
+                renderPickList(data.products);
+                showStep('pick');
+                return;
+            }
 
-            staging = {
-                title: data.title || '',
-                description: data.description || '',
-                category: data.category || '',
-                image_url: data.image_url || '',
-                source: data.source || 'lookup',
-            };
+            const single = data.multiple && data.products?.length === 1 ? data.products[0] : data;
+            applyProductToStaging(single);
+            if (!boundUpc && isUpc) boundUpc = digits;
 
             setLookupStatus('Found — review fields on the next screen', false);
             populateReviewFields();
@@ -244,6 +325,12 @@
 
     function backToIdentify() {
         stopPolling();
+        lastPickProducts = [];
+        showStep('identify');
+    }
+
+    function backFromPick() {
+        lastPickProducts = [];
         showStep('identify');
     }
 
@@ -354,6 +441,7 @@
         }
         staging = emptyStaging();
         boundUpc = null;
+        lastPickProducts = [];
         capturedEpc = null;
         getEl('onboard-lookup-input').value = '';
         setLookupStatus('', false);
@@ -470,6 +558,8 @@
         if (skipBtn) skipBtn.addEventListener('click', () => goManualReview());
         const backBtn = getEl('onboard-review-back');
         if (backBtn) backBtn.addEventListener('click', () => backToIdentify());
+        const pickBackBtn = getEl('onboard-pick-back');
+        if (pickBackBtn) pickBackBtn.addEventListener('click', () => backFromPick());
         const contBtn = getEl('onboard-review-continue');
         if (contBtn) contBtn.addEventListener('click', () => beginRfidCapture());
         const useImg = getEl('onboard-use-image');

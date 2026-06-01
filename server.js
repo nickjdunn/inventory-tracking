@@ -970,6 +970,7 @@ app.post('/api/lookup/product', async (req, res) => {
             if (cached) {
                 const enriched = {
                     success: true,
+                    multiple: false,
                     title: cached.name,
                     description: cached.description,
                     category: cached.category,

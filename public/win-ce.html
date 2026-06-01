@@ -346,6 +346,49 @@
             margin-bottom: 10px;
             font-size: 13px;
         }
+        .wince-pick-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 8px 0 12px 0;
+        }
+        .wince-pick-table td {
+            border: 2px solid #475569;
+            padding: 10px 8px;
+            vertical-align: middle;
+            background: #0f172a;
+        }
+        .wince-pick-row-btn {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 0;
+            margin: 0;
+            border: none;
+            background: transparent;
+            color: #f8fafc;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .wince-pick-thumb-cell {
+            width: 56px;
+            text-align: center;
+        }
+        .wince-pick-thumb-box {
+            width: 48px;
+            height: 48px;
+            background: #334155;
+            border: 1px solid #64748b;
+            text-align: center;
+            line-height: 48px;
+            font-size: 20px;
+            margin: 0 auto;
+            overflow: hidden;
+        }
+        .wince-pick-thumb-img {
+            width: 48px;
+            height: 48px;
+            border: 0;
+        }
     </style>
 </head>
 <body>
@@ -439,6 +482,15 @@
             <p id="wince-lookup-status" class="sync-line"></p>
             <button type="button" class="btn-mega" onclick="WinCE.runProductLookup()">[ &#128269; SEARCH / LOOKUP ]</button>
             <button type="button" class="btn-mega btn-mega-secondary" onclick="WinCE.goAddManualReview()">[ SKIP — MANUAL ]</button>
+        </div>
+        <div id="wince-add-step-pick" class="wince-step-hidden">
+            <p style="font-size:12px;font-weight:bold;margin:0 0 8px 0;">Tap the correct product:</p>
+            <div id="wince-pick-table-wrap" style="max-height:220px;overflow-y:auto;overflow-x:hidden;">
+                <table class="wince-pick-table" cellpadding="0" cellspacing="0" id="wince-pick-table">
+                    <tbody id="wince-pick-tbody"></tbody>
+                </table>
+            </div>
+            <button type="button" class="btn-mega btn-mega-secondary" onclick="WinCE.backToAddIdentify()">[ &#9664; BACK TO SEARCH ]</button>
         </div>
         <div id="wince-add-step2" class="wince-step-hidden">
             <p id="wince-review-source" class="mono" style="margin:0 0 8px 0;"></p>
@@ -544,6 +596,7 @@ var WinCE = (function () {
     var addStaging = null;
     var addBoundUpc = null;
     var addApproved = null;
+    var addPickProducts = [];
     var addNearPollTimer = null;
     var addListenSince = 0;
 
@@ -1274,8 +1327,64 @@ var WinCE = (function () {
 
     function showWinceAddStep(step) {
         document.getElementById('wince-add-step1').className = step === 1 ? '' : 'wince-step-hidden';
+        document.getElementById('wince-add-step-pick').className = step === 'pick' ? '' : 'wince-step-hidden';
         document.getElementById('wince-add-step2').className = step === 2 ? '' : 'wince-step-hidden';
         document.getElementById('wince-add-step3').className = step === 3 ? '' : 'wince-step-hidden';
+    }
+
+    function normalizeWinceBoundUpc(upc) {
+        if (!upc) return null;
+        var digits = String(upc).replace(/\D/g, '');
+        if (digits.length >= 8 && digits.length <= 14) return digits;
+        return null;
+    }
+
+    function applyWinceProductToStaging(product) {
+        addBoundUpc = normalizeWinceBoundUpc(product.upc);
+        addStaging = {
+            title: product.title || '',
+            description: product.description || '',
+            category: product.category || '',
+            image_url: product.image_url || '',
+            source: product.source || 'lookup'
+        };
+    }
+
+    function winceThumbCellHtml(imageUrl) {
+        var url = trimStr(imageUrl);
+        if (!url) {
+            return '<div class="wince-pick-thumb-box">&#128230;</div>';
+        }
+        return '<div class="wince-pick-thumb-box"><img src="' + escapeHtml(url) + '" class="wince-pick-thumb-img" width="48" height="48" alt="" onerror="this.parentNode.innerHTML=\'&#128230;\';"></div>';
+    }
+
+    function renderWincePickTable(products) {
+        var tbody = document.getElementById('wince-pick-tbody');
+        if (!tbody) return;
+        addPickProducts = products || [];
+        var html = '';
+        var i;
+        if (!addPickProducts.length) {
+            html = '<tr><td colspan="2">No matches</td></tr>';
+        } else {
+            for (i = 0; i < addPickProducts.length; i++) {
+                var p = addPickProducts[i];
+                var cat = p.category ? escapeHtml(p.category) : '—';
+                html += '<tr><td class="wince-pick-thumb-cell">' + winceThumbCellHtml(p.image_url) + '</td>';
+                html += '<td><button type="button" class="wince-pick-row-btn" onclick="WinCE.selectPickByIndex(' + i + ')">';
+                html += '<strong>' + escapeHtml(p.title || 'Unknown') + '</strong><br>';
+                html += '<span class="mono">' + cat + '</span></button></td></tr>';
+            }
+        }
+        tbody.innerHTML = html;
+    }
+
+    function selectPickByIndex(idx) {
+        if (idx < 0 || idx >= addPickProducts.length) return;
+        applyWinceProductToStaging(addPickProducts[idx]);
+        setWinceLookupStatus('Selected — review fields', false);
+        populateWinceReview();
+        showWinceAddStep(2);
     }
 
     function emptyAddStaging() {
@@ -1353,14 +1462,18 @@ var WinCE = (function () {
                 setWinceLookupStatus((data && (data.message || data.error)) ? (data.message || data.error) : 'Lookup failed', true);
                 return;
             }
-            addBoundUpc = data.upc && /^\d{8,14}$/.test(String(data.upc).replace(/\D/g, '')) ? String(data.upc).replace(/\D/g, '') : (isUpc ? digits : null);
-            addStaging = {
-                title: data.title || '',
-                description: data.description || '',
-                category: data.category || '',
-                image_url: data.image_url || '',
-                source: data.source || 'lookup'
-            };
+            if (data.multiple && data.products && data.products.length > 1) {
+                setWinceLookupStatus(String(data.products.length) + ' matches — tap a row', false);
+                renderWincePickTable(data.products);
+                showWinceAddStep('pick');
+                return;
+            }
+            var single = data;
+            if (data.multiple && data.products && data.products.length === 1) {
+                single = data.products[0];
+            }
+            applyWinceProductToStaging(single);
+            if (!addBoundUpc && isUpc) addBoundUpc = digits;
             setWinceLookupStatus('Found — review fields', false);
             populateWinceReview();
             showWinceAddStep(2);
@@ -1377,6 +1490,7 @@ var WinCE = (function () {
 
     function backToAddIdentify() {
         stopAddNearListen();
+        addPickProducts = [];
         showWinceAddStep(1);
     }
 
@@ -1449,6 +1563,7 @@ var WinCE = (function () {
         addStaging = null;
         addBoundUpc = null;
         addApproved = null;
+        addPickProducts = [];
         document.getElementById('wince-lookup-input').value = '';
         setWinceLookupStatus('', false);
         showWinceAddStep(1);
@@ -1575,6 +1690,7 @@ var WinCE = (function () {
         removeHuntByIndex: removeHuntByIndex,
         clearHunt: clearHunt,
         runProductLookup: runProductLookup,
+        selectPickByIndex: selectPickByIndex,
         goAddManualReview: goAddManualReview,
         backToAddIdentify: backToAddIdentify,
         backToAddReview: backToAddReview,
