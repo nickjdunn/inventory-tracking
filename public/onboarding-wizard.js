@@ -32,7 +32,7 @@
         if (!host || !global.MerlinCategoryChips) return null;
         categoryChipEditor = global.MerlinCategoryChips.createCategoryChipEditor(host, {
             placeholder: 'Add tag…',
-            hint: 'Press Enter or + to add each tag.',
+            hint: 'Type for suggestions · Enter or + to add',
             onChange: (tags) => {
                 if (staging) staging.category = tags.join(';');
                 const useCat = getEl('onboard-use-category');
@@ -199,7 +199,8 @@
         }
     }
 
-    async function loadContainersIntoSelect(selectEl) {
+    async function loadContainersIntoSelect(selectEl, selectedId) {
+        if (!selectEl) return [];
         const res = await fetch('/api/containers');
         const containers = res.ok ? await res.json() : [];
         selectEl.innerHTML =
@@ -210,6 +211,143 @@
                         `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${escapeHtml(c.id)})</option>`
                 )
                 .join('');
+        if (selectedId) selectEl.value = selectedId;
+        return containers;
+    }
+
+    let binSnifferTimer = null;
+    let binSnifferSince = 0;
+
+    function ensureBinQuickCreateModal() {
+        if (getEl('onboard-new-bin-modal')) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'onboard-new-bin-modal';
+        overlay.className = 'onboard-submodal-overlay';
+        overlay.setAttribute('aria-hidden', 'true');
+        overlay.innerHTML =
+            '<div class="onboard-submodal" role="dialog" aria-labelledby="onboard-new-bin-title">' +
+            '<h4 id="onboard-new-bin-title">➕ Create new bin</h4>' +
+            '<label for="onboard-new-bin-name">Bin name / description</label>' +
+            '<input type="text" id="onboard-new-bin-name" required placeholder="e.g. Garage Shelf A">' +
+            '<label for="onboard-new-bin-epc">RFID tag code (optional)</label>' +
+            '<input type="text" id="onboard-new-bin-epc" placeholder="Scan or leave blank for auto ID" autocomplete="off">' +
+            '<button type="button" class="btn" id="onboard-new-bin-sniff-btn" style="margin-top:8px;width:100%;">📡 Sniff tag for bin ID</button>' +
+            '<p id="onboard-new-bin-sniff-status" class="onboard-bin-sniff-hint"></p>' +
+            '<div class="onboard-submodal-actions">' +
+            '<button type="button" class="btn" id="onboard-new-bin-cancel">Cancel</button>' +
+            '<button type="button" class="btn primary" id="onboard-new-bin-save">Save bin</button>' +
+            '</div></div>';
+
+        document.body.appendChild(overlay);
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target.id === 'onboard-new-bin-modal') closeBinQuickCreate();
+        });
+        getEl('onboard-new-bin-cancel').addEventListener('click', closeBinQuickCreate);
+        getEl('onboard-new-bin-save').addEventListener('click', () => saveBinQuickCreate());
+        getEl('onboard-new-bin-sniff-btn').addEventListener('click', () => {
+            unlockAudio();
+            startBinIdSniffer();
+        });
+    }
+
+    function openBinQuickCreate() {
+        ensureBinQuickCreateModal();
+        stopBinIdSniffer();
+        getEl('onboard-new-bin-name').value = '';
+        getEl('onboard-new-bin-epc').value = '';
+        const status = getEl('onboard-new-bin-sniff-status');
+        if (status) status.textContent = 'Optional: pull trigger on Merlin while sniffing.';
+        const overlay = getEl('onboard-new-bin-modal');
+        overlay.classList.add('open');
+        overlay.setAttribute('aria-hidden', 'false');
+        setTimeout(() => getEl('onboard-new-bin-name').focus(), 80);
+    }
+
+    function closeBinQuickCreate() {
+        stopBinIdSniffer();
+        const overlay = getEl('onboard-new-bin-modal');
+        if (!overlay) return;
+        overlay.classList.remove('open');
+        overlay.setAttribute('aria-hidden', 'true');
+        const homeSel = getEl('onboard-home-bin');
+        if (homeSel) homeSel.focus();
+    }
+
+    function stopBinIdSniffer() {
+        if (binSnifferTimer) {
+            clearInterval(binSnifferTimer);
+            binSnifferTimer = null;
+        }
+    }
+
+    async function pollBinIdNearField() {
+        const status = getEl('onboard-new-bin-sniff-status');
+        try {
+            const res = await fetch(
+                '/api/scan/latest-near-field?since=' + encodeURIComponent(binSnifferSince)
+            );
+            const data = await res.json();
+            if (!res.ok) return;
+            if (status && data.rssi_near_gate != null) {
+                status.textContent =
+                    'Listening ≥ ' + data.rssi_near_gate + ' dBm — pull trigger near antenna…';
+            }
+            if (data.captured && data.epc) {
+                getEl('onboard-new-bin-epc').value = data.epc;
+                stopBinIdSniffer();
+                if (status) status.textContent = 'Captured: ' + data.epc;
+                playCaptureTick();
+            }
+        } catch {
+            /* ignore poll errors */
+        }
+    }
+
+    function startBinIdSniffer() {
+        binSnifferSince = Date.now();
+        stopBinIdSniffer();
+        const status = getEl('onboard-new-bin-sniff-status');
+        if (status) status.textContent = 'Listening for ultra-near tag…';
+        pollBinIdNearField();
+        binSnifferTimer = setInterval(pollBinIdNearField, 350);
+    }
+
+    async function saveBinQuickCreate() {
+        const name = getEl('onboard-new-bin-name').value.trim();
+        const epcRaw = getEl('onboard-new-bin-epc').value.trim();
+        if (!name) {
+            alert('Bin name is required');
+            return;
+        }
+
+        const payload = { name, description: name };
+        if (epcRaw) payload.id = epcRaw.replace(/\s/g, '');
+
+        const btn = getEl('onboard-new-bin-save');
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+
+        try {
+            const res = await fetch('/api/containers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Could not create bin');
+
+            const homeSel = getEl('onboard-home-bin');
+            await loadContainersIntoSelect(homeSel, data.id);
+            closeBinQuickCreate();
+            playConfirmChime();
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Save bin';
+        }
     }
 
     function setLookupStatus(msg, isErr) {
@@ -242,7 +380,12 @@
         getEl('onboard-review-title').value = staging.title || '';
         getEl('onboard-review-description').value = staging.description || '';
         const chips = ensureCategoryChipEditor();
-        if (chips) chips.setFromString(staging.category || '');
+        if (chips) {
+            chips.setFromString(staging.category || '');
+            if (global.MerlinCategoryChips && global.MerlinCategoryChips.fetchMasterCategoryNames) {
+                global.MerlinCategoryChips.fetchMasterCategoryNames().then(() => chips.refreshSuggestions());
+            }
+        }
         getEl('onboard-use-title').checked = true;
         getEl('onboard-use-description').checked = Boolean(staging.description);
         getEl('onboard-use-category').checked = Boolean(staging.category);
@@ -486,6 +629,8 @@
 
     function closeWizard() {
         stopPolling();
+        stopBinIdSniffer();
+        closeBinQuickCreate();
         const modal = getEl('onboard-modal');
         modal.classList.remove('open');
         modal.setAttribute('aria-hidden', 'true');
@@ -602,6 +747,11 @@
                 runProductLookup();
             }
         });
+
+        const newBinBtn = getEl('onboard-new-bin-btn');
+        if (newBinBtn) newBinBtn.addEventListener('click', openBinQuickCreate);
+
+        ensureBinQuickCreateModal();
     }
 
     function init(userOptions) {

@@ -1284,16 +1284,28 @@ app.get('/api/containers', (req, res) => {
     );
 });
 
+function generateContainerId(name) {
+    const slug = String(name ?? '')
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 22);
+    const base = slug || 'BIN';
+    const suffix = Date.now().toString(36).toUpperCase().slice(-5);
+    return base + '-' + suffix;
+}
+
 // 📦 Create a new bin
 app.post('/api/containers', async (req, res) => {
     const { id, name, description, boundary_tag_a, boundary_tag_b } = req.body;
-    const binId = normalizeEpc(id);
     const binName = name == null ? '' : String(name).trim();
+    let binId = normalizeEpc(id);
     const boundaryA = normalizeBoundaryTag(boundary_tag_a);
     const boundaryB = normalizeBoundaryTag(boundary_tag_b);
 
-    if (!binId) return res.status(400).json({ error: 'id is required' });
     if (!binName) return res.status(400).json({ error: 'name is required' });
+    if (!binId) binId = generateContainerId(binName);
 
     try {
         const validation = await validateContainerSaveAsync({

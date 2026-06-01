@@ -156,6 +156,28 @@
         .wince-tag-add-btn {
             margin-top: 6px;
         }
+        .wince-cat-suggestions {
+            margin: 6px 0 8px 0;
+        }
+        .wince-cat-suggest-block {
+            background: #0f172a;
+            border: 2px solid #38bdf8;
+            color: #38bdf8;
+            cursor: pointer;
+            display: inline-block;
+            font-size: 12px;
+            font-weight: bold;
+            margin: 0 6px 6px 0;
+            padding: 8px 10px;
+        }
+        .wince-bin-picker-table {
+            margin-bottom: 8px;
+            width: 100%;
+        }
+        .wince-bin-picker-table td {
+            padding: 2px;
+            vertical-align: middle;
+        }
         .status-msg {
             padding: 8px;
             margin-top: 8px;
@@ -535,7 +557,8 @@
             <div class="wince-review-box">
                 <p class="wince-check-row"><input type="checkbox" id="wince-use-category" onclick="WinCE.onReviewCheckChange()"> Category tags</p>
                 <div id="wince-review-tags-row" class="wince-tags-row"></div>
-                <input type="text" id="wince-review-tag-input" value="" placeholder="New tag name">
+                <input type="text" id="wince-review-tag-input" value="" placeholder="New tag name" onfocus="WinCE.onWinceCatInputFocus()" onkeyup="WinCE.updateWinceCatSuggestions()">
+                <div id="wince-cat-suggestions" class="wince-cat-suggestions"></div>
                 <button type="button" class="btn-mega wince-tag-add-btn" onclick="WinCE.addReviewCategoryTag()">[ &#10133; ADD TAG ]</button>
             </div>
             <div class="wince-review-box">
@@ -550,13 +573,36 @@
             <p id="wince-rfid-hint" style="font-size:12px;color:#94a3b8;">Pull trigger — ultra-near RSSI captures EPC.</p>
             <p id="wince-near-status" class="sync-line">Waiting for tag…</p>
             <input type="hidden" id="wince-captured-epc" value="">
-            <label for="add-home">Home bin (optional)</label>
-            <select id="add-home"><option value="">— No home —</option></select>
+            <label>Home bin (optional)</label>
+            <table class="wince-bin-picker-table" cellpadding="0" cellspacing="0">
+                <tr>
+                    <td width="68%">
+                        <select id="add-home"><option value="">— No home —</option></select>
+                    </td>
+                    <td width="32%">
+                        <button type="button" class="btn-mega" style="font-size:11px;padding:10px 4px;" onclick="WinCE.openWinceNewBin()">[ &#10133; NEW BIN ]</button>
+                    </td>
+                </tr>
+            </table>
             <button type="button" class="btn-mega btn-mega-secondary" onclick="WinCE.startAddNearListen()">[ &#8635; RE-LISTEN RFID ]</button>
             <button type="button" class="btn-mega" id="wince-save-item-btn" onclick="WinCE.saveNewItem()" disabled="disabled">[ &#10003; SAVE ITEM ]</button>
             <button type="button" class="btn-mega btn-mega-secondary" onclick="WinCE.backToAddReview()">[ &#9664; BACK TO REVIEW ]</button>
         </div>
         <div id="add-status" class="status-msg"></div>
+    </div>
+</div>
+
+<div id="wince-new-bin-overlay" class="edit-overlay">
+    <div class="card">
+        <h2>Create new bin</h2>
+        <label for="wince-new-bin-name">Bin name / description</label>
+        <input type="text" id="wince-new-bin-name" value="">
+        <label for="wince-new-bin-epc">RFID tag code (optional)</label>
+        <input type="text" id="wince-new-bin-epc" value="">
+        <button type="button" class="btn-mega" onclick="WinCE.sniffWinceBinId()">[ &#128225; SNIFF TAG ]</button>
+        <p id="wince-new-bin-sniff-status" class="sync-line" style="margin:6px 0 10px 0;"></p>
+        <button type="button" class="btn-block" onclick="WinCE.saveWinceNewBin()">Save bin</button>
+        <button type="button" class="btn-block btn-secondary" onclick="WinCE.closeWinceNewBin()">Cancel</button>
     </div>
 </div>
 
@@ -635,6 +681,11 @@ var WinCE = (function () {
     var addListenSince = 0;
     var reviewCategoryTags = [];
     var editCategoryTags = [];
+    var masterCategoryNames = [];
+    var winceSuggestFiltered = [];
+    var winceBinSnifferTimer = null;
+    var winceBinSnifferSince = 0;
+    var wincePendingBinSelectId = null;
 
     var FILTER_IDS = {
         ALL: 'filt-all',
@@ -736,12 +787,14 @@ var WinCE = (function () {
         if (input) input.value = '';
         renderWinceTagButtons('wince-review-tags-row', reviewCategoryTags, 'removeReviewCategoryTag');
         document.getElementById('wince-use-category').checked = true;
+        updateWinceCatSuggestions();
     }
 
     function removeReviewCategoryTag(index) {
         if (index < 0 || index >= reviewCategoryTags.length) return;
         reviewCategoryTags.splice(index, 1);
         renderWinceTagButtons('wince-review-tags-row', reviewCategoryTags, 'removeReviewCategoryTag');
+        updateWinceCatSuggestions();
     }
 
     function addEditCategoryTag() {
@@ -761,6 +814,152 @@ var WinCE = (function () {
         if (index < 0 || index >= editCategoryTags.length) return;
         editCategoryTags.splice(index, 1);
         renderWinceTagButtons('wince-edit-tags-row', editCategoryTags, 'removeEditCategoryTag');
+    }
+
+    function fetchWinceMasterCategories(callback) {
+        xhrJson('GET', '/api/categories', null, function (status, data) {
+            masterCategoryNames = [];
+            if (status >= 200 && status < 300 && data && data.categories) {
+                var i;
+                for (i = 0; i < data.categories.length; i++) {
+                    if (data.categories[i] && data.categories[i].name) {
+                        masterCategoryNames.push(String(data.categories[i].name));
+                    }
+                }
+            }
+            if (callback) callback();
+        });
+    }
+
+    function onWinceCatInputFocus() {
+        fetchWinceMasterCategories(function () {
+            updateWinceCatSuggestions();
+        });
+    }
+
+    function updateWinceCatSuggestions() {
+        var input = document.getElementById('wince-review-tag-input');
+        var box = document.getElementById('wince-cat-suggestions');
+        var q = input ? trimStr(input.value).toLowerCase() : '';
+        var html = '';
+        var i;
+        winceSuggestFiltered = [];
+        if (!box) return;
+        for (i = 0; i < masterCategoryNames.length; i++) {
+            var name = masterCategoryNames[i];
+            if (tagExistsIn(reviewCategoryTags, name)) continue;
+            if (q && name.toLowerCase().indexOf(q) < 0) continue;
+            winceSuggestFiltered.push(name);
+            if (winceSuggestFiltered.length >= 10) break;
+        }
+        for (i = 0; i < winceSuggestFiltered.length; i++) {
+            html += '<span class="wince-cat-suggest-block" onclick="WinCE.pickWinceCategorySuggestion(' + i + ')">';
+            html += '[ ' + escapeHtml(winceSuggestFiltered[i]) + ' ]';
+            html += '</span> ';
+        }
+        box.innerHTML = html;
+    }
+
+    function pickWinceCategorySuggestion(index) {
+        if (index < 0 || index >= winceSuggestFiltered.length) return;
+        var tag = winceSuggestFiltered[index];
+        if (!tag || tagExistsIn(reviewCategoryTags, tag)) return;
+        reviewCategoryTags.push(tag);
+        renderWinceTagButtons('wince-review-tags-row', reviewCategoryTags, 'removeReviewCategoryTag');
+        document.getElementById('wince-use-category').checked = true;
+        var input = document.getElementById('wince-review-tag-input');
+        if (input) input.value = '';
+        updateWinceCatSuggestions();
+    }
+
+    function populateBinSelects(selectId) {
+        var scanSel = document.getElementById('scan-bin-select');
+        var addHome = document.getElementById('add-home');
+        var html = '';
+        var i;
+        if (!registeredContainers.length) {
+            if (scanSel) scanSel.innerHTML = '<option value="">No bins on server</option>';
+            if (addHome) addHome.innerHTML = '<option value="">— No home —</option>';
+            return;
+        }
+        for (i = 0; i < registeredContainers.length; i++) {
+            var c = registeredContainers[i];
+            html += '<option value="' + escapeHtml(c.id) + '">' + escapeHtml(c.name) + '</option>';
+        }
+        if (scanSel) scanSel.innerHTML = html;
+        if (addHome) {
+            addHome.innerHTML = '<option value="">— No home —</option>' + html;
+            if (selectId) addHome.value = selectId;
+        }
+    }
+
+    function stopWinceBinSniffer() {
+        if (winceBinSnifferTimer) {
+            clearInterval(winceBinSnifferTimer);
+            winceBinSnifferTimer = null;
+        }
+    }
+
+    function pollWinceBinIdNearField() {
+        var statusEl = document.getElementById('wince-new-bin-sniff-status');
+        xhrJson('GET', '/api/scan/latest-near-field?since=' + encodeURIComponent(winceBinSnifferSince), null, function (status, data) {
+            if (status < 200 || status >= 300 || !data) return;
+            if (statusEl && data.rssi_near_gate != null) {
+                statusEl.innerHTML = 'Listening &gt;= ' + escapeHtml(String(data.rssi_near_gate)) + ' dBm…';
+            }
+            if (data.captured && data.epc) {
+                document.getElementById('wince-new-bin-epc').value = data.epc;
+                stopWinceBinSniffer();
+                if (statusEl) statusEl.innerHTML = 'Captured: ' + escapeHtml(data.epc);
+            }
+        });
+    }
+
+    function sniffWinceBinId() {
+        winceBinSnifferSince = new Date().getTime();
+        stopWinceBinSniffer();
+        var statusEl = document.getElementById('wince-new-bin-sniff-status');
+        if (statusEl) statusEl.innerHTML = 'Listening for ultra-near tag…';
+        pollWinceBinIdNearField();
+        winceBinSnifferTimer = setInterval(pollWinceBinIdNearField, 350);
+    }
+
+    function openWinceNewBin() {
+        stopWinceBinSniffer();
+        document.getElementById('wince-new-bin-name').value = '';
+        document.getElementById('wince-new-bin-epc').value = '';
+        var statusEl = document.getElementById('wince-new-bin-sniff-status');
+        if (statusEl) statusEl.innerHTML = 'Optional: sniff RFID for bin ID.';
+        document.getElementById('wince-new-bin-overlay').className = 'edit-overlay edit-overlay-open';
+    }
+
+    function closeWinceNewBin() {
+        stopWinceBinSniffer();
+        document.getElementById('wince-new-bin-overlay').className = 'edit-overlay';
+        var addHome = document.getElementById('add-home');
+        if (addHome) addHome.focus();
+    }
+
+    function saveWinceNewBin() {
+        var name = trimStr(document.getElementById('wince-new-bin-name').value);
+        var epcRaw = trimStr(document.getElementById('wince-new-bin-epc').value);
+        if (!name) {
+            setStatusMsg('add-status', 'Bin name required', 'err');
+            return;
+        }
+        var payload = { name: name, description: name };
+        if (epcRaw) payload.id = epcRaw.replace(/\s/g, '');
+        xhrJson('POST', '/api/containers', payload, function (status, data) {
+            if (status >= 200 && status < 300 && data && data.id) {
+                wincePendingBinSelectId = data.id;
+                loadContainers(function () {
+                    closeWinceNewBin();
+                    setStatusMsg('add-status', 'Bin created: ' + name, 'ok');
+                });
+            } else {
+                setStatusMsg('add-status', (data && data.error) ? data.error : 'Bin create failed', 'err');
+            }
+        });
     }
 
     function xhrJson(method, url, body, callback) {
@@ -898,24 +1097,6 @@ var WinCE = (function () {
         }
     }
 
-    function populateBinSelects() {
-        var scanSel = document.getElementById('scan-bin-select');
-        var addHome = document.getElementById('add-home');
-        var html = '';
-        var i;
-        if (!registeredContainers.length) {
-            scanSel.innerHTML = '<option value="">No bins on server</option>';
-            addHome.innerHTML = '<option value="">— No home —</option>';
-            return;
-        }
-        for (i = 0; i < registeredContainers.length; i++) {
-            var c = registeredContainers[i];
-            html += '<option value="' + escapeHtml(c.id) + '">' + escapeHtml(c.name) + '</option>';
-        }
-        scanSel.innerHTML = html;
-        addHome.innerHTML = '<option value="">— No home —</option>' + html;
-    }
-
     function loadContainers(callback) {
         xhrJson('GET', '/api/containers', null, function (status, data) {
             if (status >= 200 && status < 300 && data && data.length !== undefined) {
@@ -923,7 +1104,8 @@ var WinCE = (function () {
             } else {
                 registeredContainers = [];
             }
-            populateBinSelects();
+            populateBinSelects(wincePendingBinSelectId);
+            wincePendingBinSelectId = null;
             if (callback) callback();
         });
     }
@@ -1555,6 +1737,7 @@ var WinCE = (function () {
         renderWinceTagButtons('wince-review-tags-row', reviewCategoryTags, 'removeReviewCategoryTag');
         var reviewTagInput = document.getElementById('wince-review-tag-input');
         if (reviewTagInput) reviewTagInput.value = '';
+        updateWinceCatSuggestions();
         document.getElementById('wince-review-image').value = addStaging.image_url || '';
         if (addStaging.image_url) {
             document.getElementById('wince-review-image').className = '';
@@ -1855,6 +2038,13 @@ var WinCE = (function () {
         removeReviewCategoryTag: removeReviewCategoryTag,
         addEditCategoryTag: addEditCategoryTag,
         removeEditCategoryTag: removeEditCategoryTag,
+        onWinceCatInputFocus: onWinceCatInputFocus,
+        updateWinceCatSuggestions: updateWinceCatSuggestions,
+        pickWinceCategorySuggestion: pickWinceCategorySuggestion,
+        openWinceNewBin: openWinceNewBin,
+        closeWinceNewBin: closeWinceNewBin,
+        sniffWinceBinId: sniffWinceBinId,
+        saveWinceNewBin: saveWinceNewBin,
         saveNewItem: saveNewItem
     };
 })();

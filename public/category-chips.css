@@ -50,10 +50,44 @@
     color: #f87171;
 }
 
+.category-chip-add-wrap {
+    position: relative;
+}
+
 .category-chip-add-row {
     align-items: stretch;
     display: flex;
     gap: 6px;
+}
+
+.category-typeahead {
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    left: 0;
+    list-style: none;
+    margin: 4px 0 0;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 4px 0;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 60;
+}
+
+.category-typeahead-item {
+    color: #e2e8f0;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 8px 12px;
+}
+
+.category-typeahead-item:hover,
+.category-typeahead-item.active {
+    background: #334155;
+    color: #38bdf8;
 }
 
 .category-chip-input {

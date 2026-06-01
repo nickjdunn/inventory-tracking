@@ -448,7 +448,10 @@
                         <input type="hidden" id="onboard-category">
                         <textarea id="onboard-description" class="hidden" aria-hidden="true"></textarea>
                         <label for="onboard-home-bin">Home container (optional)</label>
-                        <select id="onboard-home-bin"></select>
+                        <div class="onboard-bin-picker">
+                            <select id="onboard-home-bin"></select>
+                            <button type="button" class="btn" id="onboard-new-bin-btn">➕ New Bin</button>
+                        </div>
                         <div class="onboard-actions">
                             <button type="button" class="btn" id="onboard-rescan">↺ Re-scan tag</button>
                             <button type="button" class="btn" id="onboard-cancel">Cancel</button>
