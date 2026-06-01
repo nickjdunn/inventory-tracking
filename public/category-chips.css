@@ -1,0 +1,86 @@
+.category-chip-host {
+    margin-bottom: 12px;
+}
+
+.category-chip-editor {
+    display: block;
+}
+
+.category-chips-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+    min-height: 4px;
+}
+
+.category-chip {
+    align-items: center;
+    background: #334155;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    color: #e2e8f0;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 600;
+    gap: 4px;
+    line-height: 1.2;
+    padding: 4px 6px 4px 10px;
+}
+
+.category-chip-label {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.category-chip-remove {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0 4px;
+}
+
+.category-chip-remove:hover {
+    color: #f87171;
+}
+
+.category-chip-add-row {
+    align-items: stretch;
+    display: flex;
+    gap: 6px;
+}
+
+.category-chip-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.category-chip-add-btn {
+    background: #0369a1;
+    border: 1px solid #0ea5e9;
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+    min-width: 40px;
+    padding: 8px 12px;
+}
+
+.category-chip-add-btn:hover {
+    background: #0ea5e9;
+}
+
+.category-chip-hint {
+    color: var(--text-muted, #94a3b8);
+    font-size: 11px;
+    margin: 4px 0 0;
+}

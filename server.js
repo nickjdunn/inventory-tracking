@@ -9,6 +9,14 @@ const {
     sanitizeCategoryString,
 } = require('./upc-lookup');
 const {
+    collectUniqueCategories,
+    transformCategoryField,
+    splitCategoryTags,
+    renameTagInList,
+    deleteTagFromList,
+    mergeTagInList,
+} = require('./category-taxonomy');
+const {
     normalizeEpc,
     normalizeBoundaryTag,
     normalizeExcludeId,
@@ -1540,6 +1548,97 @@ app.get('/api/dashboard', (req, res) => {
             });
         });
     });
+});
+
+function dbAllAsync(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows || []);
+        });
+    });
+}
+
+function dbRunAsync(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.run(sql, params, function (err) {
+            if (err) reject(err);
+            else resolve({ changes: this.changes });
+        });
+    });
+}
+
+// 🏷️ Master category taxonomy (semicolon tags on items)
+app.get('/api/categories', async (req, res) => {
+    try {
+        const rows = await dbAllAsync(
+            `SELECT category FROM items WHERE category IS NOT NULL AND TRIM(category) != ''`
+        );
+        res.json({ categories: collectUniqueCategories(rows) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/categories/operations', async (req, res) => {
+    const action = String(req.body?.action ?? '').trim().toLowerCase();
+    const fromTag = String(req.body?.from ?? '').trim();
+    const toTag = String(req.body?.to ?? req.body?.merge_into ?? '').trim();
+
+    if (!['rename', 'delete', 'merge'].includes(action)) {
+        return res.status(400).json({ error: 'action must be rename, delete, or merge' });
+    }
+    if (!fromTag) {
+        return res.status(400).json({ error: 'from is required (category tag to change)' });
+    }
+    if ((action === 'rename' || action === 'merge') && !toTag) {
+        return res.status(400).json({ error: 'to is required for rename and merge' });
+    }
+    if ((action === 'rename' || action === 'merge') && fromTag === toTag) {
+        return res.status(400).json({ error: 'from and to must be different' });
+    }
+
+    try {
+        const rows = await dbAllAsync(
+            `SELECT epc_id, category FROM items WHERE category IS NOT NULL AND TRIM(category) != ''`
+        );
+
+        const transformFn =
+            action === 'rename'
+                ? (tags) => renameTagInList(tags, fromTag, toTag)
+                : action === 'delete'
+                  ? (tags) => deleteTagFromList(tags, fromTag)
+                  : (tags) => mergeTagInList(tags, fromTag, toTag);
+
+        let updatedItems = 0;
+        for (const row of rows) {
+            if (!splitCategoryTags(row.category).includes(fromTag)) continue;
+            const nextCategory = transformCategoryField(row.category, transformFn);
+            const prev = row.category == null ? null : String(row.category);
+            const next = nextCategory == null ? null : String(nextCategory);
+            if (prev === next) continue;
+            await dbRunAsync(`UPDATE items SET category = ? WHERE epc_id = ?`, [
+                nextCategory,
+                row.epc_id,
+            ]);
+            updatedItems += 1;
+        }
+
+        const refreshed = await dbAllAsync(
+            `SELECT category FROM items WHERE category IS NOT NULL AND TRIM(category) != ''`
+        );
+
+        res.json({
+            status: 'success',
+            action,
+            from: fromTag,
+            to: action === 'delete' ? null : toTag,
+            updated_items: updatedItems,
+            categories: collectUniqueCategories(refreshed),
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // ⚙️ Admin: system settings

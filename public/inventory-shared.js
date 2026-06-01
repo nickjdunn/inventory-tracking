@@ -26,6 +26,11 @@
         }));
     }
 
+    function joinCategoryTags(tags) {
+        const cleaned = (tags || []).map((t) => String(t).trim()).filter(Boolean);
+        return cleaned.length ? cleaned.join(';') : '';
+    }
+
     function splitCategoryTags(category) {
         if (category == null) return [];
         const raw = String(category).trim();
@@ -259,6 +264,7 @@
         countByStatus,
         renderStatusBadgeHtml,
         splitCategoryTags,
+        joinCategoryTags,
         renderCategoryBadgesHtml,
         unlockAudio,
         playHomeConfirmTone,

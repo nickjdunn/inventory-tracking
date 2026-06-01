@@ -137,6 +137,25 @@
             padding: 2px 5px;
             white-space: nowrap;
         }
+        .wince-tags-row {
+            margin: 6px 0 8px 0;
+        }
+        .wince-tag-block {
+            display: inline-block;
+            margin: 0 6px 6px 0;
+            vertical-align: top;
+        }
+        .wince-tag-remove {
+            background: #7f1d1d;
+            border-color: #f87171;
+            font-size: 12px;
+            line-height: 1.2;
+            padding: 10px 8px;
+            white-space: nowrap;
+        }
+        .wince-tag-add-btn {
+            margin-top: 6px;
+        }
         .status-msg {
             padding: 8px;
             margin-top: 8px;
@@ -514,8 +533,10 @@
                 <textarea id="wince-review-description" rows="3"></textarea>
             </div>
             <div class="wince-review-box">
-                <p class="wince-check-row"><input type="checkbox" id="wince-use-category" onclick="WinCE.onReviewCheckChange()"> Category</p>
-                <input type="text" id="wince-review-category" value="" placeholder="Power Tools; Woodworking">
+                <p class="wince-check-row"><input type="checkbox" id="wince-use-category" onclick="WinCE.onReviewCheckChange()"> Category tags</p>
+                <div id="wince-review-tags-row" class="wince-tags-row"></div>
+                <input type="text" id="wince-review-tag-input" value="" placeholder="New tag name">
+                <button type="button" class="btn-mega wince-tag-add-btn" onclick="WinCE.addReviewCategoryTag()">[ &#10133; ADD TAG ]</button>
             </div>
             <div class="wince-review-box">
                 <p class="wince-check-row"><input type="checkbox" id="wince-use-image" onclick="WinCE.onReviewCheckChange()"> Image URL (no preview on gun)</p>
@@ -557,8 +578,10 @@
         <input type="hidden" id="edit-epc" value="">
         <label for="edit-name">Name</label>
         <input type="text" id="edit-name" value="">
-        <label for="edit-category">Category</label>
-        <input type="text" id="edit-category" value="" placeholder="Power Tools; Woodworking">
+        <label>Category tags</label>
+        <div id="wince-edit-tags-row" class="wince-tags-row"></div>
+        <input type="text" id="wince-edit-tag-input" value="" placeholder="New tag name">
+        <button type="button" class="btn-block wince-tag-add-btn" onclick="WinCE.addEditCategoryTag()">[ &#10133; ADD TAG ]</button>
         <label for="edit-desc">Description</label>
         <textarea id="edit-desc"></textarea>
         <label for="edit-upc">UPC</label>
@@ -610,6 +633,8 @@ var WinCE = (function () {
     var addPickProducts = [];
     var addNearPollTimer = null;
     var addListenSince = 0;
+    var reviewCategoryTags = [];
+    var editCategoryTags = [];
 
     var FILTER_IDS = {
         ALL: 'filt-all',
@@ -655,6 +680,87 @@ var WinCE = (function () {
             html += '<span class="wince-cat-tag">' + escapeHtml(tags[i]) + '</span>';
         }
         return html;
+    }
+
+    function tagsToSemicolon(tagsArray) {
+        var out = [];
+        var i;
+        for (i = 0; i < tagsArray.length; i++) {
+            var t = trimStr(tagsArray[i]);
+            if (t) out.push(t);
+        }
+        return out.join(';');
+    }
+
+    function loadTagsFromSemicolon(tagsArray, value) {
+        var parts = splitCategoryTags(value);
+        var i;
+        tagsArray.length = 0;
+        for (i = 0; i < parts.length; i++) {
+            tagsArray.push(parts[i]);
+        }
+    }
+
+    function tagExistsIn(tagsArray, tag) {
+        var i;
+        var lower = trimStr(tag).toLowerCase();
+        for (i = 0; i < tagsArray.length; i++) {
+            if (trimStr(tagsArray[i]).toLowerCase() === lower) return true;
+        }
+        return false;
+    }
+
+    function renderWinceTagButtons(rowId, tagsArray, removeFnName) {
+        var row = document.getElementById(rowId);
+        var html = '';
+        var i;
+        if (!row) return;
+        for (i = 0; i < tagsArray.length; i++) {
+            html += '<span class="wince-tag-block">';
+            html += '<button type="button" class="btn-mega wince-tag-remove" onclick="WinCE.' + removeFnName + '(' + i + ')">';
+            html += '&#10060; ' + escapeHtml(tagsArray[i]);
+            html += '</button></span>';
+        }
+        row.innerHTML = html;
+    }
+
+    function addReviewCategoryTag() {
+        var input = document.getElementById('wince-review-tag-input');
+        var tag = input ? trimStr(input.value) : '';
+        if (!tag) return;
+        if (tagExistsIn(reviewCategoryTags, tag)) {
+            if (input) input.value = '';
+            return;
+        }
+        reviewCategoryTags.push(tag);
+        if (input) input.value = '';
+        renderWinceTagButtons('wince-review-tags-row', reviewCategoryTags, 'removeReviewCategoryTag');
+        document.getElementById('wince-use-category').checked = true;
+    }
+
+    function removeReviewCategoryTag(index) {
+        if (index < 0 || index >= reviewCategoryTags.length) return;
+        reviewCategoryTags.splice(index, 1);
+        renderWinceTagButtons('wince-review-tags-row', reviewCategoryTags, 'removeReviewCategoryTag');
+    }
+
+    function addEditCategoryTag() {
+        var input = document.getElementById('wince-edit-tag-input');
+        var tag = input ? trimStr(input.value) : '';
+        if (!tag) return;
+        if (tagExistsIn(editCategoryTags, tag)) {
+            if (input) input.value = '';
+            return;
+        }
+        editCategoryTags.push(tag);
+        if (input) input.value = '';
+        renderWinceTagButtons('wince-edit-tags-row', editCategoryTags, 'removeEditCategoryTag');
+    }
+
+    function removeEditCategoryTag(index) {
+        if (index < 0 || index >= editCategoryTags.length) return;
+        editCategoryTags.splice(index, 1);
+        renderWinceTagButtons('wince-edit-tags-row', editCategoryTags, 'removeEditCategoryTag');
     }
 
     function xhrJson(method, url, body, callback) {
@@ -1060,7 +1166,10 @@ var WinCE = (function () {
     function openEditItem(item) {
         document.getElementById('edit-epc').value = item.epc_id;
         document.getElementById('edit-name').value = item.name || '';
-        document.getElementById('edit-category').value = item.category || '';
+        loadTagsFromSemicolon(editCategoryTags, item.category || '');
+        renderWinceTagButtons('wince-edit-tags-row', editCategoryTags, 'removeEditCategoryTag');
+        var editTagInput = document.getElementById('wince-edit-tag-input');
+        if (editTagInput) editTagInput.value = '';
         document.getElementById('edit-desc').value = item.description || '';
         document.getElementById('edit-upc').value = item.upc || '';
         document.getElementById('edit-epc-line').innerHTML = 'EPC: ' + escapeHtml(item.epc_id);
@@ -1099,7 +1208,7 @@ var WinCE = (function () {
         var epc = document.getElementById('edit-epc').value;
         var payload = {
             name: trimStr(document.getElementById('edit-name').value),
-            category: trimStr(document.getElementById('edit-category').value) || null,
+            category: tagsToSemicolon(editCategoryTags) || null,
             description: trimStr(document.getElementById('edit-desc').value) || null,
             upc: trimStr(document.getElementById('edit-upc').value) || null,
             home_container_id: document.getElementById('edit-home').value || null,
@@ -1442,7 +1551,10 @@ var WinCE = (function () {
         addStaging = addStaging || emptyAddStaging();
         document.getElementById('wince-review-title').value = addStaging.title || '';
         document.getElementById('wince-review-description').value = addStaging.description || '';
-        document.getElementById('wince-review-category').value = addStaging.category || '';
+        loadTagsFromSemicolon(reviewCategoryTags, addStaging.category || '');
+        renderWinceTagButtons('wince-review-tags-row', reviewCategoryTags, 'removeReviewCategoryTag');
+        var reviewTagInput = document.getElementById('wince-review-tag-input');
+        if (reviewTagInput) reviewTagInput.value = '';
         document.getElementById('wince-review-image').value = addStaging.image_url || '';
         if (addStaging.image_url) {
             document.getElementById('wince-review-image').className = '';
@@ -1465,7 +1577,7 @@ var WinCE = (function () {
         addStaging = addStaging || emptyAddStaging();
         addStaging.title = trimStr(document.getElementById('wince-review-title').value);
         addStaging.description = trimStr(document.getElementById('wince-review-description').value);
-        addStaging.category = trimStr(document.getElementById('wince-review-category').value);
+        addStaging.category = tagsToSemicolon(reviewCategoryTags);
         addStaging.image_url = trimStr(document.getElementById('wince-review-image').value);
     }
 
@@ -1604,6 +1716,8 @@ var WinCE = (function () {
         addBoundUpc = null;
         addApproved = null;
         addPickProducts = [];
+        reviewCategoryTags = [];
+        renderWinceTagButtons('wince-review-tags-row', reviewCategoryTags, 'removeReviewCategoryTag');
         document.getElementById('wince-lookup-input').value = '';
         setWinceLookupStatus('', false);
         showWinceAddStep(1);
@@ -1737,6 +1851,10 @@ var WinCE = (function () {
         continueToAddRfid: continueToAddRfid,
         startAddNearListen: startAddNearListen,
         onReviewCheckChange: onReviewCheckChange,
+        addReviewCategoryTag: addReviewCategoryTag,
+        removeReviewCategoryTag: removeReviewCategoryTag,
+        addEditCategoryTag: addEditCategoryTag,
+        removeEditCategoryTag: removeEditCategoryTag,
         saveNewItem: saveNewItem
     };
 })();

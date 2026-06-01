@@ -99,6 +99,52 @@
             border-color: #f87171;
             color: #fecaca;
         }
+        .category-admin-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .category-admin-toolbar input {
+            flex: 1;
+            min-width: 160px;
+        }
+        .category-table {
+            margin-top: 12px;
+            width: 100%;
+        }
+        .category-table th,
+        .category-table td {
+            border-bottom: 1px solid #334155;
+            padding: 10px 8px;
+            text-align: left;
+            vertical-align: middle;
+        }
+        .category-table th {
+            color: var(--text-muted);
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .category-op-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .category-op-row input {
+            flex: 1;
+            min-width: 120px;
+        }
+        .category-op-row select {
+            min-width: 140px;
+        }
+        .cat-count-pill {
+            background: #334155;
+            border-radius: 999px;
+            color: #94a3b8;
+            font-size: 12px;
+            padding: 2px 10px;
+        }
     </style>
 </head>
 <body>
@@ -171,6 +217,41 @@
                     <button type="button" class="btn primary" id="save-gates-btn">💾 Save Gates</button>
                 </section>
 
+                <section class="card admin-card" id="category-taxonomy">
+                    <h3>🏷️ Master Category Tags</h3>
+                    <p style="color: var(--text-muted); font-size: 14px; margin: 0 0 12px;">
+                        Curate tags used across items (semicolon-separated in the database). Rename, merge, or delete a tag on all items at once.
+                    </p>
+                    <div class="category-admin-toolbar">
+                        <input type="search" id="category-filter" placeholder="Filter tags…" autocomplete="off">
+                        <button type="button" class="btn" id="category-refresh-btn">↻ Refresh</button>
+                    </div>
+                    <table class="category-table" cellpadding="0" cellspacing="0">
+                        <thead>
+                            <tr>
+                                <th>Tag</th>
+                                <th>Items</th>
+                                <th>Select</th>
+                            </tr>
+                        </thead>
+                        <tbody id="category-table-body">
+                            <tr><td colspan="3" style="color: var(--text-muted);">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                    <div class="category-op-row">
+                        <select id="category-action">
+                            <option value="rename">Rename tag</option>
+                            <option value="merge">Merge into</option>
+                            <option value="delete">Delete tag</option>
+                        </select>
+                        <input type="text" id="category-op-to" placeholder="New name (rename / merge target)">
+                        <button type="button" class="btn primary" id="category-apply-btn">Apply to all items</button>
+                    </div>
+                    <p id="category-op-hint" style="color: var(--text-muted); font-size: 12px; margin: 10px 0 0;">
+                        Select a row, choose an action, then apply. <strong>Delete</strong> removes the tag from every item.
+                    </p>
+                </section>
+
                 <section class="card admin-card">
                     <h3>🧹 Database Hygiene &amp; Maintenance</h3>
                     <p style="color: var(--text-muted); font-size: 14px; margin: 0 0 16px;">
@@ -193,6 +274,8 @@
 
     <script>
         let settings = {};
+        let categoryRows = [];
+        let selectedCategory = null;
 
         function showToast(message, isError) {
             const container = document.getElementById('toast-container');
@@ -293,6 +376,109 @@
             }
         });
 
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function filteredCategories() {
+            const q = document.getElementById('category-filter').value.trim().toLowerCase();
+            if (!q) return categoryRows;
+            return categoryRows.filter((row) => row.name.toLowerCase().includes(q));
+        }
+
+        function renderCategoryTable() {
+            const tbody = document.getElementById('category-table-body');
+            const rows = filteredCategories();
+            selectedCategory = null;
+            if (!rows.length) {
+                tbody.innerHTML =
+                    '<tr><td colspan="3" style="color: var(--text-muted);">No category tags found.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rows
+                .map(
+                    (row) =>
+                        '<tr data-tag="' +
+                        escapeHtml(row.name) +
+                        '">' +
+                        '<td><strong>' +
+                        escapeHtml(row.name) +
+                        '</strong></td>' +
+                        '<td><span class="cat-count-pill">' +
+                        row.count +
+                        '</span></td>' +
+                        '<td><input type="radio" name="category-pick" value="' +
+                        escapeHtml(row.name) +
+                        '" aria-label="Select ' +
+                        escapeHtml(row.name) +
+                        '"></td>' +
+                        '</tr>'
+                )
+                .join('');
+
+            tbody.querySelectorAll('input[name="category-pick"]').forEach((radio) => {
+                radio.addEventListener('change', () => {
+                    if (radio.checked) selectedCategory = radio.value;
+                });
+            });
+        }
+
+        async function loadCategories() {
+            const res = await fetch('/api/categories');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to load categories');
+            categoryRows = data.categories || [];
+            renderCategoryTable();
+        }
+
+        document.getElementById('category-filter').addEventListener('input', renderCategoryTable);
+        document.getElementById('category-refresh-btn').addEventListener('click', () => {
+            loadCategories().catch((err) => showToast('❌ ' + err.message, true));
+        });
+
+        document.getElementById('category-apply-btn').addEventListener('click', async () => {
+            const action = document.getElementById('category-action').value;
+            const to = document.getElementById('category-op-to').value.trim();
+            const picked = selectedCategory;
+            if (!picked) {
+                showToast('Select a tag from the table first', true);
+                return;
+            }
+            if ((action === 'rename' || action === 'merge') && !to) {
+                showToast('Enter the target tag name', true);
+                return;
+            }
+            const verb =
+                action === 'delete'
+                    ? 'delete "' + picked + '" from all items'
+                    : action === 'merge'
+                      ? 'merge "' + picked + '" into "' + to + '"'
+                      : 'rename "' + picked + '" to "' + to + '"';
+            if (!confirm('Apply taxonomy change?\n\n' + verb)) return;
+
+            try {
+                const res = await fetch('/api/categories/operations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action, from: picked, to }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Operation failed');
+                categoryRows = data.categories || [];
+                document.getElementById('category-op-to').value = '';
+                renderCategoryTable();
+                showToast(
+                    '✅ Updated ' + (data.updated_items || 0) + ' item(s); ' + categoryRows.length + ' unique tag(s)'
+                );
+            } catch (err) {
+                showToast('❌ ' + err.message, true);
+            }
+        });
+
         document.getElementById('clear-history-btn').addEventListener('click', async () => {
             if (!confirm('Delete ALL scan timeline history? The live feed will reset.')) return;
             try {
@@ -306,6 +492,7 @@
         });
 
         loadSettings().catch((err) => showToast('❌ ' + err.message, true));
+        loadCategories().catch((err) => showToast('❌ ' + err.message, true));
     </script>
 </body>
 </html>

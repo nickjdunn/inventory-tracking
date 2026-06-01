@@ -12,6 +12,7 @@
     let staging = null;
     let boundUpc = null;
     let lastPickProducts = [];
+    let categoryChipEditor = null;
 
     function getEl(id) {
         return document.getElementById(id);
@@ -23,6 +24,22 @@
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;');
+    }
+
+    function ensureCategoryChipEditor() {
+        if (categoryChipEditor) return categoryChipEditor;
+        const host = getEl('onboard-review-category-chips');
+        if (!host || !global.MerlinCategoryChips) return null;
+        categoryChipEditor = global.MerlinCategoryChips.createCategoryChipEditor(host, {
+            placeholder: 'Add tag…',
+            hint: 'Press Enter or + to add each tag.',
+            onChange: (tags) => {
+                if (staging) staging.category = tags.join(';');
+                const useCat = getEl('onboard-use-category');
+                if (useCat) useCat.checked = tags.length > 0;
+            },
+        });
+        return categoryChipEditor;
     }
 
     function categoryBadgesHtml(category) {
@@ -224,7 +241,8 @@
         staging = staging || emptyStaging();
         getEl('onboard-review-title').value = staging.title || '';
         getEl('onboard-review-description').value = staging.description || '';
-        getEl('onboard-review-category').value = staging.category || '';
+        const chips = ensureCategoryChipEditor();
+        if (chips) chips.setFromString(staging.category || '');
         getEl('onboard-use-title').checked = true;
         getEl('onboard-use-description').checked = Boolean(staging.description);
         getEl('onboard-use-category').checked = Boolean(staging.category);
@@ -242,7 +260,8 @@
         staging = staging || emptyStaging();
         staging.title = getEl('onboard-review-title').value.trim();
         staging.description = getEl('onboard-review-description').value.trim();
-        staging.category = getEl('onboard-review-category').value.trim();
+        const chips = ensureCategoryChipEditor();
+        staging.category = chips ? chips.toSemicolonString() : '';
         if (!getEl('onboard-use-image').checked) {
             staging.image_url = '';
         }

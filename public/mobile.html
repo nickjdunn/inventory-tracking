@@ -6,6 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <title>📱 Merlin Handheld</title>
     <link rel="stylesheet" href="/onboarding-wizard.css">
+    <link rel="stylesheet" href="/category-chips.css">
     <style>
         :root {
             --bg: #0f172a;
@@ -856,8 +857,8 @@
                     <textarea id="onboard-review-description"></textarea>
                 </div>
                 <div class="onboard-review-field">
-                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-category"> Category</label>
-                    <input type="text" id="onboard-review-category" placeholder="Power Tools; Woodworking; Cordless">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-category"> Category tags</label>
+                    <div id="onboard-review-category-chips"></div>
                 </div>
                 <div class="onboard-review-field">
                     <label class="onboard-check-row"><input type="checkbox" id="onboard-use-image"> Image</label>
@@ -907,8 +908,8 @@
             <input type="hidden" id="sheet-epc-id">
             <label for="sheet-item-name">Name</label>
             <input type="text" id="sheet-item-name" required>
-            <label for="sheet-item-category">Category</label>
-            <input type="text" id="sheet-item-category" placeholder="Power Tools; Woodworking; Cordless">
+            <label>Category tags</label>
+            <div id="sheet-item-category-chips"></div>
             <label for="sheet-item-desc">Description</label>
             <textarea id="sheet-item-desc"></textarea>
             <label for="sheet-home-bin">Assigned home bin</label>
@@ -936,11 +937,13 @@
     </div>
 
     <script src="/inventory-shared.js"></script>
+    <script src="/category-chips.js"></script>
     <script src="/hunt-shared.js"></script>
     <script src="/hunt-transport.js"></script>
     <script src="/onboarding-wizard.js"></script>
     <script>
         const SCANNER_ID = 'HTE00072';
+        let sheetCategoryChips = null;
         const HUNT_FAST_POLL_MS = 120;
         const INVENTORY_SYNC_MS = 2000;
         let activeView = 'scan';
@@ -1368,7 +1371,13 @@
             sheetEditEpc = epc;
             document.getElementById('sheet-epc-id').value = epc;
             document.getElementById('sheet-item-name').value = item.name || '';
-            document.getElementById('sheet-item-category').value = item.category || '';
+            if (!sheetCategoryChips) {
+                sheetCategoryChips = MerlinCategoryChips.mountById('sheet-item-category-chips', {
+                    placeholder: 'Add tag…',
+                    hint: 'Enter or + to add each tag.',
+                });
+            }
+            if (sheetCategoryChips) sheetCategoryChips.setFromString(item.category || '');
             document.getElementById('sheet-item-desc').value = item.description || '';
             document.getElementById('sheet-epc-display').textContent = 'EPC: ' + epc;
             document.getElementById('sheet-new-epc').value = '';
@@ -1407,7 +1416,9 @@
             const epc = document.getElementById('sheet-epc-id').value;
             const payload = {
                 name: document.getElementById('sheet-item-name').value.trim(),
-                category: document.getElementById('sheet-item-category').value.trim() || null,
+                category: sheetCategoryChips
+                    ? sheetCategoryChips.toSemicolonString() || null
+                    : null,
                 description: document.getElementById('sheet-item-desc').value.trim() || null,
                 home_container_id: document.getElementById('sheet-home-bin').value || null,
                 container_id: document.getElementById('sheet-current-bin').value || null,

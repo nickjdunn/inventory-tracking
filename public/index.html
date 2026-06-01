@@ -6,6 +6,7 @@
     <title>📦 RFID Home Inventory Hub</title>
     <link rel="stylesheet" href="/app.css">
     <link rel="stylesheet" href="/onboarding-wizard.css">
+    <link rel="stylesheet" href="/category-chips.css">
     <style>
         h2 { font-size: 18px; margin-top: 0; border-bottom: 1px solid #334155; padding-bottom: 10px; }
         table {
@@ -356,8 +357,8 @@
                 <input type="hidden" id="edit-epc-id" name="epc_id">
                 <label for="edit-name">Name</label>
                 <input type="text" id="edit-name" name="name" required>
-                <label for="edit-category">Category</label>
-                <input type="text" id="edit-category" name="category" placeholder="e.g. Power Tools; Woodworking; Cordless">
+                <label>Category tags</label>
+                <div id="edit-category-chips"></div>
                 <label for="edit-description">Description</label>
                 <textarea id="edit-description" name="description" placeholder="Optional notes"></textarea>
                 <label for="edit-home-container">Assigned Home Bin</label>
@@ -417,8 +418,8 @@
                     <textarea id="onboard-review-description" placeholder="Description"></textarea>
                 </div>
                 <div class="onboard-review-field">
-                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-category"> Import category</label>
-                    <input type="text" id="onboard-review-category" placeholder="Power Tools; Woodworking; Cordless">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-category"> Import category tags</label>
+                    <div id="onboard-review-category-chips"></div>
                 </div>
                 <div class="onboard-review-field">
                     <label class="onboard-check-row"><input type="checkbox" id="onboard-use-image"> Import product image URL</label>
@@ -468,9 +469,11 @@
     </div>
 
     <script src="/inventory-shared.js"></script>
+    <script src="/category-chips.js"></script>
     <script src="/onboarding-wizard.js"></script>
     <script>
         let activeSearchQueue = [];
+        let editCategoryChips = null;
         let availableContainers = [];
         let lastDashboardItems = [];
         let inventorySearchQuery = '';
@@ -502,7 +505,13 @@
             const enriched = MerlinInventory.enrichItems([item])[0];
             document.getElementById('edit-epc-id').value = enriched.epc_id;
             document.getElementById('edit-name').value = enriched.name || '';
-            document.getElementById('edit-category').value = enriched.category || '';
+            if (!editCategoryChips) {
+                editCategoryChips = MerlinCategoryChips.mountById('edit-category-chips', {
+                    placeholder: 'Add tag…',
+                    hint: 'Press Enter or + to add. Stored as semicolon-separated tags.',
+                });
+            }
+            if (editCategoryChips) editCategoryChips.setFromString(enriched.category || '');
             document.getElementById('edit-description').value = enriched.description || '';
             const homeSelect = document.getElementById('edit-home-container');
             homeSelect.innerHTML = renderBinOptions(enriched.home_container_id, 'No assigned home bin');
@@ -704,7 +713,9 @@
             const epcId = document.getElementById('edit-epc-id').value;
             const payload = {
                 name: document.getElementById('edit-name').value.trim(),
-                category: document.getElementById('edit-category').value.trim() || null,
+                category: editCategoryChips
+                    ? editCategoryChips.toSemicolonString() || null
+                    : null,
                 description: document.getElementById('edit-description').value.trim() || null,
                 home_container_id: document.getElementById('edit-home-container').value || null,
                 container_id: document.getElementById('edit-current-container').value || null,

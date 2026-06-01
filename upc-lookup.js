@@ -444,6 +444,137 @@ function dedupeProductResults(products) {
     return out;
 }
 
+const VARIANT_TERM_RE =
+    /^(slim|pro|max|plus|mini|lite|ultra|edition|bundle|refurb|digital|physical|console|controller|charger|cable|adapter)$/i;
+const QUERY_STOPWORDS = new Set(['the', 'a', 'an', 'and', 'or', 'for', 'with', 'of', 'to', 'in', 'on']);
+
+/**
+ * Break a free-text query into search keywords (e.g. "PlayStation 4" → ["playstation", "4"]).
+ */
+function tokenizeSearchQuery(rawQuery) {
+    const q = String(rawQuery ?? '')
+        .toLowerCase()
+        .replace(/[^\w\s\-+./]/g, ' ');
+    const rough = q.split(/[\s,;+/\\|]+/).flatMap((part) => {
+        const trimmed = part.replace(/^[\-._]+|[\-._]+$/g, '');
+        if (!trimmed) return [];
+        if (/^\d+$/.test(trimmed)) return [trimmed];
+        if (trimmed.includes('-')) {
+            return trimmed.split('-').filter((t) => t.length > 0);
+        }
+        return [trimmed];
+    });
+    const tokens = [];
+    const seen = new Set();
+    rough.forEach((tok) => {
+        if (tok.length < 1 || QUERY_STOPWORDS.has(tok)) return;
+        if (seen.has(tok)) return;
+        seen.add(tok);
+        tokens.push(tok);
+    });
+    return tokens;
+}
+
+function productRelevanceHaystack(item) {
+    return [item.name, item.brand, item.description, item.category]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+}
+
+function titleTokens(name) {
+    return String(name ?? '')
+        .toLowerCase()
+        .split(/[\s\-_/,+()[\]™®:]+/)
+        .map((w) => w.replace(/^[^\w]+|[^\w]+$/g, ''))
+        .filter((w) => w.length > 0);
+}
+
+/**
+ * Score one catalog hit against query tokens; higher = more relevant.
+ */
+function scoreProductRelevance(item, rawQuery, queryTokens) {
+    const queryLower = String(rawQuery ?? '').trim().toLowerCase();
+    const name = String(item.name ?? '').toLowerCase();
+    const haystack = productRelevanceHaystack(item);
+    const tokens = queryTokens.length ? queryTokens : tokenizeSearchQuery(rawQuery);
+    let score = 0;
+
+    if (queryLower.length >= 3 && name.includes(queryLower)) {
+        score += 140;
+    }
+
+    let matchedInHaystack = 0;
+    let matchedInName = 0;
+    tokens.forEach((tok) => {
+        if (haystack.includes(tok)) matchedInHaystack += 1;
+        if (name.includes(tok)) matchedInName += 1;
+        if (name.includes(tok)) score += 28;
+        else if (haystack.includes(tok)) score += 12;
+    });
+
+    if (tokens.length) {
+        const coverage = matchedInHaystack / tokens.length;
+        score += coverage * 50;
+        if (matchedInHaystack === tokens.length) score += 35;
+        if (matchedInName === tokens.length) score += 25;
+    }
+
+    const tokenSet = new Set(tokens);
+    const queryHasDigit = tokens.some((t) => /\d/.test(t));
+    const titleWords = titleTokens(item.name);
+
+    titleWords.forEach((word) => {
+        if (tokenSet.has(word)) return;
+
+        if (/^\d+$/.test(word) && !queryHasDigit) {
+            score -= 22;
+            return;
+        }
+
+        if (VARIANT_TERM_RE.test(word)) {
+            score -= 26;
+            return;
+        }
+
+        if (word.length >= 3 && !tokenSet.has(word)) {
+            score -= Math.min(14, 4 + Math.floor(word.length / 3));
+        }
+    });
+
+    const source = String(item.source ?? '');
+    if (source.includes('open_food_facts') || source.includes('open_products_facts')) {
+        score += 6;
+    }
+    if (source.includes('upcitemdb')) score += 4;
+    if (source.includes('wikipedia') || source.includes('duckduckgo')) score -= 40;
+
+    return score;
+}
+
+/**
+ * Rank text-search hits: exact phrase and token coverage first; demote stray variant terms.
+ */
+function rankProductsByRelevance(products, rawQuery) {
+    const query = String(rawQuery ?? '').trim();
+    if (!query || !Array.isArray(products) || products.length < 2) {
+        return products || [];
+    }
+
+    const tokens = tokenizeSearchQuery(query);
+    const scored = products.map((item) => ({
+        item,
+        score: scoreProductRelevance(item, query, tokens),
+    }));
+
+    scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return String(a.item.name || '').localeCompare(String(b.item.name || ''));
+    });
+
+    return scored.map((row) => row.item);
+}
+
 /**
  * Free-text product search (Open*Facts → UPCitemdb → HTML/OpenSearch fallbacks).
  */
@@ -493,6 +624,8 @@ async function lookupTextHybrid(rawQuery, options = {}) {
             providers_tried,
         };
     }
+
+    merged = rankProductsByRelevance(merged, query).slice(0, TEXT_SEARCH_PAGE_SIZE);
 
     if (merged.length === 1) {
         return { ...merged[0], providers_tried, query, multiple: false };
@@ -589,6 +722,9 @@ module.exports = {
     toEnrichedProduct,
     internalResultToEnriched,
     dedupeProductResults,
+    tokenizeSearchQuery,
+    scoreProductRelevance,
+    rankProductsByRelevance,
     sanitizeCategoryString,
     normalizeUpc,
     PROVIDER_ORDER,
