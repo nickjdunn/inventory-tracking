@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📡 Merlin Hardware Simulator</title>
+    <title>📡 Merlin Test Control Deck</title>
     <link rel="stylesheet" href="/app.css">
     <style>
         body { padding: 0; }
@@ -255,23 +255,53 @@
             font-weight: 700;
             padding: 4px 10px;
         }
+        .purge-banner {
+            background: #450a0a;
+            border: 2px solid #b91c1c;
+            border-radius: 8px;
+            margin-top: 12px;
+            padding: 12px 14px;
+        }
+        .purge-banner p {
+            color: #fecaca;
+            font-size: 12px;
+            line-height: 1.45;
+            margin: 0 0 10px;
+        }
+        .btn.emu.purge {
+            background: #7f1d1d;
+            border-color: #f87171;
+            font-size: 14px;
+            width: 100%;
+        }
+        .test-prefix-note {
+            color: #fbbf24;
+            font-size: 12px;
+            margin: 0 0 10px;
+        }
     </style>
 </head>
 <body>
     <div class="emu-shell">
         <header class="emu-header">
-            <h1>📡 Merlin Hardware Simulator</h1>
-            <p>Browser workbench — fire RFID events into the live API for onboarding, spatial zones, and inventory sweeps.</p>
+            <h1>📡 Merlin Test Control Deck</h1>
+            <p>Single unified simulator — all random tags, autopilot, and mock fires live here only. Production UIs do not auto-generate scans.</p>
             <nav>
                 <a href="/index.html">Dashboard</a>
                 <a href="/mobile.html">Mobile</a>
+                <a href="/win-ce.html">Win CE</a>
                 <a href="/bins.html">Bins</a>
                 <a href="/admin.html">Admin RSSI gates</a>
             </nav>
             <p style="margin-top:10px;font-size:12px;color:var(--text-muted);">
                 Scanner ID: <code id="scanner-id-display"></code> ·
-                Near gate: <span id="near-gate-display">…</span> dBm
+                Near gate: <span id="near-gate-display">…</span> dBm ·
+                Test prefix: <code>TEST-EPC-</code>
             </p>
+            <div class="purge-banner">
+                <p>Removes every item, bin, and scan log whose EPC or container ID starts with <strong>TEST-EPC-</strong>. Production tags are untouched.</p>
+                <button type="button" class="btn emu purge" id="btn-purge-test-data">🗑️ Purge All Test Data</button>
+            </div>
         </header>
 
         <div class="control-deck">
@@ -279,10 +309,11 @@
             <section class="tool-card">
                 <h3>🏷️ Onboarding Simulation Rig</h3>
                 <p class="hint">Tests the high-RSSI wizard. Slide RSSI above the admin near gate, then pull trigger. Open Register New Tag on dashboard/mobile in another tab.</p>
-                <label class="field-label">Mock EPC</label>
+                <p class="test-prefix-note">Generated tags use the <code>TEST-EPC-</code> prefix (e.g. TEST-EPC-0007A).</p>
+                <label class="field-label">Test EPC</label>
                 <div class="field-row">
-                    <input type="text" id="onboard-epc" placeholder="EPC…" autocomplete="off">
-                    <button type="button" class="btn emu" id="btn-random-epc">Random hex</button>
+                    <input type="text" id="onboard-epc" placeholder="TEST-EPC-0001A" autocomplete="off">
+                    <button type="button" class="btn emu" id="btn-random-epc">New test tag</button>
                 </div>
                 <label class="field-label">RSSI (dBm)</label>
                 <p class="rssi-readout" id="onboard-rssi-label">−55 dBm</p>
@@ -308,7 +339,11 @@
             <!-- Quick fire deck -->
             <section class="tool-card">
                 <h3>⚡ Quick Tag Arsenal</h3>
-                <p class="hint">Manual single-tag fires with per-tag RSSI sliders. Useful for drift and misplaced scenarios.</p>
+                <p class="hint">TEST-EPC tags only — manual single-tag fires with per-tag RSSI sliders.</p>
+                <div class="btn-row" style="margin-bottom:10px;">
+                    <button type="button" class="btn emu" id="btn-add-arsenal-tag">+ Add test tag to arsenal</button>
+                    <button type="button" class="btn emu warn" id="btn-reset-arsenal">Reset default arsenal</button>
+                </div>
                 <label class="field-label">Target bin (for /api/scan)</label>
                 <select id="quick-target-bin"></select>
                 <div id="tag-grid" class="tag-grid"></div>
@@ -317,7 +352,7 @@
             <!-- Mode 3: Autopilot -->
             <section class="tool-card">
                 <h3>🤖 Autonomous Inventory Traffic</h3>
-                <p class="hint">Replaces the terminal emulator loop. Random bulk sweeps every 3–5s with fluctuating RSSI.</p>
+                <p class="hint">OFF by default. Random bulk sweeps every 3–5s using TEST-EPC arsenal tags only.</p>
                 <div class="toggle-row">
                     <span><strong id="autopilot-label">Autopilot OFF</strong></span>
                     <button type="button" class="toggle-switch" id="autopilot-toggle" aria-pressed="false" aria-label="Toggle autopilot"></button>
@@ -337,21 +372,16 @@
 
     <script>
         const SCANNER_ID = 'BROWSER-EMU-001';
-        const MOCK_TOOL_EPCS = [
-            'EPC301833B2A1TOOL00001',
-            'EPC301833B2A1TOOL00002',
-            'EPC301833B2A1CABL00003',
-            'EPC301833B2A1CABL00004',
-            'EPC301833B2A1GEAR00005',
-            'EPC301833B2A1GEAR00006',
-            'EPC301833B2A1TOOL00007',
-            'EPC301833B2A1CABL00008',
-            'EPC301833B2A1GEAR00009',
-            'EPC301833B2A1TOOL00010',
+        const TEST_EPC_PREFIX = 'TEST-EPC-';
+
+        const DEFAULT_TEST_ARSENAL = [
+            'TEST-EPC-0001A', 'TEST-EPC-0002A', 'TEST-EPC-0003A', 'TEST-EPC-0004A', 'TEST-EPC-0005A',
+            'TEST-EPC-0006A', 'TEST-EPC-0007A', 'TEST-EPC-0008A', 'TEST-EPC-0009A', 'TEST-EPC-0010A',
         ];
 
+        let testEpcCounter = 11;
+        let testTagArsenal = DEFAULT_TEST_ARSENAL.slice();
         let containers = [];
-        let dashboardItems = [];
         let autopilotTimer = null;
         let logCount = 0;
         let adminNearGate = -55;
@@ -366,10 +396,16 @@
                 .replace(/"/g, '&quot;');
         }
 
-        function randomHexEpc() {
-            const t = Date.now().toString(16).toUpperCase();
-            const r = Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase().padStart(6, '0');
-            return `EPC${t}${r}`.slice(0, 24);
+        function nextTestEpc() {
+            const seq = String(testEpcCounter++).padStart(4, '0') + 'A';
+            return TEST_EPC_PREFIX + seq;
+        }
+
+        function ensureTestEpc(epc) {
+            const trimmed = String(epc || '').trim().toUpperCase();
+            if (!trimmed) return nextTestEpc();
+            if (trimmed.startsWith(TEST_EPC_PREFIX)) return trimmed;
+            return TEST_EPC_PREFIX + trimmed.replace(/^TEST-?EPC-?/i, '');
         }
 
         function pickRandom(arr, count) {
@@ -464,14 +500,14 @@
         }
 
         async function fireNearFieldIngest() {
-            const epc = document.getElementById('onboard-epc').value.trim() || randomHexEpc();
+            const epc = ensureTestEpc(document.getElementById('onboard-epc').value);
             document.getElementById('onboard-epc').value = epc;
             const rssi = getOnboardRssi();
             await apiPost('/api/scan/near-field-ingest', buildNearFieldPayload(epc, rssi), 'near-field');
         }
 
         async function fireNearFieldViaScan() {
-            const epc = document.getElementById('onboard-epc').value.trim() || randomHexEpc();
+            const epc = ensureTestEpc(document.getElementById('onboard-epc').value);
             document.getElementById('onboard-epc').value = epc;
             const rssi = getOnboardRssi();
             const bin = document.getElementById('quick-target-bin').value || containers[0]?.id || 'BIN-UNASSIGNED';
@@ -523,11 +559,12 @@
                 return;
             }
 
-            const itemEpcs = dashboardItems.length
-                ? dashboardItems.map((i) => i.epc_id)
-                : MOCK_TOOL_EPCS;
+            if (!testTagArsenal.length) {
+                alert('Add TEST-EPC tags to the arsenal first.');
+                return;
+            }
             const assetCount = 2 + Math.floor(Math.random() * 3);
-            const assets = pickRandom(itemEpcs, assetCount);
+            const assets = pickRandom(testTagArsenal, assetCount);
 
             const scanned_tags = [
                 { epc: tagA, rssi: -38 - Math.floor(Math.random() * 6) },
@@ -558,8 +595,11 @@
 
         function renderTagGrid() {
             const grid = document.getElementById('tag-grid');
-            const epcs = MOCK_TOOL_EPCS;
-            grid.innerHTML = epcs.map((epc) => `
+            if (!testTagArsenal.length) {
+                grid.innerHTML = '<p class="hint">No test tags in arsenal. Click “Add test tag”.</p>';
+                return;
+            }
+            grid.innerHTML = testTagArsenal.map((epc) => `
                 <div class="tag-chip" data-epc="${escapeHtml(epc)}">
                     <code>${escapeHtml(epc)}</code>
                     <input type="range" class="tag-rssi" min="-90" max="-10" value="-60" step="1" aria-label="RSSI for ${escapeHtml(epc)}">
@@ -591,29 +631,18 @@
         }
 
         async function refreshContainers() {
-            const [contRes, dashRes] = await Promise.all([
-                fetch('/api/containers'),
-                fetch('/api/dashboard'),
-            ]);
+            const contRes = await fetch('/api/containers');
             containers = contRes.ok ? await contRes.json() : [];
-            const dash = dashRes.ok ? await dashRes.json() : {};
-            dashboardItems = dash.items || [];
-            appendLog('info', 'GET', '/api/containers + /api/dashboard', {}, {
-                containers: containers.length,
-                items: dashboardItems.length,
-            });
+            appendLog('info', 'GET', '/api/containers', {}, { containers: containers.length });
             renderBinMatrix();
             populateTargetBinSelect();
         }
 
         function autopilotTick() {
-            if (!containers.length) return;
+            if (!containers.length || !testTagArsenal.length) return;
             const bin = containers[Math.floor(Math.random() * containers.length)];
-            const pool = dashboardItems.length
-                ? dashboardItems.map((i) => i.epc_id)
-                : MOCK_TOOL_EPCS;
             const count = 2 + Math.floor(Math.random() * 5);
-            const tags = pickRandom(pool, count).map((epc) => ({
+            const tags = pickRandom(testTagArsenal, count).map((epc) => ({
                 epc,
                 rssi: -75 + Math.floor(Math.random() * 35),
             }));
@@ -654,7 +683,37 @@
 
         document.getElementById('onboard-rssi').addEventListener('input', updateOnboardRssiLabel);
         document.getElementById('btn-random-epc').addEventListener('click', () => {
-            document.getElementById('onboard-epc').value = randomHexEpc();
+            const epc = nextTestEpc();
+            document.getElementById('onboard-epc').value = epc;
+            if (!testTagArsenal.includes(epc)) {
+                testTagArsenal.push(epc);
+                renderTagGrid();
+            }
+        });
+        document.getElementById('btn-add-arsenal-tag').addEventListener('click', () => {
+            const epc = nextTestEpc();
+            testTagArsenal.push(epc);
+            renderTagGrid();
+            appendLog('info', 'LOCAL', 'arsenal', { added: epc }, null);
+        });
+        document.getElementById('btn-reset-arsenal').addEventListener('click', () => {
+            testTagArsenal = DEFAULT_TEST_ARSENAL.slice();
+            testEpcCounter = 11;
+            renderTagGrid();
+            appendLog('info', 'LOCAL', 'arsenal', { reset: true }, null);
+        });
+        document.getElementById('btn-purge-test-data').addEventListener('click', async () => {
+            if (!confirm('Delete ALL inventory rows and scan logs with TEST-EPC- prefix?')) return;
+            try {
+                const res = await fetch('/api/test/purge', { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Purge failed');
+                appendLog('info', 'DELETE', '/api/test/purge', {}, data);
+                alert(data.message || 'Test data purged.');
+                await refreshContainers();
+            } catch (e) {
+                alert(e.message);
+            }
         });
         document.getElementById('btn-near-ingest').addEventListener('click', () => fireNearFieldIngest().catch((e) => alert(e.message)));
         document.getElementById('btn-near-scan').addEventListener('click', () => fireNearFieldViaScan().catch((e) => alert(e.message)));
@@ -672,10 +731,10 @@
 
         loadAdminGates();
         updateOnboardRssiLabel();
-        document.getElementById('onboard-epc').value = randomHexEpc();
+        document.getElementById('onboard-epc').value = testTagArsenal[0] || nextTestEpc();
         renderTagGrid();
         refreshContainers().catch(console.error);
-        appendLog('info', 'LOCAL', 'simulator', { message: 'Merlin Hardware Simulator ready' }, null);
+        appendLog('info', 'LOCAL', 'simulator', { message: 'Merlin Test Control Deck ready — autopilot OFF' }, null);
     </script>
 </body>
 </html>

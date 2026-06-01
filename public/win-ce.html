@@ -275,7 +275,10 @@
         <select id="scan-bin-select"><option value="">Loading bins…</option></select>
         <label for="scan-bin-custom">Or bin EPC</label>
         <input type="text" id="scan-bin-custom" value="" autocomplete="off">
-        <button type="button" class="btn-block" id="btn-scan-once" onclick="WinCE.triggerScan()">Single trigger pull</button>
+        <p style="font-size:12px;color:#94a3b8;margin:8px 0;">Passive UI — no mock scans. Paste wedge output or use <a href="/emulator.html">Test Control Deck</a>.</p>
+        <label for="wince-manual-tags">Tag list (line or comma separated)</label>
+        <textarea id="wince-manual-tags" rows="4"></textarea>
+        <button type="button" class="btn-block" id="btn-scan-submit" onclick="WinCE.submitManualScan()">Submit tags to server</button>
         <div id="scan-status" class="status-msg"></div>
         <div id="scan-zone" class="experimental" style="display:none;"></div>
         <p id="scan-tags" class="mono"></p>
@@ -318,11 +321,7 @@
         <p id="find-batch-label" class="mono"></p>
         <p id="find-target-name" style="font-size:16px;font-weight:bold;margin:4px 0;"></p>
         <p id="find-target-epc" class="mono"></p>
-        <div class="rssi-box rssi-cold" id="rssi-box">
-            <div class="rssi-pct" id="rssi-pct">0</div>
-            <div class="rssi-zone" id="rssi-zone">COLD</div>
-        </div>
-        <div class="rssi-bar-outer"><div class="rssi-bar-inner" id="rssi-bar"></div></div>
+        <p id="find-hunt-status" style="font-size:13px;color:#93c5fd;margin:10px 0;">Awaiting Merlin hardware RSSI via wedge.</p>
         <button type="button" class="btn-block hidden" id="btn-confirm-next" onclick="WinCE.confirmFoundNext()">Confirm found — next</button>
         <div id="up-next-wrap"></div>
         <button type="button" class="btn-block btn-danger" onclick="WinCE.clearHunt()">Clear hunt</button>
@@ -401,16 +400,6 @@ var WinCE = (function () {
     var SCANNER_ID = 'MERLIN-WINCE-001';
     var TARGET_POLL_MS = 1500;
     var INVENTORY_SYNC_MS = 2000;
-    var RSSI_TICK_MS = 300;
-
-    var MOCK_EPCS = [
-        'EPC301833B2A1TOOL00001',
-        'EPC301833B2A1TOOL00002',
-        'EPC301833B2A1CABL00003',
-        'EPC301833B2A1CABL00004',
-        'EPC301833B2A1GEAR00005'
-    ];
-
     var activeView = 'scan';
     var inventoryItems = [];
     var displayItems = [];
@@ -424,9 +413,7 @@ var WinCE = (function () {
     var activeSearchQueue = [];
     var findPollTimer = null;
     var inventorySyncTimer = null;
-    var rssiAnimTimer = null;
     var radarFocusEpc = null;
-    var simulatedRssi = 25;
     var rssiNearGate = -55;
     var rssiFarGate = -85;
     var isAdvancingQueue = false;
@@ -846,25 +833,21 @@ var WinCE = (function () {
         });
     }
 
-    function pickRandomTags(min, max) {
-        var count = min + Math.floor(Math.random() * (max - min + 1));
-        var pool = MOCK_EPCS.slice(0);
-        var picked = [];
-        while (picked.length < count && pool.length) {
-            var idx = Math.floor(Math.random() * pool.length);
-            picked.push(pool.splice(idx, 1)[0]);
-        }
-        return picked;
-    }
-
-    function tagsWithRssi(epcs) {
+    function parseManualTags(text) {
+        var parts = String(text || '').split(/[\r\n,;]+/);
         var out = [];
         var i;
-        for (i = 0; i < epcs.length; i++) {
-            out.push({
-                epc: epcs[i],
-                rssi: -72 - Math.floor(Math.random() * 18)
-            });
+        for (i = 0; i < parts.length; i++) {
+            var part = trimStr(parts[i]);
+            if (!part) continue;
+            var epc = part;
+            var rssi = -65;
+            if (part.indexOf('|') >= 0) {
+                var pieces = part.split('|');
+                epc = trimStr(pieces[0]);
+                rssi = parseInt(pieces[1], 10) || -65;
+            }
+            out.push({ epc: epc, rssi: rssi });
         }
         return out;
     }
@@ -875,27 +858,30 @@ var WinCE = (function () {
         return document.getElementById('scan-bin-select').value;
     }
 
-    function triggerScan() {
+    function submitManualScan() {
         var binEpc = getScanBinEpc();
         if (!binEpc) {
             setStatusMsg('scan-status', 'Select or enter a bin EPC', 'err');
             return;
         }
-        var tags = pickRandomTags(3, 5);
+        var tags = parseManualTags(document.getElementById('wince-manual-tags').value);
+        if (!tags.length) {
+            setStatusMsg('scan-status', 'Enter at least one EPC from the gun', 'err');
+            return;
+        }
         document.getElementById('scan-tags').innerHTML = 'Sending ' + tags.length + ' tag(s)…';
         xhrJson('POST', '/api/scan', {
             scanner_id: SCANNER_ID,
             target_container_epc: binEpc,
-            scanned_tags: tagsWithRssi(tags)
+            scanned_tags: tags
         }, function (status, data) {
             if (status >= 200 && status < 300) {
                 var msg = (data && data.message) ? data.message : 'Scan OK';
                 setStatusMsg('scan-status', msg, 'ok');
                 var zoneEl = document.getElementById('scan-zone');
                 if (data && data.spatial_zone) {
-                    var z = data.spatial_zone;
                     zoneEl.style.display = 'block';
-                    zoneEl.innerHTML = 'Spatial (experimental): ' + escapeHtml(z.zone_hint || z.message || '');
+                    zoneEl.innerHTML = 'Spatial zone: ' + escapeHtml(data.spatial_zone.container_name || '');
                 } else {
                     zoneEl.style.display = 'none';
                 }
@@ -906,37 +892,10 @@ var WinCE = (function () {
         });
     }
 
-    function rssiZoneFromDbm(dbm) {
-        if (dbm >= rssiNearGate) return { cls: 'hot', label: 'CLOSE' };
-        if (dbm >= rssiFarGate) return { cls: 'warm', label: 'WARM' };
-        return { cls: 'cold', label: 'COLD' };
-    }
-
-    function rssiZoneFromPct(pct) {
-        var dbm = Math.round(-30 - (pct / 100) * 70);
-        return rssiZoneFromDbm(dbm);
-    }
-
-    function nextSimulatedRssi() {
-        simulatedRssi += (Math.random() - 0.46) * 18;
-        simulatedRssi = clamp(simulatedRssi, 0, 100);
-        return Math.round(simulatedRssi);
-    }
-
-    function updateRadarVisual(pct) {
-        var zone = rssiZoneFromPct(pct);
-        document.getElementById('rssi-pct').innerHTML = String(pct);
-        document.getElementById('rssi-zone').innerHTML = zone.label;
-        document.getElementById('rssi-bar').style.width = pct + '%';
-        document.getElementById('rssi-bar').className = 'rssi-bar-inner rssi-bar-' + zone.cls;
-        document.getElementById('rssi-box').className = 'rssi-box rssi-' + zone.cls;
-    }
-
     function updateFindView() {
         if (!activeSearchQueue.length) {
             showEl('find-standby', true);
             document.getElementById('find-active').className = 'card hidden';
-            stopRssiAnimation();
             radarFocusEpc = null;
             return;
         }
@@ -958,12 +917,10 @@ var WinCE = (function () {
 
         document.getElementById('find-target-name').innerHTML = escapeHtml(resolveItemName(primary));
         document.getElementById('find-target-epc').innerHTML = escapeHtml(primary);
+        document.getElementById('find-hunt-status').innerHTML =
+            'Hunt active — proximity comes from Merlin wedge RSSI (no local simulation).';
 
-        if (radarFocusEpc !== primary) {
-            radarFocusEpc = primary;
-            simulatedRssi = 12 + Math.floor(Math.random() * 28);
-            startRssiAnimation();
-        }
+        radarFocusEpc = primary;
 
         var upHtml = '';
         if (isBatch && activeSearchQueue.length > 1) {
@@ -1012,20 +969,7 @@ var WinCE = (function () {
         }
     }
 
-    function startRssiAnimation() {
-        stopRssiAnimation();
-        rssiAnimTimer = setInterval(function () {
-            if (activeView !== 'find' || !radarFocusEpc) return;
-            updateRadarVisual(nextSimulatedRssi());
-        }, RSSI_TICK_MS);
-    }
-
-    function stopRssiAnimation() {
-        if (rssiAnimTimer) {
-            clearInterval(rssiAnimTimer);
-            rssiAnimTimer = null;
-        }
-    }
+    function stopRssiAnimation() { /* no local RSSI simulation on Win CE */ }
 
     function confirmFoundNext() {
         if (activeSearchQueue.length < 2 || isAdvancingQueue) return;
@@ -1199,8 +1143,6 @@ var WinCE = (function () {
         if (view === 'find') {
             startFindPolling();
             pollSearchTarget();
-        } else {
-            stopRssiAnimation();
         }
 
         if (view === 'inventory') {
@@ -1242,7 +1184,7 @@ var WinCE = (function () {
 
     return {
         switchView: switchView,
-        triggerScan: triggerScan,
+        submitManualScan: submitManualScan,
         setStatusFilter: setStatusFilter,
         onInventorySearch: onInventorySearch,
         onBinsSearch: onBinsSearch,

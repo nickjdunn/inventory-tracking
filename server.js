@@ -16,6 +16,16 @@ const PORT = process.env.PORT || 3000;
 
 let activeSearchQueue = [];
 
+/** Production server never auto-fires mock scans. Simulation lives in public/emulator.html only. */
+const ENABLE_SERVER_MOCK_LOOPS = process.env.ENABLE_SERVER_MOCK_LOOPS === 'true';
+if (ENABLE_SERVER_MOCK_LOOPS) {
+    console.warn(
+        '[config] ENABLE_SERVER_MOCK_LOOPS is set but no server-side mock loop is implemented — use the emulator UI.'
+    );
+}
+
+const TEST_EPC_PREFIX = 'TEST-EPC-';
+
 /** Recent ultra-near reads for onboarding wizard (newest first). */
 const nearFieldBuffer = [];
 const NEAR_FIELD_BUFFER_MAX = 120;
@@ -259,6 +269,122 @@ function findLatestUnassignedNearField(sinceMs, nearGate) {
     return candidates[0];
 }
 
+function parseMerlinWedgeText(text) {
+    const raw = text == null ? '' : String(text).trim();
+    if (!raw) return [];
+
+    return raw
+        .split(/[\r\n,;]+/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => {
+            if (part.indexOf('|') >= 0) {
+                const pieces = part.split('|');
+                return parseScannedTagEntry({ epc: pieces[0], rssi: pieces[1] });
+            }
+            if (part.indexOf('\t') >= 0) {
+                const pieces = part.split('\t');
+                return parseScannedTagEntry({ epc: pieces[0], rssi: pieces[1] });
+            }
+            return parseScannedTagEntry(part);
+        })
+        .filter((t) => t.epc);
+}
+
+function parseMerlinWedgePayload(body) {
+    const meta = {
+        targetContainerEpc: null,
+        scanner_id: 'MERLIN-WEDGE',
+        tagEntries: [],
+    };
+
+    if (body == null) return meta;
+
+    if (typeof body === 'string') {
+        meta.tagEntries = parseMerlinWedgeText(body);
+        return meta;
+    }
+
+    if (typeof body !== 'object') return meta;
+
+    meta.targetContainerEpc = normalizeContainerId(
+        body.target_container_epc || body.targetContainerEpc || body.bin_id || body.bin
+    );
+    meta.scanner_id =
+        body.scanner_id == null ? 'MERLIN-WEDGE' : String(body.scanner_id).trim() || 'MERLIN-WEDGE';
+
+    if (typeof body.raw === 'string' && body.raw.trim()) {
+        meta.tagEntries = parseMerlinWedgeText(body.raw);
+        return meta;
+    }
+    if (typeof body.text === 'string' && body.text.trim()) {
+        meta.tagEntries = parseMerlinWedgeText(body.text);
+        return meta;
+    }
+    if (typeof body.data === 'string' && body.data.trim()) {
+        meta.tagEntries = parseMerlinWedgeText(body.data);
+        return meta;
+    }
+    if (typeof body.tags === 'string' && body.tags.trim()) {
+        meta.tagEntries = parseMerlinWedgeText(body.tags);
+        return meta;
+    }
+
+    const scanned = body.scanned_tags || body.tags;
+    if (Array.isArray(scanned)) {
+        meta.tagEntries = normalizeScannedTags(scanned);
+    }
+
+    return meta;
+}
+
+function runInventoryScan(targetContainerEpc, tagEntries) {
+    const normalizedTags = tagEntries.map((t) => t.epc);
+
+    return new Promise((resolve, reject) => {
+        db.all(
+            `SELECT id, name, boundary_tag_a, boundary_tag_b FROM containers
+             WHERE TRIM(COALESCE(boundary_tag_a, '')) != ''
+               AND TRIM(COALESCE(boundary_tag_b, '')) != ''`,
+            [],
+            (err, boundaryContainers) => {
+                if (err) return reject(err);
+
+                let effectiveTarget = targetContainerEpc;
+                let tagsToProcess = normalizedTags;
+
+                const zoneMatch = findSpatialZoneMatch(normalizedTags, boundaryContainers);
+                if (zoneMatch) {
+                    const { container, tagA, tagB } = zoneMatch;
+                    effectiveTarget = container.id;
+                    const boundarySet = new Set([tagA, tagB]);
+                    tagsToProcess = normalizedTags.filter((epc) => !boundarySet.has(epc));
+
+                    console.log(
+                        `🎯 Spatial Zone Match: Isolated ${tagsToProcess.length} items between boundaries of bin [${container.name}]`
+                    );
+                }
+
+                processScannedTags(tagsToProcess, effectiveTarget);
+
+                resolve({
+                    status: 'success',
+                    message: `Database processed ${tagsToProcess.length} tags.`,
+                    tags_received: normalizedTags.length,
+                    tags_processed: tagsToProcess.length,
+                    target_container_epc: effectiveTarget,
+                    spatial_zone: zoneMatch
+                        ? {
+                              container_id: zoneMatch.container.id,
+                              container_name: zoneMatch.container.name,
+                          }
+                        : null,
+                });
+            }
+        );
+    });
+}
+
 function findSpatialZoneMatch(scannedTags, containers) {
     const tagSet = new Set(scannedTags.map(normalizeScanTag).filter(Boolean));
 
@@ -498,7 +624,7 @@ app.get('/api/scan/latest-near-field', async (req, res) => {
     }
 });
 
-// 📡 The Endpoint: Processes bulk scans and updates item locations
+// 📡 Processes bulk scans and updates item locations (hardware, emulator, mobile manual submit)
 app.post('/api/scan', async (req, res) => {
     const options = req.body || {};
     const targetContainerEpc = normalizeContainerId(
@@ -513,7 +639,6 @@ app.post('/api/scan', async (req, res) => {
     }
 
     const tagEntries = normalizeScannedTags(scanned_tags);
-    const normalizedTags = tagEntries.map((t) => t.epc);
 
     try {
         const settings = await getSystemSettings();
@@ -522,43 +647,113 @@ app.post('/api/scan', async (req, res) => {
         console.warn('Near-field record failed:', err.message);
     }
 
-    db.all(
-        `SELECT id, name, boundary_tag_a, boundary_tag_b FROM containers
-         WHERE TRIM(COALESCE(boundary_tag_a, '')) != ''
-           AND TRIM(COALESCE(boundary_tag_b, '')) != ''`,
-        [],
-        (err, boundaryContainers) => {
-            if (err) {
-                console.error(err);
-                return res.status(500).json({ error: err.message });
+    try {
+        const result = await runInventoryScan(targetContainerEpc, tagEntries);
+        res.status(200).json(result);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 🔫 Nordic ID Merlin keyboard wedge / raw stream gateway
+app.post('/api/hardware/merlin-wedge', (req, res, next) => {
+    const ct = String(req.get('content-type') || '');
+    if (ct.indexOf('application/json') >= 0) return next();
+    express.text({ type: '*/*', limit: '2mb' })(req, res, next);
+}, async (req, res) => {
+        let body = req.body;
+        if (typeof body === 'string') {
+            try {
+                body = JSON.parse(body);
+            } catch {
+                body = { raw: body };
             }
+        }
 
-            let effectiveTarget = targetContainerEpc;
-            let tagsToProcess = normalizedTags;
+        const parsed = parseMerlinWedgePayload(body || {});
+        console.log(
+            `\n--- 🔫 Merlin wedge: ${parsed.tagEntries.length} tag(s) scanner=${parsed.scanner_id} ---`
+        );
 
-            const zoneMatch = findSpatialZoneMatch(normalizedTags, boundaryContainers);
-            if (zoneMatch) {
-                const { container, tagA, tagB } = zoneMatch;
-                effectiveTarget = container.id;
-                const boundarySet = new Set([tagA, tagB]);
-                tagsToProcess = normalizedTags.filter((epc) => !boundarySet.has(epc));
-
-                console.log(
-                    `🎯 Spatial Zone Match: Isolated ${tagsToProcess.length} items between boundaries of bin [${container.name}]`
-                );
-            }
-
-            processScannedTags(tagsToProcess, effectiveTarget);
-
-            res.status(200).json({
-                status: 'success',
-                message: `Database processed ${tagsToProcess.length} tags.`,
-                spatial_zone: zoneMatch
-                    ? { container_id: zoneMatch.container.id, container_name: zoneMatch.container.name }
-                    : null,
+        if (!parsed.tagEntries.length) {
+            return res.status(400).json({
+                error:
+                    'No EPC tags parsed. Send JSON { scanned_tags, target_container_epc } or plain text (comma/newline separated).',
             });
         }
-    );
+
+        try {
+            const settings = await getSystemSettings();
+            recordNearFieldReads(parsed.tagEntries, settings);
+        } catch (err) {
+            console.warn('Near-field record failed:', err.message);
+        }
+
+        try {
+            const result = await runInventoryScan(parsed.targetContainerEpc, parsed.tagEntries);
+            res.status(200).json({
+                ...result,
+                source: 'merlin-wedge',
+                scanner_id: parsed.scanner_id,
+            });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: err.message });
+        }
+});
+
+// 🧪 Remove simulator test tags (TEST-EPC-* items, bins, and related scan logs)
+app.delete('/api/test/purge', (req, res) => {
+    const likePattern = TEST_EPC_PREFIX + '%';
+    const summary = { items: 0, containers: 0, scan_history: 0 };
+
+    db.serialize(() => {
+        db.run(
+            `DELETE FROM scan_history WHERE scanned_epc LIKE ? COLLATE NOCASE OR parent_container_epc LIKE ? COLLATE NOCASE`,
+            [likePattern, likePattern],
+            function (histErr) {
+                if (histErr) return res.status(500).json({ error: histErr.message });
+                summary.scan_history = this.changes;
+
+                db.run(
+                    `DELETE FROM items WHERE epc_id LIKE ? COLLATE NOCASE`,
+                    [likePattern],
+                    function (itemsErr) {
+                        if (itemsErr) return res.status(500).json({ error: itemsErr.message });
+                        summary.items = this.changes;
+
+                        db.run(
+                            `DELETE FROM containers WHERE id LIKE ? COLLATE NOCASE`,
+                            [likePattern],
+                            function (binErr) {
+                                if (binErr) return res.status(500).json({ error: binErr.message });
+                                summary.containers = this.changes;
+
+                                activeSearchQueue = activeSearchQueue.filter(
+                                    (epc) =>
+                                        !String(epc || '')
+                                            .toUpperCase()
+                                            .startsWith(TEST_EPC_PREFIX)
+                                );
+
+                                console.log(
+                                    `🗑️ Test purge: ${summary.items} items, ${summary.containers} bins, ${summary.scan_history} log rows`
+                                );
+
+                                res.json({
+                                    status: 'success',
+                                    prefix: TEST_EPC_PREFIX,
+                                    deleted: summary,
+                                    message: `Purged test data with prefix ${TEST_EPC_PREFIX}`,
+                                });
+                            }
+                        );
+                    }
+                );
+            }
+        );
+    });
 });
 
 // 🏷️ Hybrid UPC lookup (local cache → Open*Facts chain → optional UPCitemdb)

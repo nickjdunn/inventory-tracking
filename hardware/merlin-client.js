@@ -215,6 +215,40 @@ async function sendBulkInventoryScan(rawTagArray, options = {}) {
 }
 
 /**
+ * Keyboard wedge / raw stream from Merlin native software.
+ *
+ * @param {string|object|Array} rawPayload Plain text, JSON body, or tag array
+ * @param {{ targetContainerEpc?: string }} [options]
+ */
+async function sendMerlinWedge(rawPayload, options = {}) {
+    const targetContainerEpc =
+        options.targetContainerEpc ||
+        options.target_container_epc ||
+        CONFIG.TARGET_CONTAINER_EPC ||
+        null;
+
+    let body;
+    if (typeof rawPayload === 'string') {
+        body = { raw: rawPayload, target_container_epc: targetContainerEpc, scanner_id: CONFIG.SCANNER_ID };
+    } else if (Array.isArray(rawPayload)) {
+        body = {
+            scanned_tags: normalizeTagArray(rawPayload),
+            target_container_epc: targetContainerEpc,
+            scanner_id: CONFIG.SCANNER_ID,
+        };
+    } else {
+        body = {
+            ...(rawPayload && typeof rawPayload === 'object' ? rawPayload : {}),
+            target_container_epc: targetContainerEpc,
+            scanner_id: CONFIG.SCANNER_ID,
+        };
+    }
+
+    console.log(`[Merlin] Wedge ingest → ${getBaseUrl()}/api/hardware/merlin-wedge`);
+    return dispatch('POST', '/api/hardware/merlin-wedge', body);
+}
+
+/**
  * MODE 2 — Ultra-near single tag capture (onboarding / quick-register mode).
  *
  * @param {string} epc
@@ -306,6 +340,7 @@ module.exports = {
     getConfig,
     getBaseUrl,
     sendBulkInventoryScan,
+    sendMerlinWedge,
     sendNearFieldCapture,
     sendHeartbeat,
     startHeartbeat,

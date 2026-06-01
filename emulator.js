@@ -1,9 +1,10 @@
 /**
- * Nordic ID Merlin UHF — Hardware Client Emulator
- * Simulates bulk inventory scans and Find Mode RSSI polling against the local backend.
+ * Nordic ID Merlin UHF — CLI test harness (manual only).
+ * Does NOT auto-start on server boot. No background scans until you choose a menu option.
+ * Prefer the unified browser simulator: public/emulator.html
  *
  * Usage: node emulator.js
- * Prerequisite: server running at http://localhost:3000
+ * Prerequisite: server running (see BASE_URL)
  */
 
 const http = require('http');
@@ -13,20 +14,22 @@ const BASE_URL = 'http://10.17.17.17:3000';
 const SCANNER_ID = 'MERLIN-EMU-001';
 const FIND_POLL_MS = 1500;
 
-// Mock physical assets (EPC pool)
+const TEST_EPC_PREFIX = 'TEST-EPC-';
+
+// Simulator-only tag pool (never mixed with production EPCs)
 const MOCK_EPC_POOL = [
-    { epc: 'EPC301833B2A1TOOL00001', label: 'Cordless Drill' },
-    { epc: 'EPC301833B2A1TOOL00002', label: 'Impact Driver' },
-    { epc: 'EPC301833B2A1CABL00003', label: 'HDMI Cable 6ft' },
-    { epc: 'EPC301833B2A1CABL00004', label: 'USB-C Hub' },
-    { epc: 'EPC301833B2A1GEAR00005', label: 'Camping Headlamp' },
-    { epc: 'EPC301833B2A1GEAR00006', label: 'Trekking Poles' },
-    { epc: 'EPC301833B2A1TOOL00007', label: 'Socket Set' },
-    { epc: 'EPC301833B2A1CABL00008', label: 'Ethernet Cat6 25ft' },
-    { epc: 'EPC301833B2A1GEAR00009', label: 'First Aid Kit' },
-    { epc: 'EPC301833B2A1TOOL00010', label: 'Stud Finder' },
-    { epc: 'EPC301833B2A1GEAR00011', label: 'Bike Pump' },
-    { epc: 'EPC301833B2A1CABL00012', label: 'Extension Cord 12ft' },
+    { epc: 'TEST-EPC-0001A', label: 'Test Cordless Drill' },
+    { epc: 'TEST-EPC-0002A', label: 'Test Impact Driver' },
+    { epc: 'TEST-EPC-0003A', label: 'Test HDMI Cable' },
+    { epc: 'TEST-EPC-0004A', label: 'Test USB-C Hub' },
+    { epc: 'TEST-EPC-0005A', label: 'Test Headlamp' },
+    { epc: 'TEST-EPC-0006A', label: 'Test Trekking Poles' },
+    { epc: 'TEST-EPC-0007A', label: 'Test Socket Set' },
+    { epc: 'TEST-EPC-0008A', label: 'Test Ethernet' },
+    { epc: 'TEST-EPC-0009A', label: 'Test First Aid' },
+    { epc: 'TEST-EPC-0010A', label: 'Test Stud Finder' },
+    { epc: 'TEST-EPC-0011A', label: 'Test Bike Pump' },
+    { epc: 'TEST-EPC-0012A', label: 'Test Extension Cord' },
 ];
 
 const MOCK_CONTAINERS = [
@@ -360,7 +363,8 @@ async function handleBulkScan(rl) {
 async function runCli() {
     printBanner();
     seedVirtualInventory();
-    console.log('💡 Tip: Open the dashboard, set Find Mode on an item, then start option 2 here.\n');
+    console.log('💡 Find Mode polling is OFF until you choose option 2.');
+    console.log('💡 Browser simulator: /emulator.html — autopilot also OFF by default.\n');
 
     const rl = readline.createInterface({
         input: process.stdin,

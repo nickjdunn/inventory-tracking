@@ -662,13 +662,16 @@
                 </select>
                 <label for="bin-epc-custom">Or type Bin EPC</label>
                 <input type="text" id="bin-epc-custom" placeholder="Override bin ID" autocomplete="off">
-                <div class="scan-toggle-row">
-                    <button type="button" class="btn-giant" id="scan-toggle" aria-pressed="false">
-                        ▶ Start continuous scan
-                    </button>
-                </div>
+                <p class="standby" style="text-align:left;padding:8px 0;font-size:13px;">
+                    Scans come from the Merlin wedge or hardware client — not simulated here.
+                    <a href="/emulator.html" style="color:var(--accent);">Open Test Control Deck</a> for mock traffic.
+                </p>
+                <label for="manual-scan-tags">Manual tag list (EPC per line or comma-separated)</label>
+                <textarea id="manual-scan-tags" placeholder="Paste EPCs from wedge output…" style="min-height:88px;"></textarea>
+                <label for="manual-tag-rssi">Default RSSI (dBm) for tags without RSSI</label>
+                <input type="text" id="manual-tag-rssi" value="-65" inputmode="numeric" style="margin-bottom:12px;">
                 <button type="button" class="btn-giant" id="trigger-scan">
-                    🎯 Single trigger pull
+                    📤 Submit tag list to server
                 </button>
                 <div id="scan-status" class="status-toast" style="display:none;"></div>
                 <div id="scan-tag-list" class="tag-list"></div>
@@ -880,25 +883,10 @@
     <script src="/inventory-shared.js"></script>
     <script src="/onboarding-wizard.js"></script>
     <script>
-        const MOCK_ITEM_EPCS = [
-            'EPC301833B2A1TOOL00001',
-            'EPC301833B2A1TOOL00002',
-            'EPC301833B2A1CABL00003',
-            'EPC301833B2A1CABL00004',
-            'EPC301833B2A1GEAR00005',
-            'EPC301833B2A1GEAR00006',
-            'EPC301833B2A1TOOL00007',
-            'EPC301833B2A1CABL00008',
-            'EPC301833B2A1GEAR00009',
-            'EPC301833B2A1TOOL00010',
-        ];
-
         const SCANNER_ID = 'MERLIN-MOBILE-001';
         const TARGET_POLL_MS = 1500;
         const INVENTORY_SYNC_MS = 2000;
         const RSSI_TICK_MS = 280;
-        const CONTINUOUS_SCAN_MS = 2200;
-
         let activeView = 'scan';
         let inventorySyncTimer = null;
         let inventoryItems = [];
@@ -910,8 +898,6 @@
         let sheetEditEpc = null;
         let findPollTimer = null;
         let rssiAnimTimer = null;
-        let continuousScanTimer = null;
-        let isContinuousScanning = false;
         let simulatedRssi = 30;
         let currentRssiDbm = -85;
         let activeSearchQueue = [];
@@ -1036,15 +1022,18 @@
             };
         })();
 
-        function pickRandomTags(min, max) {
-            const count = min + Math.floor(Math.random() * (max - min + 1));
-            const pool = [...MOCK_ITEM_EPCS];
-            const picked = [];
-            for (let i = 0; i < count && pool.length; i++) {
-                const idx = Math.floor(Math.random() * pool.length);
-                picked.push(pool.splice(idx, 1)[0]);
-            }
-            return picked;
+        function parseManualScanTags(text, defaultRssi) {
+            const parts = String(text || '')
+                .split(/[\r\n,;]+/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+            return parts.map((part) => {
+                if (part.includes('|')) {
+                    const [epc, rssi] = part.split('|');
+                    return { epc: epc.trim(), rssi: parseInt(rssi, 10) };
+                }
+                return { epc: part, rssi: defaultRssi };
+            }).filter((t) => t.epc);
         }
 
         function tagsWithRssi(epcs, ultraNear) {
@@ -1086,13 +1075,18 @@
                 return { status: 'success', message: 'Near-field capture sent' };
             }
 
+            const scanned_tags =
+                tags.length && typeof tags[0] === 'object' && tags[0].epc
+                    ? tags
+                    : tagsWithRssi(epcList, false);
+
             const res = await fetch('/api/scan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     scanner_id: SCANNER_ID,
                     target_container_epc: binEpc,
-                    scanned_tags: tagsWithRssi(epcList, false),
+                    scanned_tags,
                 }),
             });
             const data = await res.json();
@@ -1120,11 +1114,19 @@
                 return;
             }
 
-            const tags = pickRandomTags(3, 5);
-            btn.disabled = true;
+            const defaultRssi = parseInt(document.getElementById('manual-tag-rssi').value, 10) || -65;
+            const tags = parseManualScanTags(
+                document.getElementById('manual-scan-tags').value,
+                defaultRssi
+            );
+            if (!tags.length) {
+                showScanStatus('Paste at least one EPC from the gun wedge, or use the Test Control Deck.', 'err');
+                return;
+            }
 
+            btn.disabled = true;
             document.getElementById('scan-tag-list').textContent =
-                'Transmitting ' + tags.length + ' tags: ' + tags.map((t) => t.slice(-8)).join(', ');
+                'Submitting ' + tags.length + ' tag(s)…';
 
             try {
                 const data = await postScanPayload(binEpc, tags);
@@ -1138,54 +1140,6 @@
             } finally {
                 btn.disabled = false;
             }
-        }
-
-        function stopContinuousScan() {
-            isContinuousScanning = false;
-            if (continuousScanTimer) {
-                clearInterval(continuousScanTimer);
-                continuousScanTimer = null;
-            }
-            const toggle = document.getElementById('scan-toggle');
-            toggle.classList.remove('scanning');
-            toggle.setAttribute('aria-pressed', 'false');
-            toggle.textContent = '▶ Start continuous scan';
-            MerlinAudio.stopAll();
-        }
-
-        async function startContinuousScan() {
-            await MerlinAudio.unlock();
-            const binEpc = getTargetBinEpc();
-            if (!binEpc) {
-                showScanStatus('Select a bin from the server list or enter a bin EPC.', 'err');
-                return;
-            }
-            isContinuousScanning = true;
-            const toggle = document.getElementById('scan-toggle');
-            toggle.classList.add('scanning');
-            toggle.setAttribute('aria-pressed', 'true');
-            toggle.textContent = '⏹ Stop continuous scan';
-
-            const runScan = async () => {
-                if (!isContinuousScanning) return;
-                const tags = pickRandomTags(2, 6);
-                try {
-                    await postScanPayload(binEpc, tags);
-                    document.getElementById('scan-tag-list').textContent =
-                        'Last burst: ' + tags.length + ' tag(s)';
-                } catch (err) {
-                    showScanStatus('❌ ' + err.message, 'err');
-                    stopContinuousScan();
-                }
-            };
-
-            await runScan();
-            continuousScanTimer = setInterval(runScan, CONTINUOUS_SCAN_MS);
-        }
-
-        function toggleContinuousScan() {
-            if (isContinuousScanning) stopContinuousScan();
-            else startContinuousScan();
         }
 
         function rssiZoneFromDbm(dbm) {
@@ -1857,10 +1811,6 @@
                 MerlinAudio.stopAll();
             }
 
-            if (view !== 'scan' && isContinuousScanning) {
-                stopContinuousScan();
-            }
-
             if (view === 'inventory') {
                 renderStatusPills();
                 renderInventoryCards();
@@ -1878,7 +1828,6 @@
         });
 
         document.getElementById('trigger-scan').addEventListener('click', triggerQuickScan);
-        document.getElementById('scan-toggle').addEventListener('click', toggleContinuousScan);
         document.getElementById('clear-hunt').addEventListener('click', async () => {
             await MerlinAudio.unlock();
             clearHuntTarget();
@@ -1952,10 +1901,7 @@
         });
 
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                stopContinuousScan();
-                MerlinAudio.stopAll();
-            }
+            if (document.hidden) MerlinAudio.stopAll();
         });
 
         MerlinInventory.bindInstantSearch(document.getElementById('inventory-search'), (query) => {
