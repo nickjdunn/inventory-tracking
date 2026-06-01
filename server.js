@@ -2,7 +2,7 @@ const http = require('http');
 const express = require('express');
 const WebSocket = require('ws');
 const db = require('./database'); // Import our database setup
-const { lookupUpcHybrid, normalizeUpc } = require('./upc-lookup');
+const { lookupUpcHybrid, lookupProduct, normalizeUpc } = require('./upc-lookup');
 const {
     normalizeEpc,
     normalizeBoundaryTag,
@@ -937,6 +937,79 @@ app.delete('/api/test/purge', (req, res) => {
     });
 });
 
+// 🔍 Universal product enrichment (UPC barcode or free-text search)
+app.post('/api/lookup/product', async (req, res) => {
+    const body = req.body || {};
+    const upcRaw = body.upc != null ? String(body.upc).trim() : '';
+    const textRaw = body.text != null ? String(body.text).trim() : '';
+
+    if (!upcRaw && !textRaw) {
+        return res.status(400).json({
+            success: false,
+            error: 'Provide { upc: string } or { text: string }',
+        });
+    }
+    if (upcRaw && textRaw) {
+        return res.status(400).json({
+            success: false,
+            error: 'Provide either upc or text, not both',
+        });
+    }
+
+    try {
+        if (upcRaw) {
+            const upc = normalizeUpc(upcRaw);
+            if (!upc) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Invalid UPC — use 8–14 digits',
+                });
+            }
+
+            const cached = await getCachedUpc(upc);
+            if (cached) {
+                const enriched = {
+                    success: true,
+                    title: cached.name,
+                    description: cached.description,
+                    category: cached.category,
+                    image_url: cached.image_url,
+                    upc: cached.upc,
+                    brand: cached.brand,
+                    source: cached.source,
+                    providers_tried: ['local_cache'],
+                    cached: true,
+                };
+                return res.json(enriched);
+            }
+
+            const settings = await getSystemSettings();
+            const key = settings.upcitemdb_api_key || process.env.UPCITEMDB_API_KEY || '';
+            const result = await lookupProduct({ upc }, { upcitemdbKey: key });
+            if (result.success) {
+                await saveUpcCache({
+                    found: true,
+                    upc: result.upc,
+                    source: result.source,
+                    name: result.title,
+                    brand: result.brand,
+                    category: result.category,
+                    description: result.description,
+                    image_url: result.image_url,
+                });
+            }
+            return res.json(result);
+        }
+
+        const settings = await getSystemSettings();
+        const key = settings.upcitemdb_api_key || process.env.UPCITEMDB_API_KEY || '';
+        const result = await lookupProduct({ text: textRaw }, { upcitemdbKey: key });
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // 🏷️ Hybrid UPC lookup (local cache → Open*Facts chain → optional UPCitemdb)
 app.get('/api/upc/lookup/:code', async (req, res) => {
     const upc = normalizeUpc(req.params.code);
@@ -975,6 +1048,7 @@ app.post('/api/items', async (req, res) => {
         description,
         category,
         upc,
+        image_url,
         container_id,
         home_container_id,
     } = req.body;
@@ -998,15 +1072,21 @@ app.post('/api/items', async (req, res) => {
         return res.status(500).json({ error: err.message });
     }
 
+    const normalizedImageUrl =
+        image_url == null || String(image_url).trim() === ''
+            ? null
+            : String(image_url).trim();
+
     db.run(
-        `INSERT INTO items (epc_id, name, description, category, upc, container_id, home_container_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO items (epc_id, name, description, category, upc, image_url, container_id, home_container_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             epc,
             itemName,
             description ?? null,
             category ?? null,
             normalizedUpc,
+            normalizedImageUrl,
             normalizeContainerId(container_id),
             normalizeContainerId(home_container_id),
         ],
@@ -1024,6 +1104,7 @@ app.post('/api/items', async (req, res) => {
                 description,
                 category,
                 upc: normalizedUpc,
+                image_url: normalizedImageUrl,
                 container_id: normalizeContainerId(container_id),
                 home_container_id: normalizeContainerId(home_container_id),
             });
@@ -1110,7 +1191,8 @@ app.delete('/api/items/:epc_id', (req, res) => {
 // ✏️ Update item metadata (name, description, category, bins, current location)
 app.put('/api/items/:epc_id', (req, res) => {
     const { epc_id } = req.params;
-    const { name, description, category, home_container_id, container_id, upc } = req.body;
+    const { name, description, category, home_container_id, container_id, upc, image_url } =
+        req.body;
     const normalizedHomeContainerId = normalizeContainerId(home_container_id);
     const normalizedContainerId = container_id !== undefined
         ? normalizeContainerId(container_id)
@@ -1136,6 +1218,14 @@ app.put('/api/items/:epc_id', (req, res) => {
     if (normalizedUpc !== undefined) {
         sets.push('upc = ?');
         params.push(normalizedUpc);
+    }
+    if (image_url !== undefined) {
+        sets.push('image_url = ?');
+        params.push(
+            image_url == null || String(image_url).trim() === ''
+                ? null
+                : String(image_url).trim()
+        );
     }
     params.push(epc_id);
 

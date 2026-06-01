@@ -304,6 +304,48 @@
             padding: 3px 6px;
             width: 100%;
         }
+        .btn-mega {
+            display: block;
+            width: 100%;
+            margin: 10px 0;
+            padding: 18px 12px;
+            font-size: 16px;
+            font-weight: bold;
+            text-align: center;
+            border: 3px solid #0369a1;
+            background: #0ea5e9;
+            color: #ffffff;
+            cursor: pointer;
+        }
+        .btn-mega:active { background: #0369a1; }
+        .btn-mega-secondary {
+            border-color: #475569;
+            background: #334155;
+        }
+        .btn-mega-danger {
+            border-color: #7f1d1d;
+            background: #b91c1c;
+        }
+        .wince-step-hidden { display: none; }
+        .wince-review-box {
+            border: 2px solid #334155;
+            background: #0f172a;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        .wince-check-row {
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+        .wince-rfid-summary {
+            border: 2px solid #4ade80;
+            background: #064e3b;
+            color: #bbf7d0;
+            padding: 10px;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
@@ -387,29 +429,48 @@
     </div>
 </div>
 
-<!-- ADD -->
+<!-- ADD (3-step enrichment wizard) -->
 <div id="view-add" class="view-panel">
     <div class="card">
-        <h2>Add item</h2>
-        <div id="add-step-upc">
-            <label for="add-upc">UPC barcode</label>
-            <input type="text" id="add-upc" value="" inputmode="numeric">
-            <button type="button" class="btn-block" onclick="WinCE.lookupUpc()">Look up product</button>
-            <button type="button" class="btn-block btn-secondary" onclick="WinCE.showAddDetails(null)">Skip — manual</button>
+        <h2>Add item wizard</h2>
+        <div id="wince-add-step1">
+            <label for="wince-lookup-input">UPC or product name</label>
+            <input type="text" id="wince-lookup-input" value="">
+            <p id="wince-lookup-status" class="sync-line"></p>
+            <button type="button" class="btn-mega" onclick="WinCE.runProductLookup()">[ &#128269; SEARCH / LOOKUP ]</button>
+            <button type="button" class="btn-mega btn-mega-secondary" onclick="WinCE.goAddManualReview()">[ SKIP — MANUAL ]</button>
         </div>
-        <div id="add-step-details" class="step-hidden">
-            <div id="add-preview" class="hidden" style="border:1px solid #334155;padding:8px;margin-bottom:8px;"></div>
-            <label for="add-name">Product name</label>
-            <input type="text" id="add-name" value="">
-            <label for="add-category">Category</label>
-            <input type="text" id="add-category" value="">
-            <label for="add-desc">Description</label>
-            <textarea id="add-desc"></textarea>
-            <label for="add-epc">RFID EPC</label>
-            <input type="text" id="add-epc" value="">
-            <label for="add-home">Home bin</label>
+        <div id="wince-add-step2" class="wince-step-hidden">
+            <p id="wince-review-source" class="mono" style="margin:0 0 8px 0;"></p>
+            <div class="wince-review-box">
+                <p class="wince-check-row"><input type="checkbox" id="wince-use-title" checked="checked" onclick="WinCE.onReviewCheckChange()"> Title</p>
+                <input type="text" id="wince-review-title" value="">
+            </div>
+            <div class="wince-review-box">
+                <p class="wince-check-row"><input type="checkbox" id="wince-use-description" onclick="WinCE.onReviewCheckChange()"> Description</p>
+                <textarea id="wince-review-description" rows="3"></textarea>
+            </div>
+            <div class="wince-review-box">
+                <p class="wince-check-row"><input type="checkbox" id="wince-use-category" onclick="WinCE.onReviewCheckChange()"> Category</p>
+                <input type="text" id="wince-review-category" value="">
+            </div>
+            <div class="wince-review-box">
+                <p class="wince-check-row"><input type="checkbox" id="wince-use-image" onclick="WinCE.onReviewCheckChange()"> Image URL (no preview on gun)</p>
+                <input type="text" id="wince-review-image" value="" class="wince-step-hidden">
+            </div>
+            <button type="button" class="btn-mega btn-mega-secondary" onclick="WinCE.backToAddIdentify()">[ &#9664; BACK / MANUAL ]</button>
+            <button type="button" class="btn-mega" onclick="WinCE.continueToAddRfid()">[ CONTINUE — LINK RFID ]</button>
+        </div>
+        <div id="wince-add-step3" class="wince-step-hidden">
+            <div id="wince-approved-summary" class="wince-rfid-summary"></div>
+            <p id="wince-rfid-hint" style="font-size:12px;color:#94a3b8;">Pull trigger — ultra-near RSSI captures EPC.</p>
+            <p id="wince-near-status" class="sync-line">Waiting for tag…</p>
+            <input type="hidden" id="wince-captured-epc" value="">
+            <label for="add-home">Home bin (optional)</label>
             <select id="add-home"><option value="">— No home —</option></select>
-            <button type="button" class="btn-block" onclick="WinCE.saveNewItem()">Create item</button>
+            <button type="button" class="btn-mega btn-mega-secondary" onclick="WinCE.startAddNearListen()">[ &#8635; RE-LISTEN RFID ]</button>
+            <button type="button" class="btn-mega" id="wince-save-item-btn" onclick="WinCE.saveNewItem()" disabled="disabled">[ &#10003; SAVE ITEM ]</button>
+            <button type="button" class="btn-mega btn-mega-secondary" onclick="WinCE.backToAddReview()">[ &#9664; BACK TO REVIEW ]</button>
         </div>
         <div id="add-status" class="status-msg"></div>
     </div>
@@ -480,7 +541,11 @@ var WinCE = (function () {
     var rssiNearGate = -55;
     var rssiFarGate = -85;
     var isAdvancingQueue = false;
-    var boundUpc = '';
+    var addStaging = null;
+    var addBoundUpc = null;
+    var addApproved = null;
+    var addNearPollTimer = null;
+    var addListenSince = 0;
 
     var FILTER_IDS = {
         ALL: 'filt-all',
@@ -845,7 +910,7 @@ var WinCE = (function () {
             html += '<p class="hunt-col-zone">' + escapeHtml(MerlinHunt.normalizeZoneLabel(signal.zone)) + '</p>';
             html += '<p class="hunt-col-dbm">' + escapeHtml(MerlinHunt.dbmDisplay(signal)) + '</p>';
             html += '<p class="mono">' + escapeHtml(epc) + '</p>';
-            html += '<button type="button" class="btn-small hunt-col-remove" onclick="WinCE.removeHuntByIndex(' + i + ')">Remove</button>';
+            html += '<button type="button" class="btn-mega btn-mega-danger hunt-col-remove" style="font-size:11px;padding:8px 4px;margin-top:6px;" onclick="WinCE.removeHuntByIndex(' + i + ')">[ &#10008; REMOVE ]</button>';
             html += '</td>';
         }
         row.innerHTML = html;
@@ -1207,63 +1272,211 @@ var WinCE = (function () {
         });
     }
 
-    function lookupUpc() {
-        var code = trimStr(document.getElementById('add-upc').value);
-        if (!code) {
-            setStatusMsg('add-status', 'Enter a UPC first', 'err');
+    function showWinceAddStep(step) {
+        document.getElementById('wince-add-step1').className = step === 1 ? '' : 'wince-step-hidden';
+        document.getElementById('wince-add-step2').className = step === 2 ? '' : 'wince-step-hidden';
+        document.getElementById('wince-add-step3').className = step === 3 ? '' : 'wince-step-hidden';
+    }
+
+    function emptyAddStaging() {
+        return { title: '', description: '', category: '', image_url: '', source: null };
+    }
+
+    function setWinceLookupStatus(msg, isErr) {
+        var el = document.getElementById('wince-lookup-status');
+        if (!el) return;
+        el.innerHTML = escapeHtml(msg || '');
+        el.className = isErr ? 'sync-line sync-warn' : 'sync-line';
+    }
+
+    function populateWinceReview() {
+        addStaging = addStaging || emptyAddStaging();
+        document.getElementById('wince-review-title').value = addStaging.title || '';
+        document.getElementById('wince-review-description').value = addStaging.description || '';
+        document.getElementById('wince-review-category').value = addStaging.category || '';
+        document.getElementById('wince-review-image').value = addStaging.image_url || '';
+        if (addStaging.image_url) {
+            document.getElementById('wince-review-image').className = '';
+        }
+        document.getElementById('wince-use-title').checked = true;
+        document.getElementById('wince-use-description').checked = addStaging.description ? true : false;
+        document.getElementById('wince-use-category').checked = addStaging.category ? true : false;
+        document.getElementById('wince-use-image').checked = addStaging.image_url ? true : false;
+        var src = document.getElementById('wince-review-source');
+        if (src) {
+            src.innerHTML = addStaging.source ? 'Source: ' + escapeHtml(addStaging.source) : 'Manual — check fields to import';
+        }
+    }
+
+    function onReviewCheckChange() {
+        /* touch-friendly checkboxes only */
+    }
+
+    function readWinceReviewStaging() {
+        addStaging = addStaging || emptyAddStaging();
+        addStaging.title = trimStr(document.getElementById('wince-review-title').value);
+        addStaging.description = trimStr(document.getElementById('wince-review-description').value);
+        addStaging.category = trimStr(document.getElementById('wince-review-category').value);
+        addStaging.image_url = trimStr(document.getElementById('wince-review-image').value);
+    }
+
+    function buildWinceApproved() {
+        readWinceReviewStaging();
+        var useTitle = document.getElementById('wince-use-title').checked;
+        var useDesc = document.getElementById('wince-use-description').checked;
+        var useCat = document.getElementById('wince-use-category').checked;
+        var useImg = document.getElementById('wince-use-image').checked;
+        if (!useTitle || !addStaging.title) {
+            return { error: 'Title required — enable Title and enter a name' };
+        }
+        return {
+            name: addStaging.title,
+            description: useDesc ? addStaging.description || null : null,
+            category: useCat ? addStaging.category || null : null,
+            image_url: useImg && addStaging.image_url ? addStaging.image_url : null,
+            upc: addBoundUpc || null
+        };
+    }
+
+    function runProductLookup() {
+        var raw = trimStr(document.getElementById('wince-lookup-input').value);
+        if (!raw) {
+            setWinceLookupStatus('Enter UPC or product name', true);
             return;
         }
-        xhrJson('GET', '/api/upc/lookup/' + encodeURIComponent(code), null, function (status, data) {
-            if (status >= 200 && status < 300 && data && data.found) {
-                boundUpc = data.upc || code;
-                showAddDetails(data);
-            } else if (confirm((data && data.message) ? data.message : 'Not found. Enter manually?')) {
-                boundUpc = '';
-                showAddDetails(null);
+        var digits = raw.replace(/\D/g, '');
+        var isUpc = digits.length >= 8 && digits.length <= 14 && digits.length === raw.replace(/[\s-]/g, '').length;
+        var body = isUpc ? { upc: digits } : { text: raw };
+        setWinceLookupStatus('Searching…', false);
+        xhrJson('POST', '/api/lookup/product', body, function (status, data) {
+            if (status < 200 || status >= 300 || !data || !data.success) {
+                setWinceLookupStatus((data && (data.message || data.error)) ? (data.message || data.error) : 'Lookup failed', true);
+                return;
+            }
+            addBoundUpc = data.upc && /^\d{8,14}$/.test(String(data.upc).replace(/\D/g, '')) ? String(data.upc).replace(/\D/g, '') : (isUpc ? digits : null);
+            addStaging = {
+                title: data.title || '',
+                description: data.description || '',
+                category: data.category || '',
+                image_url: data.image_url || '',
+                source: data.source || 'lookup'
+            };
+            setWinceLookupStatus('Found — review fields', false);
+            populateWinceReview();
+            showWinceAddStep(2);
+        });
+    }
+
+    function goAddManualReview() {
+        addStaging = emptyAddStaging();
+        addBoundUpc = null;
+        setWinceLookupStatus('', false);
+        populateWinceReview();
+        showWinceAddStep(2);
+    }
+
+    function backToAddIdentify() {
+        stopAddNearListen();
+        showWinceAddStep(1);
+    }
+
+    function backToAddReview() {
+        stopAddNearListen();
+        showWinceAddStep(2);
+    }
+
+    function stopAddNearListen() {
+        if (addNearPollTimer) {
+            clearInterval(addNearPollTimer);
+            addNearPollTimer = null;
+        }
+    }
+
+    function pollAddNearField() {
+        xhrJson('GET', '/api/scan/latest-near-field?since=' + encodeURIComponent(String(addListenSince)), null, function (status, data) {
+            if (status < 200 || status >= 300 || !data) return;
+            var statusEl = document.getElementById('wince-near-status');
+            if (data.captured && data.epc) {
+                stopAddNearListen();
+                document.getElementById('wince-captured-epc').value = data.epc;
+                document.getElementById('wince-save-item-btn').disabled = false;
+                if (statusEl) {
+                    statusEl.innerHTML = 'Captured: ' + escapeHtml(data.epc) + ' @ ' + String(data.rssi) + ' dBm';
+                    statusEl.className = 'sync-line';
+                }
+                return;
+            }
+            if (data.reason === 'already_registered' && statusEl) {
+                statusEl.innerHTML = 'Tag already registered — use a new sticker';
+                statusEl.className = 'sync-line sync-warn';
             }
         });
     }
 
-    function showAddDetails(lookup) {
-        document.getElementById('add-step-upc').className = 'step-hidden';
-        document.getElementById('add-step-details').className = '';
-        var preview = document.getElementById('add-preview');
-        if (lookup && lookup.found) {
-            preview.className = '';
-            preview.innerHTML = '<strong>' + escapeHtml(lookup.name) + '</strong>';
-            document.getElementById('add-name').value = lookup.name || '';
-            document.getElementById('add-category').value = lookup.category || '';
-            document.getElementById('add-desc').value = lookup.description || '';
-        } else {
-            preview.className = 'hidden';
-            document.getElementById('add-name').value = '';
-            document.getElementById('add-category').value = '';
-            document.getElementById('add-desc').value = '';
+    function startAddNearListen() {
+        addListenSince = new Date().getTime();
+        document.getElementById('wince-captured-epc').value = '';
+        document.getElementById('wince-save-item-btn').disabled = true;
+        var statusEl = document.getElementById('wince-near-status');
+        if (statusEl) {
+            statusEl.innerHTML = 'Listening for ultra-near tag…';
+            statusEl.className = 'sync-line';
+        }
+        stopAddNearListen();
+        pollAddNearField();
+        addNearPollTimer = setInterval(pollAddNearField, 350);
+    }
+
+    function continueToAddRfid() {
+        var approved = buildWinceApproved();
+        if (approved.error) {
+            setStatusMsg('add-status', approved.error, 'err');
+            return;
+        }
+        addApproved = approved;
+        var sum = document.getElementById('wince-approved-summary');
+        if (sum) {
+            sum.innerHTML = '<strong>' + escapeHtml(approved.name) + '</strong>' +
+                (approved.category ? '<br>' + escapeHtml(approved.category) : '');
         }
         populateBinSelects();
+        showWinceAddStep(3);
+        startAddNearListen();
+    }
+
+    function resetAddWizard() {
+        stopAddNearListen();
+        addStaging = null;
+        addBoundUpc = null;
+        addApproved = null;
+        document.getElementById('wince-lookup-input').value = '';
+        setWinceLookupStatus('', false);
+        showWinceAddStep(1);
     }
 
     function saveNewItem() {
-        var name = trimStr(document.getElementById('add-name').value);
-        var epc = trimStr(document.getElementById('add-epc').value);
-        if (!name) { setStatusMsg('add-status', 'Name required', 'err'); return; }
-        if (!epc) { setStatusMsg('add-status', 'EPC required', 'err'); return; }
-        var upcVal = boundUpc || trimStr(document.getElementById('add-upc').value) || null;
+        if (!addApproved) {
+            setStatusMsg('add-status', 'Complete review step first', 'err');
+            return;
+        }
+        var epc = trimStr(document.getElementById('wince-captured-epc').value);
+        if (!epc) {
+            setStatusMsg('add-status', 'Capture RFID tag first', 'err');
+            return;
+        }
         var payload = {
             epc_id: epc,
-            name: name,
-            category: trimStr(document.getElementById('add-category').value) || null,
-            description: trimStr(document.getElementById('add-desc').value) || null,
-            upc: upcVal,
+            name: addApproved.name,
+            category: addApproved.category,
+            description: addApproved.description,
+            image_url: addApproved.image_url,
+            upc: addApproved.upc,
             home_container_id: document.getElementById('add-home').value || null
         };
         xhrJson('POST', '/api/items', payload, function (status, data) {
             if (status >= 200 && status < 300) {
-                setStatusMsg('add-status', 'Item created: ' + name, 'ok');
-                boundUpc = '';
-                document.getElementById('add-upc').value = '';
-                document.getElementById('add-step-upc').className = '';
-                document.getElementById('add-step-details').className = 'step-hidden';
+                setStatusMsg('add-status', 'Item created: ' + addApproved.name, 'ok');
+                resetAddWizard();
                 syncFromServer();
             } else {
                 setStatusMsg('add-status', (data && data.error) ? data.error : 'Create failed', 'err');
@@ -1309,8 +1522,7 @@ var WinCE = (function () {
         if (view === 'bins') loadBins();
         if (view === 'add') {
             loadContainers(function () {
-                document.getElementById('add-step-upc').className = '';
-                document.getElementById('add-step-details').className = 'step-hidden';
+                resetAddWizard();
             });
         }
     }
@@ -1362,8 +1574,13 @@ var WinCE = (function () {
         huntEditItem: huntEditItem,
         removeHuntByIndex: removeHuntByIndex,
         clearHunt: clearHunt,
-        lookupUpc: lookupUpc,
-        showAddDetails: showAddDetails,
+        runProductLookup: runProductLookup,
+        goAddManualReview: goAddManualReview,
+        backToAddIdentify: backToAddIdentify,
+        backToAddReview: backToAddReview,
+        continueToAddRfid: continueToAddRfid,
+        startAddNearListen: startAddNearListen,
+        onReviewCheckChange: onReviewCheckChange,
         saveNewItem: saveNewItem
     };
 })();

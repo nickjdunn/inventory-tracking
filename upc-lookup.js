@@ -153,8 +153,169 @@ async function lookupUpcHybrid(rawUpc, options = {}) {
     };
 }
 
+async function lookupOpenFoodFactsText(query) {
+    const q = String(query ?? '').trim();
+    if (q.length < 2) return null;
+
+    const url =
+        'https://world.openfoodfacts.org/cgi/search.pl?' +
+        'search_simple=1&action=process&json=1&page_size=5&fields=product_name,brands,categories,' +
+        'generic_name,quantity,image_front_url,image_url,code&search_terms=' +
+        encodeURIComponent(q);
+
+    const data = await fetchJson(url);
+    if (!data || !Array.isArray(data.products) || !data.products.length) return null;
+
+    const ranked = data.products
+        .map((p) => {
+            const name = (p.product_name || p.generic_name || '').trim();
+            if (!name) return null;
+            const score =
+                name.toLowerCase().includes(q.toLowerCase()) ? 2 : 1;
+            return { p, name, score };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.score - a.score);
+
+    if (!ranked.length) return null;
+    const p = ranked[0].p;
+    const upc = normalizeUpc(p.code || p._id) || null;
+
+    return buildResult(upc || `text-${q.slice(0, 24)}`, 'open_food_facts_search', {
+        name: ranked[0].name,
+        brand: p.brands,
+        category: (p.categories || '').split(',')[0]?.trim(),
+        description: p.quantity || p.generic_name,
+        image_url: p.image_front_url || p.image_url,
+    });
+}
+
+async function lookupOpenProductsFactsText(query) {
+    const q = String(query ?? '').trim();
+    if (q.length < 2) return null;
+
+    const url =
+        'https://world.openproductsfacts.org/cgi/search.pl?' +
+        'search_simple=1&action=process&json=1&page_size=5&fields=product_name,brands,categories,' +
+        'generic_name,quantity,image_front_url,image_url,code&search_terms=' +
+        encodeURIComponent(q);
+
+    const data = await fetchJson(url);
+    if (!data || !Array.isArray(data.products) || !data.products.length) return null;
+
+    const p = data.products[0];
+    const name = (p.product_name || p.generic_name || '').trim();
+    if (!name) return null;
+    const upc = normalizeUpc(p.code || p._id) || null;
+
+    return buildResult(upc || `text-${q.slice(0, 24)}`, 'open_products_facts_search', {
+        name,
+        brand: p.brands,
+        category: (p.categories || '').split(',')[0]?.trim(),
+        description: p.quantity,
+        image_url: p.image_front_url || p.image_url,
+    });
+}
+
+/**
+ * Free-text product search (Open*Facts search APIs).
+ */
+async function lookupTextHybrid(rawQuery) {
+    const query = String(rawQuery ?? '').trim();
+    const providers_tried = [];
+
+    if (query.length < 2) {
+        return {
+            found: false,
+            query,
+            error: 'Enter at least 2 characters to search',
+            providers_tried,
+        };
+    }
+
+    providers_tried.push('open_food_facts_search');
+    let result = await lookupOpenFoodFactsText(query);
+    if (result) {
+        return { ...result, providers_tried, query };
+    }
+
+    providers_tried.push('open_products_facts_search');
+    result = await lookupOpenProductsFactsText(query);
+    if (result) {
+        return { ...result, providers_tried, query };
+    }
+
+    return {
+        found: false,
+        query,
+        message: 'No products matched that search. Try a UPC or enter details manually.',
+        providers_tried,
+    };
+}
+
+function toEnrichedProduct(result) {
+    if (!result || !result.found) {
+        return {
+            success: false,
+            title: null,
+            description: null,
+            category: null,
+            image_url: null,
+            upc: result?.upc || null,
+            message: result?.message || result?.error || 'Lookup failed',
+            providers_tried: result?.providers_tried || [],
+        };
+    }
+
+    return {
+        success: true,
+        title: result.name || '',
+        description: result.description || null,
+        category: result.category || null,
+        image_url: result.image_url || null,
+        upc: result.upc || null,
+        brand: result.brand || null,
+        source: result.source || null,
+        providers_tried: result.providers_tried || [],
+    };
+}
+
+/**
+ * Universal lookup — UPC barcode or free-text query.
+ * @param {{ upc?: string, text?: string }} input
+ */
+async function lookupProduct(input, options = {}) {
+    const upcRaw = input?.upc != null ? String(input.upc).trim() : '';
+    const textRaw = input?.text != null ? String(input.text).trim() : '';
+
+    if (upcRaw && textRaw) {
+        return {
+            success: false,
+            error: 'Send either upc or text, not both',
+        };
+    }
+
+    if (upcRaw) {
+        const result = await lookupUpcHybrid(upcRaw, options);
+        return toEnrichedProduct(result);
+    }
+
+    if (textRaw) {
+        const result = await lookupTextHybrid(textRaw);
+        return toEnrichedProduct(result);
+    }
+
+    return {
+        success: false,
+        error: 'Provide { upc } or { text } in the request body',
+    };
+}
+
 module.exports = {
     lookupUpcHybrid,
+    lookupTextHybrid,
+    lookupProduct,
+    toEnrichedProduct,
     normalizeUpc,
     PROVIDER_ORDER,
 };

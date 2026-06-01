@@ -761,31 +761,15 @@
             </div>
         </section>
 
-        <!-- Add Item -->
+        <!-- Add Item (opens enrichment wizard) -->
         <section id="view-add" class="view">
             <div class="card">
                 <h2>➕ Add Item</h2>
-                <div id="mobile-add-upc-step" class="add-step">
-                    <label for="mobile-upc">Scan UPC barcode</label>
-                    <input type="text" id="mobile-upc" placeholder="Barcode from gun" autocomplete="off" inputmode="numeric">
-                    <button type="button" class="btn-secondary" id="mobile-upc-lookup">Look up product</button>
-                    <button type="button" class="btn-secondary" id="mobile-skip-upc">Skip → manual entry</button>
-                </div>
-                <div id="mobile-add-details-step" class="add-step hidden">
-                    <div id="mobile-upc-preview" class="upc-preview hidden"></div>
-                    <label for="mobile-item-name">Product name</label>
-                    <input type="text" id="mobile-item-name">
-                    <label for="mobile-item-category">Category</label>
-                    <input type="text" id="mobile-item-category">
-                    <label for="mobile-item-desc">Description</label>
-                    <textarea id="mobile-item-desc"></textarea>
-                    <label for="mobile-item-epc">Scan RFID tag (EPC)</label>
-                    <input type="text" id="mobile-item-epc" placeholder="UHF tag EPC" autocomplete="off">
-                    <label for="mobile-item-home">Home bin (optional)</label>
-                    <select id="mobile-item-home"></select>
-                    <button type="button" class="btn-giant" id="mobile-item-save">✓ Create item</button>
-                    <div id="add-item-status" class="status-toast" style="display:none;"></div>
-                </div>
+                <p class="standby" style="text-align:left;font-size:14px;line-height:1.5;">
+                    Use the 3-step wizard: search UPC or product name, choose which fields to import, then link the RFID tag at ultra-near range.
+                </p>
+                <button type="button" class="btn-giant" id="open-add-item">🔍 Start add-item wizard</button>
+                <button type="button" class="btn-secondary" id="open-onboard-wizard-alt" style="margin-top:10px;">🏷️ Register tag (same wizard)</button>
             </div>
         </section>
 
@@ -826,37 +810,68 @@
 
     <div id="onboard-modal" class="modal-overlay" aria-hidden="true" style="align-items:flex-end;z-index:300;">
         <div class="modal onboard-wizard" role="dialog" aria-labelledby="onboard-title" style="max-width:100%;width:100%;border-radius:16px 16px 0 0;margin:0;max-height:92dvh;overflow-y:auto;">
-            <h3 id="onboard-title">🏷️ Register New Tag</h3>
-            <p class="onboard-subtitle">Ultra-near capture — hold tag on antenna, pull trigger.</p>
-            <div id="onboard-listen-zone" class="onboard-listen-zone">
-                <div id="onboard-radar" class="onboard-radar listening">
-                    <span class="onboard-radar-icon">📡</span>
+            <h3 id="onboard-title">➕ Add item — Step 1: Identify</h3>
+            <p class="onboard-subtitle">UPC or product search → review fields → link RFID tag.</p>
+
+            <div id="onboard-step-identify">
+                <label for="onboard-lookup-input">UPC or product search</label>
+                <input type="text" id="onboard-lookup-input" placeholder="Barcode or PS4 Console" autocomplete="off">
+                <p id="onboard-lookup-status" class="onboard-lookup-status"></p>
+                <button type="button" class="btn-giant" id="onboard-lookup-btn" style="margin-bottom:10px;">🔍 Search / Lookup</button>
+                <button type="button" class="btn-secondary" id="onboard-skip-manual">Skip → Manual</button>
+            </div>
+
+            <div id="onboard-step-review" class="hidden">
+                <p id="onboard-review-source" class="onboard-review-source"></p>
+                <div id="onboard-review-image-wrap" class="hidden"></div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-title" checked> Title</label>
+                    <input type="text" id="onboard-review-title">
                 </div>
-                <p id="onboard-listen-text" class="onboard-listen-text">Hold a new tag against the antenna and pull the trigger…</p>
-                <p class="onboard-rssi-hint">Listening for ≥ <strong id="onboard-gate-display">—</strong> dBm</p>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-description"> Description</label>
+                    <textarea id="onboard-review-description"></textarea>
+                </div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-category"> Category</label>
+                    <input type="text" id="onboard-review-category">
+                </div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-image"> Image</label>
+                </div>
+                <button type="button" class="btn-secondary" id="onboard-review-back">◀ Back / Manual</button>
+                <button type="button" class="btn-giant" id="onboard-review-continue">Continue → RFID</button>
             </div>
-            <div id="onboard-form-zone" class="onboard-form-zone hidden">
-                <label for="onboard-epc">EPC (locked)</label>
-                <input type="text" id="onboard-epc" class="onboard-epc-locked" readonly>
-                <p id="onboard-capture-meta" class="onboard-rssi-hint" style="margin-top:-8px;margin-bottom:14px;"></p>
-                <form id="onboard-register-form">
-                    <label for="onboard-name">Item name</label>
-                    <input type="text" id="onboard-name" required placeholder="e.g. DeWalt Impact Wrench">
-                    <label for="onboard-home-bin">Home container</label>
-                    <select id="onboard-home-bin"></select>
-                    <label for="onboard-category">Category</label>
-                    <input type="text" id="onboard-category">
-                    <label for="onboard-description">Description</label>
-                    <textarea id="onboard-description"></textarea>
-                    <div class="onboard-actions">
-                        <button type="button" class="btn-chip" id="onboard-rescan">↺ Re-scan</button>
-                        <button type="button" class="btn-chip" id="onboard-cancel">Cancel</button>
-                        <button type="submit" class="btn-giant onboard-register" id="onboard-register-btn" style="min-height:52px;margin:0;flex:1 1 100%;" disabled>✓ Register asset</button>
+
+            <div id="onboard-step-rfid" class="hidden">
+                <div id="onboard-approved-summary" class="onboard-approved-summary"></div>
+                <div id="onboard-listen-zone" class="onboard-listen-zone">
+                    <div id="onboard-radar" class="onboard-radar listening">
+                        <span class="onboard-radar-icon">📡</span>
                     </div>
-                </form>
-            </div>
-            <div class="onboard-actions" id="onboard-listen-actions">
-                <button type="button" class="btn-chip" id="onboard-cancel-listen" style="width:100%;">Cancel</button>
+                    <p id="onboard-listen-text" class="onboard-listen-text">Hold tag on antenna, pull trigger…</p>
+                    <p class="onboard-rssi-hint">≥ <strong id="onboard-gate-display">—</strong> dBm</p>
+                </div>
+                <div id="onboard-form-zone" class="onboard-form-zone hidden">
+                    <label for="onboard-epc">EPC (locked)</label>
+                    <input type="text" id="onboard-epc" class="onboard-epc-locked" readonly>
+                    <p id="onboard-capture-meta" class="onboard-rssi-hint"></p>
+                    <form id="onboard-register-form">
+                        <input type="hidden" id="onboard-name">
+                        <input type="hidden" id="onboard-category">
+                        <textarea id="onboard-description" class="hidden"></textarea>
+                        <label for="onboard-home-bin">Home bin</label>
+                        <select id="onboard-home-bin"></select>
+                        <div class="onboard-actions">
+                            <button type="button" class="btn-chip" id="onboard-rescan">↺ Re-scan</button>
+                            <button type="button" class="btn-chip" id="onboard-cancel">Cancel</button>
+                            <button type="submit" class="btn-giant onboard-register" id="onboard-register-btn" disabled>✓ Save item</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="onboard-actions" id="onboard-listen-actions">
+                    <button type="button" class="btn-chip" id="onboard-cancel-listen" style="width:100%;">Cancel</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1075,47 +1090,6 @@
                 registeredContainers.map((c) =>
                     `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${escapeHtml(c.id)})</option>`
                 ).join('');
-        }
-
-        function resetMobileAddFlow() {
-            document.getElementById('mobile-add-upc-step').classList.remove('hidden');
-            document.getElementById('mobile-add-details-step').classList.add('hidden');
-            document.getElementById('mobile-upc').value = '';
-            document.getElementById('mobile-upc-preview').classList.add('hidden');
-            document.getElementById('add-item-status').style.display = 'none';
-        }
-
-        function showMobileAddDetails(lookup) {
-            document.getElementById('mobile-add-upc-step').classList.add('hidden');
-            document.getElementById('mobile-add-details-step').classList.remove('hidden');
-            const preview = document.getElementById('mobile-upc-preview');
-            if (lookup && lookup.found) {
-                preview.classList.remove('hidden');
-                let html = '';
-                if (lookup.image_url) html += `<img src="${escapeHtml(lookup.image_url)}" alt="">`;
-                html += `<strong>${escapeHtml(lookup.name)}</strong>`;
-                if (lookup.brand) html += `<br>${escapeHtml(lookup.brand)}`;
-                html += `<div class="source">${escapeHtml(lookup.source)}${lookup.cached ? ' (cached)' : ''}</div>`;
-                preview.innerHTML = html;
-                document.getElementById('mobile-item-name').value = lookup.name || '';
-                document.getElementById('mobile-item-category').value = lookup.category || '';
-                document.getElementById('mobile-item-desc').value = lookup.description || '';
-                document.getElementById('mobile-upc').dataset.bound = lookup.upc || '';
-            } else {
-                preview.classList.add('hidden');
-                document.getElementById('mobile-item-name').value = '';
-                document.getElementById('mobile-item-category').value = '';
-                document.getElementById('mobile-item-desc').value = '';
-            }
-            populateMobileHomeBinSelect();
-            document.getElementById('mobile-item-epc').focus();
-        }
-
-        function showAddItemStatus(msg, type) {
-            const el = document.getElementById('add-item-status');
-            el.style.display = 'block';
-            el.className = 'status-toast ' + type;
-            el.textContent = msg;
         }
 
         function clamp(n, lo, hi) {
@@ -1610,9 +1584,7 @@
             }
             if (view === 'bins') loadBins();
             if (view === 'add') {
-                loadContainersForSelect();
-                resetMobileAddFlow();
-                document.getElementById('mobile-upc').focus();
+                MerlinOnboarding.openWizard();
             }
         }
 
@@ -1626,67 +1598,8 @@
             document.getElementById('bin-epc-custom').value = '';
         });
 
-        document.getElementById('mobile-upc-lookup').addEventListener('click', async () => {
-            const code = document.getElementById('mobile-upc').value.trim();
-            if (!code) return showAddItemStatus('Enter or scan a UPC first', 'err');
-            const btn = document.getElementById('mobile-upc-lookup');
-            btn.disabled = true;
-            try {
-                const res = await fetch('/api/upc/lookup/' + encodeURIComponent(code));
-                const data = await res.json();
-                if (!data.found) {
-                    if (confirm((data.message || 'Not found') + '\n\nEnter manually?')) {
-                        showMobileAddDetails(null);
-                    }
-                } else {
-                    showMobileAddDetails(data);
-                }
-            } catch (err) {
-                showAddItemStatus('❌ ' + err.message, 'err');
-            } finally {
-                btn.disabled = false;
-            }
-        });
-
-        document.getElementById('mobile-skip-upc').addEventListener('click', () => showMobileAddDetails(null));
-
-        document.getElementById('mobile-upc').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                document.getElementById('mobile-upc-lookup').click();
-            }
-        });
-
-        document.getElementById('mobile-item-save').addEventListener('click', async () => {
-            const name = document.getElementById('mobile-item-name').value.trim();
-            const epc = document.getElementById('mobile-item-epc').value.trim();
-            if (!name) return showAddItemStatus('Product name required', 'err');
-            if (!epc) return showAddItemStatus('Scan RFID EPC required', 'err');
-            const upcEl = document.getElementById('mobile-upc');
-            const payload = {
-                epc_id: epc,
-                name,
-                category: document.getElementById('mobile-item-category').value.trim() || null,
-                description: document.getElementById('mobile-item-desc').value.trim() || null,
-                upc: upcEl.dataset.bound || upcEl.value.trim() || null,
-                home_container_id: document.getElementById('mobile-item-home').value || null,
-            };
-            try {
-                const res = await fetch('/api/items', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Create failed');
-                showAddItemStatus('✅ Item created: ' + name, 'ok');
-                upcEl.dataset.bound = '';
-                setTimeout(resetMobileAddFlow, 1500);
-                refreshItemLookup();
-            } catch (err) {
-                showAddItemStatus('❌ ' + err.message, 'err');
-            }
-        });
+        document.getElementById('open-add-item').addEventListener('click', () => MerlinOnboarding.openWizard());
+        document.getElementById('open-onboard-wizard-alt').addEventListener('click', () => MerlinOnboarding.openWizard());
 
         MerlinInventory.bindInstantSearch(document.getElementById('inventory-search'), (query) => {
             inventorySearchQuery = query;

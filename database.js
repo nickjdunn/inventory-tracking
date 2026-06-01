@@ -45,6 +45,12 @@ db.serialize(() => {
         }
     });
 
+    db.run(`ALTER TABLE items ADD COLUMN image_url TEXT`, (err) => {
+        if (err && !String(err.message || '').includes('duplicate column name')) {
+            console.error('image_url column migration:', err.message);
+        }
+    });
+
     db.run(`CREATE TABLE IF NOT EXISTS upc_lookup_cache (
         upc TEXT PRIMARY KEY,
         source TEXT NOT NULL,

@@ -382,70 +382,74 @@
         </div>
     </div>
 
-    <div id="add-item-modal" class="modal-overlay" aria-hidden="true">
-        <div class="modal" role="dialog" style="max-width: 480px;">
-            <h3>➕ Add New Item</h3>
-            <div id="add-step-upc" class="add-step">
-                <label for="add-upc-input">Step 1 — Scan or enter UPC</label>
-                <input type="text" id="add-upc-input" placeholder="Barcode from gun scanner" autocomplete="off">
-                <button type="button" class="btn primary" id="add-upc-lookup" style="margin-top: 8px;">Look up product</button>
-                <p style="font-size: 12px; color: var(--text-muted); margin: 10px 0 0;">Or skip UPC and enter details manually in the next step.</p>
-                <button type="button" class="btn" id="add-skip-upc" style="margin-top: 8px;">Skip UPC → manual entry</button>
-            </div>
-            <div id="add-step-details" class="add-step hidden">
-                <div id="add-upc-preview" class="upc-preview hidden"></div>
-                <label for="add-item-name">Product name</label>
-                <input type="text" id="add-item-name" required>
-                <label for="add-item-category">Category</label>
-                <input type="text" id="add-item-category">
-                <label for="add-item-description">Description</label>
-                <textarea id="add-item-description" rows="2"></textarea>
-                <input type="hidden" id="add-item-upc-hidden">
-                <label for="add-item-epc">Step 2 — Scan RFID tag (EPC)</label>
-                <input type="text" id="add-item-epc" placeholder="Scan tag to bind inventory record" autocomplete="off">
-                <label for="add-item-home-bin">Assigned home bin (optional)</label>
-                <select id="add-item-home-bin"></select>
-                <div class="modal-actions">
-                    <button type="button" class="btn" id="add-item-cancel">Cancel</button>
-                    <button type="button" class="btn primary" id="add-item-save">Create item</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div id="onboard-modal" class="modal-overlay" aria-hidden="true">
         <div class="modal onboard-wizard" role="dialog" aria-labelledby="onboard-title">
-            <h3 id="onboard-title">🏷️ Register New Tag</h3>
-            <p class="onboard-subtitle">Ultra-near onboarding — only unregistered tags at high RSSI are captured.</p>
-            <div id="onboard-listen-zone" class="onboard-listen-zone">
-                <div id="onboard-radar" class="onboard-radar listening">
-                    <span class="onboard-radar-icon">📡</span>
+            <h3 id="onboard-title">➕ Add item — Step 1: Identify</h3>
+            <p class="onboard-subtitle">Search by UPC barcode or product name, then choose which fields to keep.</p>
+
+            <div id="onboard-step-identify">
+                <label for="onboard-lookup-input">UPC barcode or free-text search</label>
+                <input type="text" id="onboard-lookup-input" placeholder="e.g. 012345678905 or PS4 Console" autocomplete="off">
+                <p id="onboard-lookup-status" class="onboard-lookup-status"></p>
+                <div class="onboard-actions" style="justify-content:stretch;">
+                    <button type="button" class="btn primary" id="onboard-lookup-btn" style="flex:1;">🔍 Search / Lookup</button>
+                    <button type="button" class="btn" id="onboard-skip-manual" style="flex:1;">Skip → Manual</button>
                 </div>
-                <p id="onboard-listen-text" class="onboard-listen-text">Hold a new tag against the antenna and pull the trigger…</p>
-                <p class="onboard-rssi-hint">Listening for ≥ <strong id="onboard-gate-display">—</strong> dBm (from admin RSSI gates)</p>
             </div>
-            <div id="onboard-form-zone" class="onboard-form-zone hidden">
-                <label for="onboard-epc">EPC (locked)</label>
-                <input type="text" id="onboard-epc" class="onboard-epc-locked" readonly>
-                <p id="onboard-capture-meta" class="onboard-rssi-hint" style="margin-top:-8px;margin-bottom:14px;"></p>
-                <form id="onboard-register-form">
-                    <label for="onboard-name">Item name</label>
-                    <input type="text" id="onboard-name" required placeholder="e.g. DeWalt Impact Wrench">
-                    <label for="onboard-home-bin">Home container</label>
-                    <select id="onboard-home-bin"></select>
-                    <label for="onboard-category">Category</label>
-                    <input type="text" id="onboard-category" placeholder="Tools, Electronics…">
-                    <label for="onboard-description">Description</label>
-                    <textarea id="onboard-description" placeholder="Optional notes"></textarea>
-                    <div class="onboard-actions">
-                        <button type="button" class="btn" id="onboard-rescan">↺ Re-scan tag</button>
-                        <button type="button" class="btn" id="onboard-cancel">Cancel</button>
-                        <button type="submit" class="btn onboard-register" id="onboard-register-btn" disabled>✓ Register asset</button>
+
+            <div id="onboard-step-review" class="hidden">
+                <p id="onboard-review-source" class="onboard-review-source"></p>
+                <div id="onboard-review-image-wrap" class="hidden"></div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-title" checked> Import title</label>
+                    <input type="text" id="onboard-review-title" placeholder="Product title">
+                </div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-description"> Import description</label>
+                    <textarea id="onboard-review-description" placeholder="Description"></textarea>
+                </div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-category"> Import category</label>
+                    <input type="text" id="onboard-review-category" placeholder="Category">
+                </div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-image"> Import product image URL</label>
+                </div>
+                <div class="onboard-actions">
+                    <button type="button" class="btn" id="onboard-review-back">◀ Back / Manual</button>
+                    <button type="button" class="btn primary" id="onboard-review-continue">Continue → Link RFID</button>
+                </div>
+            </div>
+
+            <div id="onboard-step-rfid" class="hidden">
+                <div id="onboard-approved-summary" class="onboard-approved-summary"></div>
+                <div id="onboard-listen-zone" class="onboard-listen-zone">
+                    <div id="onboard-radar" class="onboard-radar listening">
+                        <span class="onboard-radar-icon">📡</span>
                     </div>
-                </form>
-            </div>
-            <div class="onboard-actions" id="onboard-listen-actions">
-                <button type="button" class="btn" id="onboard-cancel-listen">Cancel</button>
+                    <p id="onboard-listen-text" class="onboard-listen-text">Hold a new tag against the antenna and pull the trigger…</p>
+                    <p class="onboard-rssi-hint">Listening for ≥ <strong id="onboard-gate-display">—</strong> dBm</p>
+                </div>
+                <div id="onboard-form-zone" class="onboard-form-zone hidden onboard-rfid-fields-locked">
+                    <label for="onboard-epc">EPC (locked)</label>
+                    <input type="text" id="onboard-epc" class="onboard-epc-locked" readonly>
+                    <p id="onboard-capture-meta" class="onboard-rssi-hint" style="margin-top:-8px;margin-bottom:14px;"></p>
+                    <form id="onboard-register-form">
+                        <input type="hidden" id="onboard-name">
+                        <input type="hidden" id="onboard-category">
+                        <textarea id="onboard-description" class="hidden" aria-hidden="true"></textarea>
+                        <label for="onboard-home-bin">Home container (optional)</label>
+                        <select id="onboard-home-bin"></select>
+                        <div class="onboard-actions">
+                            <button type="button" class="btn" id="onboard-rescan">↺ Re-scan tag</button>
+                            <button type="button" class="btn" id="onboard-cancel">Cancel</button>
+                            <button type="submit" class="btn onboard-register" id="onboard-register-btn" disabled>✓ Save item</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="onboard-actions" id="onboard-listen-actions">
+                    <button type="button" class="btn" id="onboard-cancel-listen">Cancel</button>
+                </div>
             </div>
         </div>
     </div>
@@ -800,50 +804,6 @@
             syncMasterCheckbox();
         }
 
-        function openAddItemModal() {
-            document.getElementById('add-step-upc').classList.remove('hidden');
-            document.getElementById('add-step-details').classList.add('hidden');
-            document.getElementById('add-upc-input').value = '';
-            document.getElementById('add-upc-preview').classList.add('hidden');
-            document.getElementById('add-item-modal').classList.add('open');
-            document.getElementById('add-item-modal').setAttribute('aria-hidden', 'false');
-            document.getElementById('add-upc-input').focus();
-        }
-
-        function closeAddItemModal() {
-            document.getElementById('add-item-modal').classList.remove('open');
-            document.getElementById('add-item-modal').setAttribute('aria-hidden', 'true');
-        }
-
-        function showAddDetailsStep(lookup) {
-            document.getElementById('add-step-upc').classList.add('hidden');
-            document.getElementById('add-step-details').classList.remove('hidden');
-            const preview = document.getElementById('add-upc-preview');
-            if (lookup && lookup.found) {
-                preview.classList.remove('hidden');
-                let previewHtml = '';
-                if (lookup.image_url) previewHtml += `<img src="${escapeHtml(lookup.image_url)}" alt="">`;
-                previewHtml += `<strong>${escapeHtml(lookup.name)}</strong>`;
-                if (lookup.brand) previewHtml += `<br>${escapeHtml(lookup.brand)}`;
-                previewHtml += `<div class="source">Source: ${escapeHtml(lookup.source)}${lookup.cached ? ' (cached)' : ''}</div>`;
-                preview.innerHTML = previewHtml;
-                document.getElementById('add-item-name').value = lookup.name || '';
-                document.getElementById('add-item-category').value = lookup.category || '';
-                document.getElementById('add-item-description').value = lookup.description || '';
-                document.getElementById('add-item-upc-hidden').value = lookup.upc || '';
-            } else {
-                preview.classList.add('hidden');
-                document.getElementById('add-item-name').value = '';
-                document.getElementById('add-item-category').value = '';
-                document.getElementById('add-item-description').value = '';
-                document.getElementById('add-item-upc-hidden').value = document.getElementById('add-upc-input').value.trim() || '';
-            }
-            const homeSelect = document.getElementById('add-item-home-bin');
-            homeSelect.innerHTML = renderHomeBinOptions('');
-            document.getElementById('add-item-epc').value = '';
-            document.getElementById('add-item-epc').focus();
-        }
-
         async function refreshScannerStatus() {
             const el = document.getElementById('scanner-status');
             if (!el) return;
@@ -942,76 +902,8 @@
         document.getElementById('edit-home-container').addEventListener('change', updateEditStatusPreview);
         document.getElementById('edit-current-container').addEventListener('change', updateEditStatusPreview);
 
-        document.getElementById('open-add-item').addEventListener('click', async () => {
-            await loadContainersFromApi();
-            openAddItemModal();
-        });
-        document.getElementById('add-item-cancel').addEventListener('click', closeAddItemModal);
-        document.getElementById('add-item-modal').addEventListener('click', (e) => {
-            if (e.target.id === 'add-item-modal') closeAddItemModal();
-        });
-
-        document.getElementById('add-upc-lookup').addEventListener('click', async () => {
-            const code = document.getElementById('add-upc-input').value.trim();
-            if (!code) return alert('Enter or scan a UPC first');
-            const btn = document.getElementById('add-upc-lookup');
-            btn.disabled = true;
-            btn.textContent = 'Looking up…';
-            try {
-                const res = await fetch('/api/upc/lookup/' + encodeURIComponent(code));
-                const data = await res.json();
-                if (!data.found) {
-                    if (!confirm((data.message || 'Not found') + '\n\nEnter details manually?')) return;
-                    showAddDetailsStep(null);
-                } else {
-                    showAddDetailsStep(data);
-                }
-            } catch (err) {
-                alert('Lookup failed: ' + err.message);
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Look up product';
-            }
-        });
-
-        document.getElementById('add-skip-upc').addEventListener('click', () => showAddDetailsStep(null));
-
-        document.getElementById('add-upc-input').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                document.getElementById('add-upc-lookup').click();
-            }
-        });
-
-        document.getElementById('add-item-save').addEventListener('click', async () => {
-            const epc = document.getElementById('add-item-epc').value.trim();
-            const name = document.getElementById('add-item-name').value.trim();
-            if (!name) return alert('Product name is required');
-            if (!epc) return alert('Scan or enter the RFID tag EPC');
-            const payload = {
-                epc_id: epc,
-                name,
-                category: document.getElementById('add-item-category').value.trim() || null,
-                description: document.getElementById('add-item-description').value.trim() || null,
-                upc: document.getElementById('add-item-upc-hidden').value.trim() || null,
-                home_container_id: document.getElementById('add-item-home-bin').value || null,
-            };
-            try {
-                const res = await fetch('/api/items', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Create failed');
-                closeAddItemModal();
-                fetchDashboardData();
-            } catch (err) {
-                alert(err.message);
-            }
-        });
-
         MerlinOnboarding.init({
+            onBeforeOpen: loadContainersFromApi,
             onRegistered: async () => {
                 await fetchDashboardData();
             },
