@@ -45,6 +45,18 @@ const TEST_EPC_PREFIX = 'TEST-EPC-';
 const nearFieldBuffer = [];
 const NEAR_FIELD_BUFFER_MAX = 120;
 
+/** Live diagnostics feed + rogue-tag discovery (hardware ingress only — no mock loops). */
+const DIAGNOSTICS_BUFFER_MAX = 200;
+const diagnosticsLiveBuffer = [];
+const recentHardwareReads = new Map();
+const RECENT_HARDWARE_READ_TTL_MS = 120_000;
+const spatialHighlightUntil = new Map();
+const SPATIAL_HIGHLIGHT_MS = 4500;
+
+let knownEpcRegistryCache = null;
+let knownEpcRegistryCacheAt = 0;
+const KNOWN_EPC_CACHE_MS = 4000;
+
 /** Latest RSSI per EPC while that tag is in the active hunt queue (Merlin wedge reads). */
 const huntRssiByEpc = new Map();
 const HUNT_SIGNAL_STALE_MS = 8000;
@@ -262,6 +274,108 @@ function normalizeScannedTags(rawTags) {
     return rawTags.map(parseScannedTagEntry).filter((t) => t.epc);
 }
 
+function invalidateKnownEpcRegistryCache() {
+    knownEpcRegistryCache = null;
+    knownEpcRegistryCacheAt = 0;
+}
+
+function loadKnownEpcRegistry() {
+    const now = Date.now();
+    if (knownEpcRegistryCache && now - knownEpcRegistryCacheAt < KNOWN_EPC_CACHE_MS) {
+        return Promise.resolve(knownEpcRegistryCache);
+    }
+
+    return new Promise((resolve, reject) => {
+        db.all(`SELECT epc_id FROM items`, [], (itemErr, itemRows) => {
+            if (itemErr) return reject(itemErr);
+            db.all(
+                `SELECT id, boundary_tag_a, boundary_tag_b FROM containers`,
+                [],
+                (binErr, binRows) => {
+                    if (binErr) return reject(binErr);
+                    const items = new Set();
+                    const binIds = new Set();
+                    const boundaries = new Set();
+                    (itemRows || []).forEach((row) => {
+                        const id = normalizeScanTag(row.epc_id);
+                        if (id) items.add(id.toLowerCase());
+                    });
+                    (binRows || []).forEach((row) => {
+                        const id = normalizeScanTag(row.id);
+                        if (id) binIds.add(id.toLowerCase());
+                        const a = normalizeScanTag(row.boundary_tag_a);
+                        const b = normalizeScanTag(row.boundary_tag_b);
+                        if (a) boundaries.add(a.toLowerCase());
+                        if (b) boundaries.add(b.toLowerCase());
+                    });
+                    knownEpcRegistryCache = { items, binIds, boundaries };
+                    knownEpcRegistryCacheAt = now;
+                    resolve(knownEpcRegistryCache);
+                }
+            );
+        });
+    });
+}
+
+function classifyEpcAgainstRegistry(epc, registry) {
+    const key = normalizeScanTag(epc);
+    if (!key || !registry) return 'UNREGISTERED';
+    const lower = key.toLowerCase();
+    if (registry.items.has(lower)) return 'REGISTERED_ITEM';
+    if (registry.boundaries.has(lower)) return 'BOUNDARY_TAG';
+    if (registry.binIds.has(lower)) return 'BIN_CONTAINER_ID';
+    return 'UNREGISTERED';
+}
+
+function touchRecentHardwareRead(epc, rssi) {
+    const normalized = normalizeScanTag(epc);
+    if (!normalized) return;
+    recentHardwareReads.set(normalized, {
+        epc: normalized,
+        rssi: rssi == null || Number.isNaN(rssi) ? null : rssi,
+        last_seen: Date.now(),
+    });
+    const cutoff = Date.now() - RECENT_HARDWARE_READ_TTL_MS;
+    recentHardwareReads.forEach((row, key) => {
+        if (row.last_seen < cutoff) recentHardwareReads.delete(key);
+    });
+}
+
+function appendDiagnosticsIngress(tagEntries, meta) {
+    if (!tagEntries || !tagEntries.length) return;
+
+    loadKnownEpcRegistry()
+        .then((registry) => {
+            const now = Date.now();
+            tagEntries.forEach(({ epc, rssi }) => {
+                if (!epc) return;
+                touchRecentHardwareRead(epc, rssi);
+                diagnosticsLiveBuffer.unshift({
+                    id: `${now}-${epc}-${Math.random().toString(36).slice(2, 8)}`,
+                    timestamp: new Date(now).toISOString(),
+                    epc: normalizeScanTag(epc),
+                    rssi: rssi == null || Number.isNaN(rssi) ? null : rssi,
+                    classification: classifyEpcAgainstRegistry(epc, registry),
+                    source: meta.source || 'hardware',
+                    target_container_epc: meta.targetContainerEpc || null,
+                    spatial_zone: meta.spatial_zone || null,
+                });
+            });
+            while (diagnosticsLiveBuffer.length > DIAGNOSTICS_BUFFER_MAX) {
+                diagnosticsLiveBuffer.pop();
+            }
+            if (meta.spatial_zone && meta.spatial_zone.container_id) {
+                spatialHighlightUntil.set(
+                    meta.spatial_zone.container_id,
+                    now + SPATIAL_HIGHLIGHT_MS
+                );
+            }
+        })
+        .catch((err) => {
+            console.warn('[diagnostics] ingress:', err.message);
+        });
+}
+
 function recordNearFieldReads(tagEntries, settings) {
     const nearGate = parseInt(settings.rssi_near_gate, 10) || -55;
     const now = Date.now();
@@ -269,7 +383,11 @@ function recordNearFieldReads(tagEntries, settings) {
     let huntUpdated = false;
 
     tagEntries.forEach(({ epc, rssi }) => {
-        if (!epc || rssi == null || Number.isNaN(rssi)) return;
+        if (!epc) return;
+        if (rssi != null && !Number.isNaN(rssi)) {
+            touchRecentHardwareRead(epc, rssi);
+        }
+        if (rssi == null || Number.isNaN(rssi)) return;
 
         const normalized = normalizeScanTag(epc);
         const isHuntTarget = activeSearchQueue.some((id) => epcEquals(id, normalized));
@@ -506,7 +624,7 @@ function parseMerlinWedgePayload(body) {
     return meta;
 }
 
-function runInventoryScan(targetContainerEpc, tagEntries) {
+function runInventoryScan(targetContainerEpc, tagEntries, scanMeta = {}) {
     const normalizedTags = tagEntries.map((t) => t.epc);
 
     return new Promise((resolve, reject) => {
@@ -522,16 +640,30 @@ function runInventoryScan(targetContainerEpc, tagEntries) {
                 let tagsToProcess = normalizedTags;
 
                 const zoneMatch = findSpatialZoneMatch(normalizedTags, boundaryContainers);
+                let spatialZonePayload = null;
                 if (zoneMatch) {
                     const { container, tagA, tagB } = zoneMatch;
                     effectiveTarget = container.id;
                     const boundarySet = new Set([tagA, tagB]);
                     tagsToProcess = normalizedTags.filter((epc) => !boundarySet.has(epc));
+                    spatialZonePayload = {
+                        container_id: container.id,
+                        container_name: container.name,
+                        boundary_tag_a: tagA,
+                        boundary_tag_b: tagB,
+                        items_isolated: tagsToProcess.length,
+                    };
 
                     console.log(
                         `🎯 Spatial Zone Match: Isolated ${tagsToProcess.length} items between boundaries of bin [${container.name}]`
                     );
                 }
+
+                appendDiagnosticsIngress(tagEntries, {
+                    source: scanMeta.source || 'inventory-scan',
+                    targetContainerEpc: effectiveTarget,
+                    spatial_zone: spatialZonePayload,
+                });
 
                 processScannedTags(tagsToProcess, effectiveTarget);
 
@@ -622,6 +754,166 @@ function processScannedTags(scannedTags, targetContainerEpc) {
         });
     });
 }
+
+// 🧪 Spatial diagnostics live feed (poll from diagnostics.html)
+app.get('/api/diagnostics/live', async (req, res) => {
+    try {
+        const containers = await dbAllAsync(
+            `SELECT id, name, description, boundary_tag_a, boundary_tag_b FROM containers ORDER BY name ASC`
+        );
+        const now = Date.now();
+        const spatial_highlights = {};
+        spatialHighlightUntil.forEach((expiresAt, containerId) => {
+            if (expiresAt > now) spatial_highlights[containerId] = expiresAt;
+            else spatialHighlightUntil.delete(containerId);
+        });
+
+        const scannerStatus = await new Promise((resolve) => {
+            getSystemSettings()
+                .then(() => {
+                    const scanners = [...scannerHeartbeats.entries()].map(([id, data]) => ({
+                        scanner_id: id,
+                        online: now - data.last_seen < SCANNER_ONLINE_THRESHOLD_MS,
+                    }));
+                    resolve(scanners.some((s) => s.online));
+                })
+                .catch(() => resolve(false));
+        });
+
+        res.json({
+            reads: diagnosticsLiveBuffer.slice(0, 80),
+            containers,
+            spatial_highlights,
+            scanner_online: scannerStatus,
+            ingress_note:
+                'Fed by POST /api/hardware/merlin-wedge and POST /api/scan only (no background mock loop).',
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 📥 Export diagnostic logs for AI / filter tuning
+app.get('/api/diagnostics/export', async (req, res) => {
+    try {
+        const [history, items, containers] = await Promise.all([
+            dbAllAsync(
+                `SELECT id, timestamp, scanned_epc, parent_container_epc, action
+                 FROM scan_history ORDER BY timestamp DESC LIMIT 200`
+            ),
+            dbAllAsync(
+                `SELECT epc_id, name, description, category, container_id, home_container_id, upc
+                 FROM items`
+            ),
+            dbAllAsync(
+                `SELECT id, name, description, boundary_tag_a, boundary_tag_b FROM containers`
+            ),
+        ]);
+
+        const itemByEpc = new Map(
+            items.map((row) => [String(row.epc_id).toLowerCase(), row])
+        );
+        const containerById = new Map(
+            containers.map((row) => [String(row.id).toLowerCase(), row])
+        );
+
+        const boundary_cross_references = containers
+            .filter(
+                (c) =>
+                    String(c.boundary_tag_a || '').trim() &&
+                    String(c.boundary_tag_b || '').trim()
+            )
+            .map((c) => ({
+                container_id: c.id,
+                container_name: c.name,
+                boundary_tag_a: c.boundary_tag_a,
+                boundary_tag_b: c.boundary_tag_b,
+                sandwich_rule:
+                    'Both boundary EPCs present in same scan batch ⇒ items assigned to this bin',
+            }));
+
+        const enriched_history = history.map((row) => {
+            const epcKey = String(row.scanned_epc || '').toLowerCase();
+            const parentKey = String(row.parent_container_epc || '').toLowerCase();
+            const item = itemByEpc.get(epcKey) || null;
+            const parentBin = containerById.get(parentKey) || null;
+            let tag_role = 'unknown';
+            if (item) tag_role = 'registered_item';
+            else if (
+                containers.some(
+                    (c) =>
+                        epcEquals(c.boundary_tag_a, row.scanned_epc) ||
+                        epcEquals(c.boundary_tag_b, row.scanned_epc)
+                )
+            ) {
+                tag_role = 'boundary_tag';
+            } else if (containerById.has(epcKey)) {
+                tag_role = 'bin_container_id';
+            } else {
+                tag_role = 'unregistered';
+            }
+            return {
+                ...row,
+                tag_role,
+                item_association: item,
+                parent_bin: parentBin,
+            };
+        });
+
+        const payload = {
+            exported_at: new Date().toISOString(),
+            format: 'rfid-inventory-diagnostics-v1',
+            scan_history: enriched_history,
+            items_snapshot: items,
+            containers_snapshot: containers,
+            boundary_cross_references,
+            live_buffer_recent: diagnosticsLiveBuffer.slice(0, 50),
+            recent_hardware_reads: [...recentHardwareReads.values()].sort(
+                (a, b) => b.last_seen - a.last_seen
+            ),
+        };
+
+        const filename =
+            'rfid-diagnostics-' +
+            new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) +
+            '.json';
+
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(JSON.stringify(payload, null, 2));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 🏴 Rogue / unassigned tags seen on hardware ingress (not in items or containers registry)
+app.get('/api/scan/unassigned', async (req, res) => {
+    try {
+        const registry = await loadKnownEpcRegistry();
+        const now = Date.now();
+        const cutoff = now - RECENT_HARDWARE_READ_TTL_MS;
+
+        const rows = [...recentHardwareReads.values()]
+            .filter((row) => row.last_seen >= cutoff)
+            .filter((row) => classifyEpcAgainstRegistry(row.epc, registry) === 'UNREGISTERED')
+            .sort((a, b) => b.last_seen - a.last_seen)
+            .map((row) => ({
+                epc: row.epc,
+                rssi: row.rssi,
+                last_seen: new Date(row.last_seen).toISOString(),
+                last_seen_ms: row.last_seen,
+            }));
+
+        res.json({
+            unassigned: rows,
+            ttl_ms: RECENT_HARDWARE_READ_TTL_MS,
+            ingress_note:
+                'Tags from merlin-wedge / api-scan only. Register via Claim & Register.',
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // 📡 Scanner connectivity heartbeat (Merlin handheld / hardware client)
 app.post('/api/scanner/heartbeat', (req, res) => {
@@ -816,7 +1108,9 @@ app.post('/api/scan', async (req, res) => {
     }
 
     try {
-        const result = await runInventoryScan(targetContainerEpc, tagEntries);
+        const result = await runInventoryScan(targetContainerEpc, tagEntries, {
+            source: 'api-scan',
+        });
         res.status(200).json(result);
     } catch (err) {
         console.error(err);
@@ -859,7 +1153,9 @@ app.post('/api/hardware/merlin-wedge', (req, res, next) => {
         }
 
         try {
-            const result = await runInventoryScan(parsed.targetContainerEpc, parsed.tagEntries);
+            const result = await runInventoryScan(parsed.targetContainerEpc, parsed.tagEntries, {
+                source: 'merlin-wedge',
+            });
             res.status(200).json({
                 ...result,
                 source: 'merlin-wedge',
@@ -1115,6 +1411,8 @@ app.post('/api/items', async (req, res) => {
                 }
                 return res.status(500).json({ error: err.message });
             }
+            invalidateKnownEpcRegistryCache();
+            recentHardwareReads.delete(normalizeScanTag(epc));
             res.status(201).json({
                 status: 'success',
                 epc_id: epc,
@@ -1334,6 +1632,7 @@ app.post('/api/containers', async (req, res) => {
                 }
                 return res.status(500).json({ error: err.message });
             }
+            invalidateKnownEpcRegistryCache();
             res.status(201).json({
                 id: binId,
                 name: binName,

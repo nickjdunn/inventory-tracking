@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧪 Spatial Diagnostics</title>
+    <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>🧠 RFID Inventory</h1>
+                <p>Diagnostics</p>
+            </div>
+            <nav class="sidebar-nav" aria-label="Main navigation">
+                <a class="sidebar-link" href="/index.html">📦 Inventory Dashboard</a>
+                <a class="sidebar-link" href="/bins.html">🗃️ Bin Manager</a>
+                <a class="sidebar-link active" href="/diagnostics.html">🧪 Spatial Diagnostics</a>
+                <a class="sidebar-link" href="/discovery.html">🏴 Rogue Tag Discovery</a>
+                <a class="sidebar-link" href="/admin.html">⚙️ Admin Settings</a>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="/mobile.html">📱 Handheld Mobile View</a>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h2>🧪 Spatial Diagnostics Console</h2>
+                    <p>Live hardware reads, boundary sandwich detection, and exportable logs for filter tuning</p>
+                </div>
+            </header>
+
+            <div class="container">
+                <section class="card">
+                    <div class="diag-toolbar">
+                        <span id="diag-scanner-pill" class="diag-status-pill">Scanner: …</span>
+                        <span id="diag-read-count" class="diag-status-pill">0 reads buffered</span>
+                        <span class="diag-status-pill">Ingress: merlin-wedge + /api/scan</span>
+                        <button type="button" class="btn primary" id="diag-export-btn">📥 Download Diagnostic Logs</button>
+                    </div>
+                    <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 14px;">
+                        Pull the Merlin trigger to feed this desk. When both boundary tags of a bin appear in the
+                        same batch, that bin card pulses — the spatial sandwich isolated item tags inside.
+                    </p>
+                    <h3 style="margin: 0 0 10px; font-size: 15px;">Bin / container spatial grid</h3>
+                    <div id="diag-bin-grid" class="diag-bin-grid">
+                        <p class="diag-bin-meta" style="color: var(--text-muted);">Loading bins…</p>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <h3 style="margin: 0 0 12px; font-size: 15px;">Live read stream</h3>
+                    <div style="overflow-x: auto;">
+                        <table class="diag-reads-table" cellpadding="0" cellspacing="0">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>EPC</th>
+                                    <th>Class</th>
+                                    <th>RSSI</th>
+                                    <th>Source</th>
+                                    <th>Spatial / target</th>
+                                </tr>
+                            </thead>
+                            <tbody id="diag-reads-body">
+                                <tr><td colspan="6" style="color: var(--text-muted);">Waiting for hardware reads…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const POLL_MS = 400;
+
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function classLabel(code) {
+            const map = {
+                REGISTERED_ITEM: 'Registered item',
+                BOUNDARY_TAG: 'Boundary tag',
+                BIN_CONTAINER_ID: 'Bin ID',
+                UNREGISTERED: 'Unregistered',
+            };
+            return map[code] || code;
+        }
+
+        function classCss(code) {
+            if (code === 'BOUNDARY_TAG') return 'diag-class-boundary';
+            if (code === 'REGISTERED_ITEM') return 'diag-class-item';
+            if (code === 'BIN_CONTAINER_ID') return 'diag-class-bin';
+            return 'diag-class-unreg';
+        }
+
+        function formatTime(iso) {
+            try {
+                const d = new Date(iso);
+                return d.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                });
+            } catch {
+                return iso;
+            }
+        }
+
+        function renderBinGrid(containers, highlights) {
+            const grid = document.getElementById('diag-bin-grid');
+            const now = Date.now();
+            if (!containers.length) {
+                grid.innerHTML =
+                    '<p style="color: var(--text-muted);">No bins registered. Create bins with boundary tag A + B pairs.</p>';
+                return;
+            }
+            grid.innerHTML = containers
+                .map((c) => {
+                    const active =
+                        highlights[c.id] && highlights[c.id] > now ? ' spatial-active' : '';
+                    const hasSandwich =
+                        String(c.boundary_tag_a || '').trim() &&
+                        String(c.boundary_tag_b || '').trim();
+                    return (
+                        '<div class="diag-bin-card' +
+                        active +
+                        '" data-bin-id="' +
+                        escapeHtml(c.id) +
+                        '">' +
+                        '<p class="diag-bin-name">' +
+                        escapeHtml(c.name) +
+                        '</p>' +
+                        '<p class="diag-bin-meta">ID: ' +
+                        escapeHtml(c.id) +
+                        '</p>' +
+                        (hasSandwich
+                            ? '<p class="diag-bin-meta">A: ' +
+                              escapeHtml(c.boundary_tag_a) +
+                              '<br>B: ' +
+                              escapeHtml(c.boundary_tag_b) +
+                              '</p>'
+                            : '<p class="diag-bin-meta">No boundary pair</p>') +
+                        (active ? '<p class="diag-bin-meta" style="color:#38bdf8;">⚡ Sandwich match</p>' : '') +
+                        '</div>'
+                    );
+                })
+                .join('');
+        }
+
+        function renderReads(reads) {
+            const body = document.getElementById('diag-reads-body');
+            document.getElementById('diag-read-count').textContent =
+                reads.length + ' reads buffered';
+
+            if (!reads.length) {
+                body.innerHTML =
+                    '<tr><td colspan="6" style="color: var(--text-muted);">No reads yet — fire the Merlin wedge.</td></tr>';
+                return;
+            }
+
+            body.innerHTML = reads
+                .map((row) => {
+                    let spatial = '—';
+                    if (row.spatial_zone) {
+                        spatial =
+                            '🎯 ' +
+                            escapeHtml(row.spatial_zone.container_name || row.spatial_zone.container_id);
+                    } else if (row.target_container_epc) {
+                        spatial = '→ ' + escapeHtml(row.target_container_epc);
+                    }
+                    return (
+                        '<tr>' +
+                        '<td>' +
+                        escapeHtml(formatTime(row.timestamp)) +
+                        '</td>' +
+                        '<td style="font-family:monospace;font-size:12px;">' +
+                        escapeHtml(row.epc) +
+                        '</td>' +
+                        '<td class="' +
+                        classCss(row.classification) +
+                        '">' +
+                        escapeHtml(classLabel(row.classification)) +
+                        '</td>' +
+                        '<td>' +
+                        (row.rssi != null ? escapeHtml(row.rssi) + ' dBm' : '—') +
+                        '</td>' +
+                        '<td>' +
+                        escapeHtml(row.source) +
+                        '</td>' +
+                        '<td>' +
+                        spatial +
+                        '</td>' +
+                        '</tr>'
+                    );
+                })
+                .join('');
+        }
+
+        async function pollDiagnostics() {
+            try {
+                const res = await fetch('/api/diagnostics/live');
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Poll failed');
+
+                const pill = document.getElementById('diag-scanner-pill');
+                pill.textContent = data.scanner_online
+                    ? 'Scanner: online'
+                    : 'Scanner: no heartbeat';
+                pill.className =
+                    'diag-status-pill' + (data.scanner_online ? ' live' : '');
+
+                renderBinGrid(data.containers || [], data.spatial_highlights || {});
+                renderReads(data.reads || []);
+            } catch (err) {
+                console.warn('Diagnostics poll:', err);
+            }
+        }
+
+        document.getElementById('diag-export-btn').addEventListener('click', () => {
+            window.location.href = '/api/diagnostics/export';
+        });
+
+        pollDiagnostics();
+        setInterval(pollDiagnostics, POLL_MS);
+    </script>
+</body>
+</html>

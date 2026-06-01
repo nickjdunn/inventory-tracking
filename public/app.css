@@ -394,3 +394,161 @@ input.boundary-captured {
     padding: 2px 7px;
     white-space: nowrap;
 }
+
+/* Spatial diagnostics console */
+.diag-toolbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.diag-status-pill {
+    background: #334155;
+    border-radius: 999px;
+    color: #94a3b8;
+    font-size: 12px;
+    padding: 6px 12px;
+}
+
+.diag-status-pill.live {
+    background: #064e3b;
+    color: #4ade80;
+}
+
+.diag-bin-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    margin-bottom: 20px;
+}
+
+.diag-bin-card {
+    background: #1e293b;
+    border: 2px solid #334155;
+    border-radius: 10px;
+    padding: 12px;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.diag-bin-card.spatial-active {
+    animation: diag-pulse 0.9s ease-in-out infinite;
+    border-color: #38bdf8;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.45);
+}
+
+.diag-bin-card .diag-bin-name {
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0 0 6px;
+}
+
+.diag-bin-card .diag-bin-meta {
+    color: #94a3b8;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    line-height: 1.35;
+}
+
+.diag-reads-table {
+    font-size: 13px;
+    width: 100%;
+}
+
+.diag-reads-table th,
+.diag-reads-table td {
+    border-bottom: 1px solid #334155;
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.diag-reads-table th {
+    color: #94a3b8;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.diag-class-boundary {
+    color: #fbbf24;
+}
+
+.diag-class-item {
+    color: #4ade80;
+}
+
+.diag-class-unreg {
+    color: #f87171;
+}
+
+.diag-class-bin {
+    color: #38bdf8;
+}
+
+@keyframes diag-pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+    }
+    50% {
+        box-shadow: 0 0 24px rgba(56, 189, 248, 0.55);
+    }
+}
+
+/* Rogue tag discovery deck */
+.discovery-hero {
+    color: #94a3b8;
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0 0 16px;
+}
+
+.discovery-table {
+    width: 100%;
+}
+
+.discovery-table th,
+.discovery-table td {
+    border-bottom: 1px solid #334155;
+    padding: 12px 10px;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.discovery-table th {
+    color: #94a3b8;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.discovery-epc {
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    word-break: break-all;
+}
+
+.discovery-rssi {
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.discovery-empty {
+    color: #94a3b8;
+    padding: 24px;
+    text-align: center;
+}
+
+.btn.claim-tag {
+    background: #15803d;
+    border-color: #4ade80;
+    color: #ecfdf5;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 12px 16px;
+    white-space: nowrap;
+}
+
+.btn.claim-tag:hover {
+    background: #166534;
+}

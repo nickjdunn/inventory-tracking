@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏴 Rogue Tag Discovery</title>
+    <link rel="stylesheet" href="/app.css">
+    <link rel="stylesheet" href="/onboarding-wizard.css">
+    <link rel="stylesheet" href="/category-chips.css">
+    <style>
+        #discovery-panel.claiming {
+            opacity: 0.35;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>🧠 RFID Inventory</h1>
+                <p>Discovery</p>
+            </div>
+            <nav class="sidebar-nav" aria-label="Main navigation">
+                <a class="sidebar-link" href="/index.html">📦 Inventory Dashboard</a>
+                <a class="sidebar-link" href="/bins.html">🗃️ Bin Manager</a>
+                <a class="sidebar-link" href="/diagnostics.html">🧪 Spatial Diagnostics</a>
+                <a class="sidebar-link active" href="/discovery.html">🏴 Rogue Tag Discovery</a>
+                <a class="sidebar-link" href="/admin.html">⚙️ Admin Settings</a>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="/mobile.html">📱 Handheld Mobile View</a>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="page-header">
+                <div>
+                    <h2>🏴 Unassigned Rogue Tag Discovery</h2>
+                    <p>Unknown EPCs seen on the Merlin wedge — claim and register in three steps</p>
+                </div>
+            </header>
+
+            <div class="container" id="discovery-panel">
+                <section class="card">
+                    <p class="discovery-hero">
+                        Polls hardware ingress every 500ms. Tags not in items or containers appear below.
+                        Pull the trigger on your Merlin gun to populate this list.
+                    </p>
+                    <p id="discovery-status" class="diag-status-pill" style="display:inline-block;margin-bottom:14px;">
+                        Listening…
+                    </p>
+                    <div style="overflow-x: auto;">
+                        <table class="discovery-table" cellpadding="0" cellspacing="0">
+                            <thead>
+                                <tr>
+                                    <th>Raw EPC hex</th>
+                                    <th>Live RSSI</th>
+                                    <th>Last seen</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="discovery-tbody">
+                                <tr>
+                                    <td colspan="4" class="discovery-empty">Scanning for rogue tags…</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <div id="onboard-modal" class="modal-overlay" aria-hidden="true">
+        <div class="modal onboard-wizard" role="dialog" aria-labelledby="onboard-title">
+            <h3 id="onboard-title">➕ Claim tag — Step 1: Identify</h3>
+            <p class="onboard-subtitle">Search product data, then link the reserved rogue EPC on step 3.</p>
+
+            <div id="onboard-step-identify">
+                <label for="onboard-lookup-input">UPC barcode or free-text search</label>
+                <input type="text" id="onboard-lookup-input" placeholder="Product name or UPC" autocomplete="off">
+                <p id="onboard-lookup-status" class="onboard-lookup-status"></p>
+                <div class="onboard-actions" style="justify-content:stretch;">
+                    <button type="button" class="btn primary" id="onboard-lookup-btn" style="flex:1;">🔍 Search / Lookup</button>
+                    <button type="button" class="btn" id="onboard-skip-manual" style="flex:1;">Skip → Manual</button>
+                </div>
+            </div>
+
+            <div id="onboard-step-pick" class="hidden">
+                <p class="onboard-pick-hint">Multiple matches — select the correct product:</p>
+                <div id="onboard-pick-list" class="onboard-pick-list" role="listbox"></div>
+                <div class="onboard-actions">
+                    <button type="button" class="btn" id="onboard-pick-back">◀ Back</button>
+                </div>
+            </div>
+
+            <div id="onboard-step-review" class="hidden">
+                <p id="onboard-review-source" class="onboard-review-source"></p>
+                <div id="onboard-review-image-wrap" class="hidden"></div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-title" checked> Title</label>
+                    <input type="text" id="onboard-review-title" placeholder="Product title">
+                </div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-description"> Description</label>
+                    <textarea id="onboard-review-description" placeholder="Description"></textarea>
+                </div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-category"> Category tags</label>
+                    <div id="onboard-review-category-chips"></div>
+                </div>
+                <div class="onboard-review-field">
+                    <label class="onboard-check-row"><input type="checkbox" id="onboard-use-image"> Image URL</label>
+                </div>
+                <div class="onboard-actions">
+                    <button type="button" class="btn" id="onboard-review-back">◀ Back</button>
+                    <button type="button" class="btn primary" id="onboard-review-continue">Continue → Link RFID</button>
+                </div>
+            </div>
+
+            <div id="onboard-step-rfid" class="hidden">
+                <div id="onboard-approved-summary" class="onboard-approved-summary"></div>
+                <div id="onboard-listen-zone" class="onboard-listen-zone">
+                    <div id="onboard-radar" class="onboard-radar listening">
+                        <span class="onboard-radar-icon">📡</span>
+                    </div>
+                    <p id="onboard-listen-text" class="onboard-listen-text">Hold tag on antenna…</p>
+                    <p class="onboard-rssi-hint">≥ <strong id="onboard-gate-display">—</strong> dBm</p>
+                </div>
+                <div id="onboard-form-zone" class="onboard-form-zone hidden">
+                    <label for="onboard-epc">EPC (locked)</label>
+                    <input type="text" id="onboard-epc" class="onboard-epc-locked" readonly>
+                    <p id="onboard-capture-meta" class="onboard-rssi-hint"></p>
+                    <form id="onboard-register-form">
+                        <input type="hidden" id="onboard-name">
+                        <input type="hidden" id="onboard-category">
+                        <textarea id="onboard-description" class="hidden"></textarea>
+                        <label for="onboard-home-bin">Home bin (optional)</label>
+                        <div class="onboard-bin-picker">
+                            <select id="onboard-home-bin"></select>
+                            <button type="button" class="btn" id="onboard-new-bin-btn">➕ New Bin</button>
+                        </div>
+                        <div class="onboard-actions">
+                            <button type="button" class="btn" id="onboard-rescan">↺ Re-scan</button>
+                            <button type="button" class="btn" id="onboard-cancel">Cancel</button>
+                            <button type="submit" class="btn onboard-register" id="onboard-register-btn" disabled>✓ Save item</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="onboard-actions" id="onboard-listen-actions">
+                    <button type="button" class="btn" id="onboard-cancel-listen">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/inventory-shared.js"></script>
+    <script src="/category-chips.js"></script>
+    <script src="/onboarding-wizard.js"></script>
+    <script>
+        const POLL_MS = 500;
+        let hiddenWhileClaiming = null;
+
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function formatLastSeen(iso) {
+            try {
+                const d = new Date(iso);
+                return d.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                });
+            } catch {
+                return iso;
+            }
+        }
+
+        function rssiBar(rssi) {
+            if (rssi == null) return '—';
+            let color = '#f87171';
+            if (rssi >= -55) color = '#4ade80';
+            else if (rssi >= -75) color = '#fbbf24';
+            return (
+                '<span class="discovery-rssi" style="color:' +
+                color +
+                '">' +
+                escapeHtml(rssi) +
+                ' dBm</span>'
+            );
+        }
+
+        function claimTag(epc) {
+            hiddenWhileClaiming = epc;
+            document.getElementById('discovery-panel').classList.add('claiming');
+            MerlinOnboarding.openWizardForClaim(epc);
+        }
+
+        function renderUnassigned(rows) {
+            const tbody = document.getElementById('discovery-tbody');
+            const status = document.getElementById('discovery-status');
+
+            if (MerlinOnboarding.isOpen()) {
+                status.textContent = 'Claim wizard open — complete registration';
+                return;
+            }
+
+            document.getElementById('discovery-panel').classList.remove('claiming');
+            hiddenWhileClaiming = null;
+
+            const filtered = rows.filter((r) => r.epc !== hiddenWhileClaiming);
+            status.textContent = filtered.length
+                ? filtered.length + ' rogue tag(s) in range'
+                : 'No unassigned tags in last 2 minutes';
+
+            if (!filtered.length) {
+                tbody.innerHTML =
+                    '<tr><td colspan="4" class="discovery-empty">No rogue tags — pull Merlin trigger near unknown labels.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = filtered
+                .map(
+                    (row) =>
+                        '<tr>' +
+                        '<td class="discovery-epc">' +
+                        escapeHtml(row.epc) +
+                        '</td>' +
+                        '<td>' +
+                        rssiBar(row.rssi) +
+                        '</td>' +
+                        '<td>' +
+                        escapeHtml(formatLastSeen(row.last_seen)) +
+                        '</td>' +
+                        '<td><button type="button" class="btn claim-tag" data-claim-epc="' +
+                        escapeHtml(row.epc) +
+                        '">🏷️ Claim &amp; Register Tag</button></td>' +
+                        '</tr>'
+                )
+                .join('');
+
+            tbody.querySelectorAll('[data-claim-epc]').forEach((btn) => {
+                btn.addEventListener('click', () => claimTag(btn.getAttribute('data-claim-epc')));
+            });
+        }
+
+        async function pollUnassigned() {
+            if (MerlinOnboarding.isOpen()) return;
+            try {
+                const res = await fetch('/api/scan/unassigned');
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Poll failed');
+                renderUnassigned(data.unassigned || []);
+            } catch (err) {
+                document.getElementById('discovery-status').textContent = 'Error: ' + err.message;
+            }
+        }
+
+        async function loadContainersForWizard() {
+            try {
+                const res = await fetch('/api/containers');
+                if (res.ok) return;
+            } catch (_) {
+                /* optional */
+            }
+        }
+
+        MerlinOnboarding.init({
+            onBeforeOpen: loadContainersForWizard,
+            onRegistered: async () => {
+                hiddenWhileClaiming = null;
+                document.getElementById('discovery-panel').classList.remove('claiming');
+                await pollUnassigned();
+            },
+        });
+
+        pollUnassigned();
+        setInterval(pollUnassigned, POLL_MS);
+    </script>
+</body>
+</html>

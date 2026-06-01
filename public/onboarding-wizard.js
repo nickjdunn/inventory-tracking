@@ -13,6 +13,8 @@
     let boundUpc = null;
     let lastPickProducts = [];
     let categoryChipEditor = null;
+    /** Pre-claimed rogue EPC from discovery deck — skips RFID listen on step 3. */
+    let pendingClaimEpc = null;
 
     function getEl(id) {
         return document.getElementById(id);
@@ -532,6 +534,31 @@
         applyApprovedToRfidForm(approved);
         await loadContainersIntoSelect(getEl('onboard-home-bin'));
         showStep('rfid');
+
+        const claimEpc = pendingClaimEpc ? String(pendingClaimEpc).trim() : '';
+        if (claimEpc) {
+            try {
+                const res = await fetch(
+                    '/api/epc/validate?epc=' + encodeURIComponent(claimEpc) + '&role=item'
+                );
+                const check = await res.json();
+                if (!check.valid) {
+                    alert(check.message || 'This tag cannot be registered as an item');
+                    pendingClaimEpc = null;
+                    startListening();
+                    return;
+                }
+            } catch {
+                /* proceed — server will reject on save if invalid */
+            }
+            const gateEl = getEl('onboard-gate-display');
+            const nearGate = gateEl ? gateEl.textContent : '—';
+            showFormMode(claimEpc, null, nearGate);
+            getEl('onboard-listen-text').textContent =
+                'Rogue tag claimed — complete product details above, then save.';
+            return;
+        }
+
         startListening();
     }
 
@@ -608,15 +635,34 @@
         pollTimer = setInterval(pollNearField, POLL_MS);
     }
 
+    async function openWizardForClaim(epc) {
+        const normalized = String(epc ?? '').trim();
+        if (!normalized) {
+            await openWizard();
+            return;
+        }
+        pendingClaimEpc = normalized;
+        await openWizard();
+        const listenText = getEl('onboard-listen-text');
+        if (listenText) {
+            listenText.textContent =
+                'Tag ' +
+                normalized +
+                ' reserved — Step 1: identify product, then link on step 3.';
+        }
+    }
+
     async function openWizard() {
         await unlockAudio();
         if (typeof options.onBeforeOpen === 'function') {
             await options.onBeforeOpen();
         }
+        const keepClaim = pendingClaimEpc;
         staging = emptyStaging();
         boundUpc = null;
         lastPickProducts = [];
         capturedEpc = null;
+        pendingClaimEpc = keepClaim;
         getEl('onboard-lookup-input').value = '';
         setLookupStatus('', false);
         showStep('identify');
@@ -636,6 +682,7 @@
         modal.setAttribute('aria-hidden', 'true');
         capturedEpc = null;
         staging = null;
+        pendingClaimEpc = null;
         showStep('identify');
     }
 
@@ -676,6 +723,7 @@
             if (!res.ok) throw new Error(data.error || 'Registration failed');
 
             playConfirmChime();
+            pendingClaimEpc = null;
             closeWizard();
             if (typeof options.onRegistered === 'function') {
                 await options.onRegistered(data);
@@ -766,8 +814,10 @@
     global.MerlinOnboarding = {
         init,
         openWizard,
+        openWizardForClaim,
         closeWizard,
         isOpen,
+        getPendingClaimEpc: () => pendingClaimEpc,
         ingestNearFieldTags: async (tags) => {
             const res = await fetch('/api/scan/near-field-ingest', {
                 method: 'POST',
