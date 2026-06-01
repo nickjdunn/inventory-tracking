@@ -26,6 +26,36 @@
         }));
     }
 
+    function splitCategoryTags(category) {
+        if (category == null) return [];
+        const raw = String(category).trim();
+        if (!raw) return [];
+        return raw
+            .split(';')
+            .map((t) => t.trim())
+            .filter(Boolean);
+    }
+
+    function renderCategoryBadgesHtml(category, escapeHtml, options) {
+        const esc = escapeHtml || ((s) => String(s ?? ''));
+        const tags = splitCategoryTags(category);
+        if (!tags.length) {
+            const empty = options && options.empty;
+            return empty === undefined ? '' : empty;
+        }
+        const wrapClass = (options && options.wrapClass) || 'cat-badges';
+        const badgeClass = (options && options.badgeClass) || 'cat-badge';
+        return (
+            '<span class="' +
+            esc(wrapClass) +
+            '">' +
+            tags
+                .map((tag) => '<span class="' + esc(badgeClass) + '">' + esc(tag) + '</span>')
+                .join('') +
+            '</span>'
+        );
+    }
+
     function matchesSearch(item, query) {
         const q = (query || '').trim().toLowerCase();
         if (!q) return true;
@@ -35,13 +65,15 @@
         const containerName = (item.container_name || '').toLowerCase();
         const containerId = (item.container_id || '').toLowerCase();
         const homeName = (item.home_container_name || '').toLowerCase();
+        const categoryHaystack = splitCategoryTags(item.category).join(' ').toLowerCase();
         return (
             name.includes(q) ||
             epc.includes(q) ||
             upc.includes(q) ||
             containerName.includes(q) ||
             containerId.includes(q) ||
-            homeName.includes(q)
+            homeName.includes(q) ||
+            categoryHaystack.includes(q)
         );
     }
 
@@ -226,6 +258,8 @@
         filterItems,
         countByStatus,
         renderStatusBadgeHtml,
+        splitCategoryTags,
+        renderCategoryBadgesHtml,
         unlockAudio,
         playHomeConfirmTone,
         bindInstantSearch,

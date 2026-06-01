@@ -2,7 +2,12 @@ const http = require('http');
 const express = require('express');
 const WebSocket = require('ws');
 const db = require('./database'); // Import our database setup
-const { lookupUpcHybrid, lookupProduct, normalizeUpc } = require('./upc-lookup');
+const {
+    lookupUpcHybrid,
+    lookupProduct,
+    normalizeUpc,
+    sanitizeCategoryString,
+} = require('./upc-lookup');
 const {
     normalizeEpc,
     normalizeBoundaryTag,
@@ -1077,6 +1082,10 @@ app.post('/api/items', async (req, res) => {
         image_url == null || String(image_url).trim() === ''
             ? null
             : String(image_url).trim();
+    const sanitizedCategory =
+        category != null && String(category).trim() !== ''
+            ? sanitizeCategoryString(category)
+            : null;
 
     db.run(
         `INSERT INTO items (epc_id, name, description, category, upc, image_url, container_id, home_container_id)
@@ -1085,7 +1094,7 @@ app.post('/api/items', async (req, res) => {
             epc,
             itemName,
             description ?? null,
-            category ?? null,
+            sanitizedCategory,
             normalizedUpc,
             normalizedImageUrl,
             normalizeContainerId(container_id),
@@ -1103,7 +1112,7 @@ app.post('/api/items', async (req, res) => {
                 epc_id: epc,
                 name: itemName,
                 description,
-                category,
+                category: sanitizedCategory,
                 upc: normalizedUpc,
                 image_url: normalizedImageUrl,
                 container_id: normalizeContainerId(container_id),
@@ -1204,11 +1213,16 @@ app.put('/api/items/:epc_id', (req, res) => {
         return res.status(400).json({ error: 'name is required' });
     }
 
+    const sanitizedCategory =
+        category != null && String(category).trim() !== ''
+            ? sanitizeCategoryString(category)
+            : null;
+
     const sets = ['name = ?', 'description = ?', 'category = ?', 'home_container_id = ?'];
     const params = [
         name.trim(),
         description ?? null,
-        category ?? null,
+        sanitizedCategory,
         normalizedHomeContainerId,
     ];
 
@@ -1241,7 +1255,7 @@ app.put('/api/items/:epc_id', (req, res) => {
                 epc_id,
                 name: name.trim(),
                 description,
-                category,
+                category: sanitizedCategory,
                 home_container_id: normalizedHomeContainerId,
                 container_id: normalizedContainerId,
                 upc: normalizedUpc !== undefined ? normalizedUpc : undefined,

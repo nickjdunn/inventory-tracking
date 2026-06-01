@@ -445,9 +445,26 @@
             word-break: break-word;
         }
         .hunt-column-cat {
-            color: var(--muted);
-            font-size: 11px;
             margin: 0 0 8px;
+        }
+        .cat-badges {
+            display: inline-block;
+            line-height: 1.4;
+        }
+        .cat-badge {
+            background: #334155;
+            border: 1px solid #475569;
+            border-radius: 4px;
+            color: #cbd5e1;
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 600;
+            margin: 0 3px 3px 0;
+            padding: 2px 6px;
+            white-space: nowrap;
+        }
+        .item-card-cats {
+            margin: 4px 0 6px;
         }
         .hunt-column-zone {
             font-size: 11px;
@@ -840,7 +857,7 @@
                 </div>
                 <div class="onboard-review-field">
                     <label class="onboard-check-row"><input type="checkbox" id="onboard-use-category"> Category</label>
-                    <input type="text" id="onboard-review-category">
+                    <input type="text" id="onboard-review-category" placeholder="Power Tools; Woodworking; Cordless">
                 </div>
                 <div class="onboard-review-field">
                     <label class="onboard-check-row"><input type="checkbox" id="onboard-use-image"> Image</label>
@@ -891,7 +908,7 @@
             <label for="sheet-item-name">Name</label>
             <input type="text" id="sheet-item-name" required>
             <label for="sheet-item-category">Category</label>
-            <input type="text" id="sheet-item-category">
+            <input type="text" id="sheet-item-category" placeholder="Power Tools; Woodworking; Cordless">
             <label for="sheet-item-desc">Description</label>
             <textarea id="sheet-item-desc"></textarea>
             <label for="sheet-home-bin">Assigned home bin</label>
@@ -1152,7 +1169,9 @@
                     const zoneCls = MerlinHunt.zoneMeterClass(signal.zone);
                     const heightPct = MerlinHunt.meterHeightPct(signal, rssiNearGate, rssiFarGate);
                     const focused = idx === huntFocusIndex ? ' focused' : '';
-                    const cat = item.category ? escapeHtml(item.category) : '—';
+                    const cat = MerlinInventory.renderCategoryBadgesHtml(item.category, escapeHtml, {
+                        empty: '—',
+                    });
                     return `
                 <div class="hunt-column${focused}" data-epc="${escapeHtml(epc)}" data-idx="${idx}">
                     <p class="hunt-column-name">${escapeHtml(item.name || 'Unknown')}</p>
@@ -1275,12 +1294,14 @@
                 const location = item.container_id
                     ? (item.container_name || item.container_id)
                     : '📍 Open / unassigned';
+                const catBadges = MerlinInventory.renderCategoryBadgesHtml(item.category, escapeHtml);
                 return `
                 <article class="item-card${isFindTarget ? ' find-target' : ''}" data-epc="${escapeHtml(item.epc_id)}">
                     <div class="item-card-header">
                         <h3>${escapeHtml(item.name)}</h3>
                         ${MerlinInventory.renderStatusBadgeHtml(item, escapeHtml)}
                     </div>
+                    ${catBadges ? '<div class="item-card-cats">' + catBadges + '</div>' : ''}
                     <div class="item-card-epc">${escapeHtml(item.epc_id)}</div>
                     <div class="item-card-location">📦 ${escapeHtml(location)}</div>
                     <div class="item-card-actions">

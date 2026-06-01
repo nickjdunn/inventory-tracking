@@ -25,6 +25,16 @@
             .replace(/"/g, '&quot;');
     }
 
+    function categoryBadgesHtml(category) {
+        if (global.MerlinInventory && global.MerlinInventory.renderCategoryBadgesHtml) {
+            return global.MerlinInventory.renderCategoryBadgesHtml(category, escapeHtml, {
+                empty: '—',
+            });
+        }
+        if (!category) return '—';
+        return escapeHtml(category);
+    }
+
     function showStep(step) {
         wizardStep = step;
         const steps = ['identify', 'pick', 'review', 'rfid'];
@@ -85,7 +95,7 @@
         }
         list.innerHTML = lastPickProducts
             .map((product, idx) => {
-                const cat = product.category ? escapeHtml(product.category) : '—';
+                const cat = categoryBadgesHtml(product.category);
                 return (
                     '<button type="button" class="onboard-pick-row" data-pick-idx="' +
                     idx +
@@ -342,7 +352,9 @@
             '<strong>' +
             escapeHtml(approved.name) +
             '</strong>' +
-            (approved.category ? ' · ' + escapeHtml(approved.category) : '') +
+            (approved.category
+                ? ' · ' + categoryBadgesHtml(approved.category)
+                : '') +
             (approved.image_url
                 ? '<br><span class="onboard-summary-img-note">Image URL saved with item</span>'
                 : '');

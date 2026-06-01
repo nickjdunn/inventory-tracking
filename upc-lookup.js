@@ -3,7 +3,9 @@
  * Results are cached in SQLite by the server after a successful hit.
  */
 
-const FETCH_TIMEOUT_MS = 8000;
+const FETCH_TIMEOUT_MS = 10000;
+const TEXT_SEARCH_PAGE_SIZE = 10;
+const MAX_CATEGORY_TAGS = 6;
 
 const PROVIDER_ORDER = [
     'open_food_facts',
@@ -29,22 +31,138 @@ async function fetchJson(url, headers = {}) {
     }
 }
 
+async function fetchText(url, headers = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+        const res = await fetch(url, {
+            headers: {
+                Accept: 'text/html,application/xhtml+xml',
+                'User-Agent': 'RFID-Inventory-System/1.0 (+product-lookup)',
+                ...headers,
+            },
+            signal: controller.signal,
+        });
+        if (!res.ok) return null;
+        return await res.text();
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+/**
+ * Normalize multi-tag categories: "A ; B" → "A;B" (semicolon divider, no spaces).
+ */
+function sanitizeCategoryString(value) {
+    if (value == null) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const parts = raw
+        .split(/[;,]/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+    if (!parts.length) return null;
+    return parts.join(';');
+}
+
 function normalizeUpc(raw) {
     const digits = String(raw ?? '').replace(/\D/g, '');
     if (digits.length < 8 || digits.length > 14) return null;
     return digits;
 }
 
+function pickBestImageUrl(candidates) {
+    const urls = (Array.isArray(candidates) ? candidates : [candidates])
+        .filter((u) => u && typeof u === 'string' && u.trim())
+        .map((u) => u.trim());
+
+    if (!urls.length) return null;
+
+    const scored = urls.map((url) => {
+        let score = 10;
+        if (/small|thumb|icon|100\.|200\.|mini/i.test(url)) score -= 4;
+        if (/front|full|large|display/i.test(url)) score += 3;
+        if (/\.(jpg|jpeg|png|webp)(\?|$)/i.test(url)) score += 1;
+        return { url, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score || b.url.length - a.url.length);
+    return scored[0].url;
+}
+
+function pickOffProductImage(p) {
+    return pickBestImageUrl([
+        p.image_front_url,
+        p.image_url,
+        p.selected_images?.front?.display?.en,
+        p.selected_images?.front?.display,
+        p.image_front_small_url,
+    ]);
+}
+
+function extractOffCategories(p) {
+    const tags = new Set();
+
+    if (Array.isArray(p.categories_tags)) {
+        p.categories_tags.forEach((tag) => {
+            const t = String(tag)
+                .replace(/^en:/, '')
+                .replace(/-/g, ' ')
+                .trim();
+            if (t && t.length > 1 && t.length < 48) tags.add(t);
+        });
+    }
+
+    const csv = p.categories || p.main_category || '';
+    if (csv) {
+        String(csv)
+            .split(',')
+            .forEach((part) => {
+                const t = part.trim();
+                if (t && t.length < 48) tags.add(t);
+            });
+    }
+
+    return sanitizeCategoryString([...tags].slice(0, MAX_CATEGORY_TAGS).join(';'));
+}
+
+function extractUpcItemDbCategories(item) {
+    return sanitizeCategoryString(item.category || item.category_path || null);
+}
+
+function pickUpcItemDbImage(item) {
+    if (!item || !item.images) return null;
+    const list = Array.isArray(item.images) ? item.images : [item.images];
+    return pickBestImageUrl(list);
+}
+
+function buildOffDescription(p) {
+    const parts = [
+        p.generic_name,
+        p.quantity,
+        p.ingredients_text,
+        p.packaging,
+    ]
+        .filter(Boolean)
+        .map((s) => String(s).trim());
+    const unique = [...new Set(parts)];
+    const text = unique.join(' · ');
+    return text.length > 500 ? text.slice(0, 497) + '…' : text || null;
+}
+
 function buildResult(upc, source, fields) {
     const name = (fields.name || '').trim();
     if (!name) return null;
+    const category = sanitizeCategoryString(fields.category);
     return {
         found: true,
         upc,
         source,
         name,
         brand: fields.brand || null,
-        category: fields.category || null,
+        category,
         description: fields.description || null,
         image_url: fields.image_url || null,
     };
@@ -59,9 +177,9 @@ async function lookupOpenFoodFacts(upc) {
     return buildResult(upc, 'open_food_facts', {
         name: p.product_name || p.generic_name || p.abbreviated_product_name,
         brand: p.brands || p.brand_owner,
-        category: (p.categories || p.main_category || '').split(',')[0]?.trim(),
-        description: p.ingredients_text || p.quantity,
-        image_url: p.image_front_url || p.image_url,
+        category: extractOffCategories(p),
+        description: buildOffDescription(p),
+        image_url: pickOffProductImage(p),
     });
 }
 
@@ -74,9 +192,9 @@ async function lookupOpenProductsFacts(upc) {
     return buildResult(upc, 'open_products_facts', {
         name: p.product_name || p.generic_name,
         brand: p.brands,
-        category: (p.categories || '').split(',')[0]?.trim(),
-        description: p.quantity,
-        image_url: p.image_front_url || p.image_url,
+        category: extractOffCategories(p),
+        description: buildOffDescription(p),
+        image_url: pickOffProductImage(p),
     });
 }
 
@@ -89,19 +207,20 @@ async function lookupOpenBeautyFacts(upc) {
     return buildResult(upc, 'open_beauty_facts', {
         name: p.product_name || p.generic_name,
         brand: p.brands,
-        category: (p.categories || '').split(',')[0]?.trim(),
-        description: p.quantity,
-        image_url: p.image_front_url || p.image_url,
+        category: extractOffCategories(p),
+        description: buildOffDescription(p),
+        image_url: pickOffProductImage(p),
     });
 }
 
 function mapUpcItemDbEntry(upc, item) {
-    return buildResult(upc, 'upcitemdb', {
+    const code = normalizeUpc(item.upc || upc) || upc;
+    return buildResult(code, 'upcitemdb', {
         name: item.title || item.description,
         brand: item.brand,
-        category: item.category,
-        description: item.description,
-        image_url: item.images?.[0],
+        category: extractUpcItemDbCategories(item),
+        description: item.description || item.title,
+        image_url: pickUpcItemDbImage(item),
     });
 }
 
@@ -173,8 +292,6 @@ async function lookupUpcHybrid(rawUpc, options = {}) {
     };
 }
 
-const TEXT_SEARCH_PAGE_SIZE = 10;
-
 function mapOffSearchProduct(p, source, query) {
     const name = (p.product_name || p.generic_name || '').trim();
     if (!name) return null;
@@ -182,9 +299,9 @@ function mapOffSearchProduct(p, source, query) {
     return buildResult(code || `text-${String(query).slice(0, 24)}`, source, {
         name,
         brand: p.brands,
-        category: (p.categories || '').split(',')[0]?.trim(),
-        description: p.quantity || p.generic_name,
-        image_url: p.image_front_url || p.image_url,
+        category: extractOffCategories(p),
+        description: buildOffDescription(p),
+        image_url: pickOffProductImage(p),
     });
 }
 
@@ -196,7 +313,7 @@ async function searchOpenFoodFactsProducts(query, pageSize) {
         'https://world.openfoodfacts.org/cgi/search.pl?' +
         'search_simple=1&action=process&json=1&page_size=' +
         String(pageSize || TEXT_SEARCH_PAGE_SIZE) +
-        '&fields=product_name,brands,categories,generic_name,quantity,image_front_url,image_url,code&search_terms=' +
+        '&fields=product_name,brands,categories,categories_tags,generic_name,quantity,ingredients_text,packaging,image_front_url,image_url,image_front_small_url,code&search_terms=' +
         encodeURIComponent(q);
 
     const data = await fetchJson(url);
@@ -223,7 +340,7 @@ async function searchOpenProductsFactsProducts(query, pageSize) {
         'https://world.openproductsfacts.org/cgi/search.pl?' +
         'search_simple=1&action=process&json=1&page_size=' +
         String(pageSize || TEXT_SEARCH_PAGE_SIZE) +
-        '&fields=product_name,brands,categories,generic_name,quantity,image_front_url,image_url,code&search_terms=' +
+        '&fields=product_name,brands,categories,categories_tags,generic_name,quantity,ingredients_text,packaging,image_front_url,image_url,image_front_small_url,code&search_terms=' +
         encodeURIComponent(q);
 
     const data = await fetchJson(url);
@@ -232,6 +349,85 @@ async function searchOpenProductsFactsProducts(query, pageSize) {
     return data.products
         .map((p) => mapOffSearchProduct(p, 'open_products_facts_search', q))
         .filter(Boolean);
+}
+
+async function searchUpcItemDbText(query, apiKey) {
+    const q = String(query ?? '').trim();
+    if (q.length < 2) return [];
+
+    const headers = { Accept: 'application/json' };
+    if (apiKey) {
+        headers.user_key = apiKey;
+        headers.key_type = '3scale';
+    }
+
+    const url =
+        'https://api.upcitemdb.com/prod/trial/search?s=' + encodeURIComponent(q);
+    const data = await fetchJson(url, headers);
+    if (!data || data.code !== 'OK' || !Array.isArray(data.items)) return [];
+
+    return data.items
+        .map((item) => mapUpcItemDbEntry(item.upc || item.ean || '', item))
+        .filter(Boolean);
+}
+
+/**
+ * Lightweight HTML/OpenSearch fallback when catalog APIs return few hits.
+ */
+async function searchOpenSearchHints(query) {
+    const q = String(query ?? '').trim();
+    if (q.length < 2) return [];
+
+    const url =
+        'https://en.wikipedia.org/w/api.php?action=opensearch&search=' +
+        encodeURIComponent(q) +
+        '&limit=5&namespace=0&format=json';
+
+    const data = await fetchJson(url);
+    if (!data || !Array.isArray(data[1])) return [];
+
+    const titles = data[1];
+    const descriptions = data[2] || [];
+
+    return titles
+        .map((title, i) =>
+            buildResult(`hint-${q.slice(0, 12)}-${i}`, 'wikipedia_opensearch', {
+                name: title,
+                brand: null,
+                category: null,
+                description: descriptions[i] || null,
+                image_url: null,
+            })
+        )
+        .filter(Boolean);
+}
+
+async function searchDuckDuckGoHtmlHints(query) {
+    const q = String(query ?? '').trim();
+    if (q.length < 2) return [];
+
+    const html = await fetchText(
+        'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q + ' product')
+    );
+    if (!html) return [];
+
+    const results = [];
+    const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let match;
+    while ((match = re.exec(html)) !== null && results.length < 5) {
+        const title = match[2].replace(/<[^>]+>/g, '').trim();
+        if (!title || title.length < 3) continue;
+        results.push(
+            buildResult(`ddg-${q.slice(0, 10)}-${results.length}`, 'duckduckgo_html', {
+                name: title,
+                brand: null,
+                category: null,
+                description: null,
+                image_url: null,
+            })
+        );
+    }
+    return results.filter(Boolean);
 }
 
 function dedupeProductResults(products) {
@@ -249,9 +445,9 @@ function dedupeProductResults(products) {
 }
 
 /**
- * Free-text product search (Open*Facts search APIs).
+ * Free-text product search (Open*Facts → UPCitemdb → HTML/OpenSearch fallbacks).
  */
-async function lookupTextHybrid(rawQuery) {
+async function lookupTextHybrid(rawQuery, options = {}) {
     const query = String(rawQuery ?? '').trim();
     const providers_tried = [];
 
@@ -267,12 +463,26 @@ async function lookupTextHybrid(rawQuery) {
     providers_tried.push('open_food_facts_search');
     let merged = await searchOpenFoodFactsProducts(query, TEXT_SEARCH_PAGE_SIZE);
 
+    providers_tried.push('open_products_facts_search');
+    const more = await searchOpenProductsFactsProducts(query, TEXT_SEARCH_PAGE_SIZE);
+    merged = dedupeProductResults(merged.concat(more));
+
+    if (merged.length < TEXT_SEARCH_PAGE_SIZE) {
+        providers_tried.push('upcitemdb_search');
+        const upcHits = await searchUpcItemDbText(query, options.upcitemdbKey);
+        merged = dedupeProductResults(merged.concat(upcHits));
+    }
+
     if (merged.length < 2) {
-        providers_tried.push('open_products_facts_search');
-        const more = await searchOpenProductsFactsProducts(query, TEXT_SEARCH_PAGE_SIZE);
-        merged = dedupeProductResults(merged.concat(more));
-    } else {
-        merged = dedupeProductResults(merged);
+        providers_tried.push('wikipedia_opensearch');
+        const wiki = await searchOpenSearchHints(query);
+        merged = dedupeProductResults(merged.concat(wiki));
+    }
+
+    if (merged.length < 2) {
+        providers_tried.push('duckduckgo_html');
+        const ddg = await searchDuckDuckGoHtmlHints(query);
+        merged = dedupeProductResults(merged.concat(ddg));
     }
 
     if (!merged.length) {
@@ -362,7 +572,7 @@ async function lookupProduct(input, options = {}) {
     }
 
     if (textRaw) {
-        const result = await lookupTextHybrid(textRaw);
+        const result = await lookupTextHybrid(textRaw, options);
         return toEnrichedProduct(result);
     }
 
@@ -379,6 +589,7 @@ module.exports = {
     toEnrichedProduct,
     internalResultToEnriched,
     dedupeProductResults,
+    sanitizeCategoryString,
     normalizeUpc,
     PROVIDER_ORDER,
     TEXT_SEARCH_PAGE_SIZE,

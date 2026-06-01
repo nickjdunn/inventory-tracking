@@ -126,6 +126,17 @@
             background: #15803d;
             border-color: #4ade80;
         }
+        .wince-cat-tag {
+            background: #334155;
+            border: 1px solid #475569;
+            color: #cbd5e1;
+            display: inline-block;
+            font-size: 10px;
+            font-weight: bold;
+            margin: 2px 3px 2px 0;
+            padding: 2px 5px;
+            white-space: nowrap;
+        }
         .status-msg {
             padding: 8px;
             margin-top: 8px;
@@ -504,7 +515,7 @@
             </div>
             <div class="wince-review-box">
                 <p class="wince-check-row"><input type="checkbox" id="wince-use-category" onclick="WinCE.onReviewCheckChange()"> Category</p>
-                <input type="text" id="wince-review-category" value="">
+                <input type="text" id="wince-review-category" value="" placeholder="Power Tools; Woodworking">
             </div>
             <div class="wince-review-box">
                 <p class="wince-check-row"><input type="checkbox" id="wince-use-image" onclick="WinCE.onReviewCheckChange()"> Image URL (no preview on gun)</p>
@@ -547,7 +558,7 @@
         <label for="edit-name">Name</label>
         <input type="text" id="edit-name" value="">
         <label for="edit-category">Category</label>
-        <input type="text" id="edit-category" value="">
+        <input type="text" id="edit-category" value="" placeholder="Power Tools; Woodworking">
         <label for="edit-desc">Description</label>
         <textarea id="edit-desc"></textarea>
         <label for="edit-upc">UPC</label>
@@ -619,6 +630,31 @@ var WinCE = (function () {
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;');
+    }
+
+    function splitCategoryTags(category) {
+        var raw = trimStr(category);
+        var parts, out, i;
+        if (!raw) return [];
+        parts = raw.split(';');
+        out = [];
+        for (i = 0; i < parts.length; i++) {
+            if (trimStr(parts[i])) out.push(trimStr(parts[i]));
+        }
+        return out;
+    }
+
+    function renderCategoryBadgesHtml(category, emptyLabel) {
+        var tags = splitCategoryTags(category);
+        var html, i;
+        if (!tags.length) {
+            return emptyLabel ? escapeHtml(emptyLabel) : '';
+        }
+        html = '';
+        for (i = 0; i < tags.length; i++) {
+            html += '<span class="wince-cat-tag">' + escapeHtml(tags[i]) + '</span>';
+        }
+        return html;
     }
 
     function xhrJson(method, url, body, callback) {
@@ -882,7 +918,11 @@ var WinCE = (function () {
             var loc = item.container_id ? (item.container_name || item.container_id) : 'Open';
             var rowClass = isHunt ? ' class="row-hunt"' : '';
             html += '<tr' + rowClass + '>';
-            html += '<td><strong>' + escapeHtml(item.name) + '</strong><br><span class="mono">' + escapeHtml(item.epc_id) + '</span><br>' + escapeHtml(loc) + '</td>';
+            html += '<td><strong>' + escapeHtml(item.name) + '</strong>';
+            if (item.category) {
+                html += '<br>' + renderCategoryBadgesHtml(item.category);
+            }
+            html += '<br><span class="mono">' + escapeHtml(item.epc_id) + '</span><br>' + escapeHtml(loc) + '</td>';
             html += '<td>' + statusBadgeText(item) + '</td>';
             html += '<td>';
             html += '<button type="button" class="btn-small" onclick="WinCE.openEditByIndex(' + i + ')">Edit</button><br>';
@@ -955,7 +995,7 @@ var WinCE = (function () {
             var zoneCls = MerlinHunt.zoneMeterClass(signal.zone);
             var heightPct = MerlinHunt.meterHeightPct(signal, rssiNearGate, rssiFarGate);
             var tdExtra = i === huntFocusIndex ? ' class="hunt-col-focused"' : '';
-            var cat = item.category ? escapeHtml(item.category) : '—';
+            var cat = renderCategoryBadgesHtml(item.category, '—');
             html += '<td' + tdExtra + ' id="hunt-col-' + i + '">';
             html += '<p class="hunt-col-name">' + escapeHtml(item.name || 'Unknown') + '</p>';
             html += '<p class="hunt-col-cat">' + cat + '</p>';
@@ -1369,11 +1409,11 @@ var WinCE = (function () {
         } else {
             for (i = 0; i < addPickProducts.length; i++) {
                 var p = addPickProducts[i];
-                var cat = p.category ? escapeHtml(p.category) : '—';
+                var cat = renderCategoryBadgesHtml(p.category, '—');
                 html += '<tr><td class="wince-pick-thumb-cell">' + winceThumbCellHtml(p.image_url) + '</td>';
                 html += '<td><button type="button" class="wince-pick-row-btn" onclick="WinCE.selectPickByIndex(' + i + ')">';
                 html += '<strong>' + escapeHtml(p.title || 'Unknown') + '</strong><br>';
-                html += '<span class="mono">' + cat + '</span></button></td></tr>';
+                html += cat + '</button></td></tr>';
             }
         }
         tbody.innerHTML = html;
@@ -1551,7 +1591,7 @@ var WinCE = (function () {
         var sum = document.getElementById('wince-approved-summary');
         if (sum) {
             sum.innerHTML = '<strong>' + escapeHtml(approved.name) + '</strong>' +
-                (approved.category ? '<br>' + escapeHtml(approved.category) : '');
+                (approved.category ? '<br>' + renderCategoryBadgesHtml(approved.category) : '');
         }
         populateBinSelects();
         showWinceAddStep(3);
