@@ -1,4 +1,6 @@
+const http = require('http');
 const express = require('express');
+const WebSocket = require('ws');
 const db = require('./database'); // Import our database setup
 const { lookupUpcHybrid, normalizeUpc } = require('./upc-lookup');
 const {
@@ -33,6 +35,12 @@ const NEAR_FIELD_BUFFER_MAX = 120;
 /** Latest RSSI per EPC while that tag is in the active hunt queue (Merlin wedge reads). */
 const huntRssiByEpc = new Map();
 const HUNT_SIGNAL_STALE_MS = 8000;
+
+/** Monotonic revision — bumped when hunt RSSI or queue changes; clients use for push / long-poll. */
+let huntRevision = 0;
+const huntWsClients = new Set();
+const huntSseClients = new Set();
+const huntLongPollWaiters = [];
 
 /** Handheld scanner heartbeats (scanner_id → { lastSeen, ...meta }). */
 const scannerHeartbeats = new Map();
@@ -245,6 +253,7 @@ function recordNearFieldReads(tagEntries, settings) {
     const nearGate = parseInt(settings.rssi_near_gate, 10) || -55;
     const now = Date.now();
     let recorded = 0;
+    let huntUpdated = false;
 
     tagEntries.forEach(({ epc, rssi }) => {
         if (!epc || rssi == null || Number.isNaN(rssi)) return;
@@ -252,7 +261,11 @@ function recordNearFieldReads(tagEntries, settings) {
         const normalized = normalizeScanTag(epc);
         const isHuntTarget = activeSearchQueue.some((id) => epcEquals(id, normalized));
         if (isHuntTarget) {
+            const prev = huntRssiByEpc.get(normalized);
             huntRssiByEpc.set(normalized, { epc: normalized, rssi, timestamp: now });
+            if (!prev || prev.rssi !== rssi || now - prev.timestamp >= 40) {
+                huntUpdated = true;
+            }
         }
 
         if (rssi >= nearGate) {
@@ -268,6 +281,77 @@ function recordNearFieldReads(tagEntries, settings) {
     if (recorded > 0) {
         console.log(`📡 Near-field buffer: +${recorded} ultra-near read(s) (gate ≥ ${nearGate} dBm)`);
     }
+
+    if (huntUpdated && activeSearchQueue.length > 0) {
+        bumpHuntRevision();
+    }
+
+    return huntUpdated;
+}
+
+function removeLongPollWaiter(entry) {
+    const idx = huntLongPollWaiters.indexOf(entry);
+    if (idx >= 0) huntLongPollWaiters.splice(idx, 1);
+}
+
+function registerLongPollWaiter(req, res, timeoutMs) {
+    const entry = { res, timer: null };
+    entry.timer = setTimeout(() => {
+        removeLongPollWaiter(entry);
+        if (res.headersSent) return;
+        buildSearchTargetPayload()
+            .then((payload) => res.json({ ...payload, long_poll: 'timeout' }))
+            .catch((err) => res.status(500).json({ error: err.message }));
+    }, timeoutMs);
+
+    req.on('close', () => {
+        clearTimeout(entry.timer);
+        removeLongPollWaiter(entry);
+    });
+
+    huntLongPollWaiters.push(entry);
+}
+
+function flushHuntLongPollWaiters(payload) {
+    if (!huntLongPollWaiters.length) return;
+    const waiters = huntLongPollWaiters.slice();
+    huntLongPollWaiters.length = 0;
+    waiters.forEach((entry) => {
+        clearTimeout(entry.timer);
+        if (!entry.res.headersSent) {
+            entry.res.json(payload);
+        }
+    });
+}
+
+function notifyHuntClients() {
+    buildSearchTargetPayload()
+        .then((payload) => {
+            const json = JSON.stringify(payload);
+            huntWsClients.forEach((ws) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    try {
+                        ws.send(json);
+                    } catch (_) {
+                        huntWsClients.delete(ws);
+                    }
+                }
+            });
+            huntSseClients.forEach((client) => {
+                try {
+                    client.res.write(`data: ${json}\n\n`);
+                } catch (_) {
+                    huntSseClients.delete(client);
+                }
+            });
+            flushHuntLongPollWaiters(payload);
+        })
+        .catch((err) => console.error('Hunt notify failed:', err.message));
+}
+
+function bumpHuntRevision() {
+    huntRevision += 1;
+    notifyHuntClients();
 }
 
 function rssiZoneLabel(rssi, nearGate, farGate) {
@@ -308,15 +392,22 @@ function buildHuntSignal(primaryEpc, nearGate, farGate) {
     };
 }
 
+function buildHuntTargetsForQueue(nearGate, farGate) {
+    return activeSearchQueue.map((epc) => buildHuntSignal(epc, nearGate, farGate));
+}
+
 async function buildSearchTargetPayload() {
     const settings = await getSystemSettings();
     const nearGate = parseInt(settings.rssi_near_gate, 10) || -55;
     const farGate = parseInt(settings.rssi_far_gate, 10) || -85;
     const primary = activeSearchQueue[0] || null;
+    const hunt_targets = buildHuntTargetsForQueue(nearGate, farGate);
 
     return {
         activeSearchQueue,
+        revision: huntRevision,
         hunt_signal: buildHuntSignal(primary, nearGate, farGate),
+        hunt_targets,
         rssi_near_gate: nearGate,
         rssi_far_gate: farGate,
         scanner_model: 'Nordic ID Merlin HTE00072',
@@ -1233,11 +1324,53 @@ app.delete('/api/containers/:id', (req, res) => {
     });
 });
 
-// 🔍 Find Mode: Merlin HTE00072 polls GET for queue + live hunt RSSI from wedge reads
-app.get('/api/search/target', (req, res) => {
-    buildSearchTargetPayload()
-        .then((payload) => res.json(payload))
-        .catch((err) => res.status(500).json({ error: err.message }));
+// 🔍 Find Mode: queue + multi-target hunt RSSI (WebSocket / SSE / long-poll / fast-poll)
+app.get('/api/search/target', async (req, res) => {
+    try {
+        const clientRev = parseInt(String(req.query.rev ?? ''), 10);
+        const wait = req.query.wait === '1' || req.query.long === '1';
+        const compact = req.query.compact === '1';
+        const timeoutMs = Math.min(
+            Math.max(parseInt(String(req.query.timeout ?? ''), 10) || 25000, 500),
+            30000
+        );
+
+        if (wait && !Number.isNaN(clientRev) && clientRev === huntRevision) {
+            return registerLongPollWaiter(req, res, timeoutMs);
+        }
+
+        const payload = await buildSearchTargetPayload();
+
+        if (compact && !Number.isNaN(clientRev) && clientRev === payload.revision) {
+            return res.json({ unchanged: true, revision: huntRevision });
+        }
+
+        res.json(payload);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/hunt/stream', async (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    const client = { res };
+    huntSseClients.add(client);
+
+    try {
+        const payload = await buildSearchTargetPayload();
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    } catch (err) {
+        huntSseClients.delete(client);
+        return res.status(500).end();
+    }
+
+    req.on('close', () => {
+        huntSseClients.delete(client);
+    });
 });
 
 app.post('/api/search/target', (req, res) => {
@@ -1259,11 +1392,13 @@ app.post('/api/search/target', (req, res) => {
     }
 
     if (activeSearchQueue.length === 0) {
-        console.log('🔍 [Batch Hunt] Queue cleared.');
+        console.log('🔍 [Multi Hunt] Queue cleared.');
     } else {
-        console.log(`🔍 [Batch Hunt] Queue updated (${activeSearchQueue.length} target(s)):`);
+        console.log(`🔍 [Multi Hunt] Queue updated (${activeSearchQueue.length} target(s)):`);
         activeSearchQueue.forEach((epc, i) => console.log(`   ${i + 1}. ${epc}`));
     }
+
+    bumpHuntRevision();
 
     buildSearchTargetPayload()
         .then((payload) => res.json(payload))
@@ -1358,6 +1493,24 @@ app.post('/api/admin/clear-history', (req, res) => {
     });
 });
 
-app.listen(PORT, () => {
+const server = http.createServer(app);
+
+const huntWss = new WebSocket.Server({ server, path: '/api/hunt/ws' });
+huntWss.on('connection', (ws) => {
+    huntWsClients.add(ws);
+    buildSearchTargetPayload()
+        .then((payload) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(payload));
+            }
+        })
+        .catch(() => {});
+
+    ws.on('close', () => huntWsClients.delete(ws));
+    ws.on('error', () => huntWsClients.delete(ws));
+});
+
+server.listen(PORT, () => {
     console.log(`🚀 RFID Backend Server with DB active on port ${PORT}`);
+    console.log(`📡 Hunt push: WebSocket ws://0.0.0.0:${PORT}/api/hunt/ws | SSE /api/hunt/stream | long-poll GET /api/search/target?wait=1&rev=N`);
 });

@@ -95,12 +95,16 @@ For **Find mode**, wedge reads with RSSI should still hit the server (via HTTP P
 
 ### 4. Find mode behavior (production)
 
-1. On desktop or Win CE **Items**, tap **Find** on an item (sets hunt queue on server).  
-2. Open **Find** tab on the gun.  
+1. On desktop, mobile, or Win CE **Items**, tap **Find** on one or more items (adds to the server hunt queue).  
+2. Open **Find** — you see **side-by-side radar columns** (one per target).  
 3. **Pull the trigger** while sweeping; wedge sends tags + RSSI to the server.  
-4. Win CE polls **`GET /api/search/target`** every 1.5s and displays `hunt_signal.zone`:  
-   - `CLOSE` / `WARM` / `COLD` / `NO_SIGNAL`  
-5. Adjust RSSI gates under **Admin** if needed (`rssi_near_gate`, `rssi_far_gate`).
+4. The server pushes updates in **under ~200ms** via:
+   - **WebSocket** `ws://HOST:3000/api/hunt/ws` (mobile / modern browsers)
+   - **Long-poll** `GET /api/search/target?wait=1&rev=N` (Win CE Pocket IE fallback)
+   - **Fast compact poll** `GET /api/search/target?rev=N&compact=1` (~120ms) if long-poll fails  
+5. Each column shows zone color: **Green** CLOSE, **Amber** WARM, **Blue** COLD, **Gray** NO_SIGNAL.  
+6. On Win CE, **arrow keys** move focus across columns; touch still works.  
+7. Adjust RSSI gates under **Admin** if needed (`rssi_near_gate`, `rssi_far_gate`).
 
 ### 5. After testing with the simulator
 
@@ -121,8 +125,10 @@ Removes rows where **EPC**, **name**, **description**, or container fields start
 |--------|------|---------|
 | `POST` | `/api/hardware/merlin-wedge` | Raw wedge / bulk tag ingest → spatial filter + inventory |
 | `POST` | `/api/scan` | Structured scan (same processing as wedge) |
-| `GET` | `/api/search/target` | Hunt queue + **live** `hunt_signal` for primary target |
-| `POST` | `/api/search/target` | Set/clear hunt queue `{ "epc_ids": ["..."] }` |
+| `GET` | `/api/search/target` | Hunt queue + `hunt_targets[]` + `revision` (supports `?wait=1&rev=N` long-poll, `?compact=1`) |
+| `POST` | `/api/search/target` | Set/clear multi-target hunt queue `{ "epc_ids": ["..."] }` |
+| `WS` | `/api/hunt/ws` | Push hunt payload on every wedge RSSI update |
+| `GET` | `/api/hunt/stream` | Server-Sent Events hunt stream (fallback) |
 | `POST` | `/api/scanner/heartbeat` | Scanner online ping |
 | `DELETE` | `/api/test/purge` | Remove all `TEST-EPC-*` test data |
 

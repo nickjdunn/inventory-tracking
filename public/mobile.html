@@ -410,49 +410,97 @@
         .find-active-zone {
             padding-bottom: 4px;
         }
-        .find-up-next-zone {
-            border-top: 1px solid #334155;
-            margin-top: 8px;
-            padding-top: 16px;
-        }
-        .find-up-next-zone h3 {
+        .hunt-transport-badge {
             color: var(--muted);
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 0.04em;
+            font-size: 11px;
             margin: 0 0 12px;
+        }
+        .hunt-radar-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 12px 0;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .hunt-column {
+            background: #0f172a;
+            border: 2px solid #334155;
+            border-radius: 12px;
+            flex: 1 1 120px;
+            max-width: 100%;
+            min-width: 110px;
+            padding: 12px 10px;
+            text-align: center;
+        }
+        .hunt-column.focused {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35);
+        }
+        .hunt-column-name {
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1.25;
+            margin: 0 0 4px;
+            word-break: break-word;
+        }
+        .hunt-column-cat {
+            color: var(--muted);
+            font-size: 11px;
+            margin: 0 0 8px;
+        }
+        .hunt-column-zone {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            margin: 6px 0 4px;
             text-transform: uppercase;
         }
-        .up-next-item {
-            background: #0f172a;
-            border: 1px solid #334155;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            padding: 10px 12px;
+        .hunt-column-dbm {
+            font-size: 18px;
+            font-weight: 800;
+            margin: 0 0 8px;
         }
-        .up-next-item .name {
-            font-size: 15px;
-            font-weight: 600;
+        .hunt-meter-vert {
+            background: #334155;
+            border-radius: 6px;
+            height: 100px;
+            margin: 0 auto;
+            overflow: hidden;
+            position: relative;
+            width: 28px;
         }
-        .up-next-item .epc {
+        .hunt-meter-fill {
+            border-radius: 4px 4px 0 0;
+            bottom: 0;
+            left: 0;
+            position: absolute;
+            right: 0;
+            transition: height 0.08s ease-out, background 0.08s;
+            width: 100%;
+        }
+        .hunt-meter-fill.zone-close { background: var(--success); }
+        .hunt-meter-fill.zone-warm { background: var(--warning); }
+        .hunt-meter-fill.zone-cold { background: var(--accent); }
+        .hunt-meter-fill.zone-none { background: var(--cold); }
+        .hunt-column-epc {
             color: var(--muted);
             font-family: ui-monospace, monospace;
-            font-size: 11px;
-            margin-top: 2px;
+            font-size: 9px;
+            margin-top: 8px;
             word-break: break-all;
         }
-        .btn-giant.confirm-next {
-            background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
-            box-shadow: 0 6px 0 #14532d;
-            margin: 16px 0 0;
-        }
-        .btn-giant.confirm-next:active {
-            box-shadow: 0 2px 0 #14532d;
-        }
-        .btn-giant.confirm-next:disabled {
-            background: #334155;
-            box-shadow: none;
+        .hunt-column-remove {
+            background: transparent;
+            border: 1px solid #475569;
+            border-radius: 6px;
             color: var(--muted);
+            cursor: pointer;
+            font-size: 10px;
+            margin-top: 8px;
+            padding: 4px 8px;
+            touch-action: manipulation;
+            width: 100%;
         }
         .inventory-search {
             background: #0f172a;
@@ -685,52 +733,17 @@
                 <p class="standby">Standby: No active hunt target selected from main dashboard.</p>
             </div>
             <div class="card" id="find-radar" style="display:none;">
-                <h2>🔍 Find Item</h2>
-                <p class="batch-position-label" id="batch-position-label" style="display:none;"></p>
-                <p id="find-hardware-hint" class="standby" style="text-align:left;padding:0 0 12px;font-size:13px;">
-                    RSSI comes from the Merlin wedge when you pull the trigger. No simulated signal on this screen.
+                <h2>🔍 Multi-target hunt</h2>
+                <p id="find-hardware-hint" class="standby" style="text-align:left;padding:0 0 8px;font-size:13px;">
+                    Live RSSI from Merlin wedge — push updates via WebSocket (fallback long-poll on legacy guns).
                 </p>
+                <p id="hunt-transport-badge" class="hunt-transport-badge" aria-live="polite">Connecting…</p>
                 <div class="find-active-zone">
-                    <div class="proximity-meter cold" id="proximity-meter" aria-live="polite">
-                        <div class="proximity-meter-label">Live RSSI (from gun)</div>
-                        <div class="proximity-meter-row">
-                            <div class="geiger-bars" id="geiger-bars">
-                                <span class="geiger-bar"></span>
-                                <span class="geiger-bar"></span>
-                                <span class="geiger-bar"></span>
-                                <span class="geiger-bar"></span>
-                                <span class="geiger-bar"></span>
-                                <span class="geiger-bar"></span>
-                                <span class="geiger-bar"></span>
-                                <span class="geiger-bar"></span>
-                            </div>
-                            <span class="proximity-meter-value" id="proximity-dbm">— dBm</span>
-                        </div>
-                    </div>
-                    <p class="radar-target-name" id="radar-name">—</p>
-                    <p class="radar-epc" id="radar-epc">—</p>
-                    <div class="radar-ring cold" id="radar-ring">
-                        <span class="radar-pct" id="radar-pct">—</span>
-                        <span class="radar-zone" id="radar-zone">WAITING</span>
-                    </div>
-                    <div class="rssi-label">
-                        <span>Merlin signal</span>
-                        <span id="rssi-pct-text">—</span>
-                    </div>
-                    <div class="rssi-bar-wrap">
-                        <div class="rssi-bar-fill cold" id="rssi-bar"></div>
-                    </div>
-                    <p id="find-signal-status" class="standby" style="text-align:left;font-size:12px;margin-top:10px;"></p>
-                    <button type="button" class="btn-giant confirm-next" id="confirm-found-next" style="display:none;">
-                        🎯 Confirm Found (Next Item)
-                    </button>
-                </div>
-                <div class="find-up-next-zone" id="up-next-section" style="display:none;">
-                    <h3>Up Next in Batch Queue</h3>
-                    <div id="up-next-list"></div>
+                    <div id="hunt-radar-grid" class="hunt-radar-grid" aria-live="polite"></div>
+                    <p id="find-signal-status" class="standby" style="text-align:left;font-size:12px;margin-top:8px;"></p>
                 </div>
                 <button type="button" class="btn-giant btn-danger" id="clear-hunt">
-                    ✓ CLEAR HUNT TARGET
+                    ✓ CLEAR ALL HUNT TARGETS
                 </button>
             </div>
         </section>
@@ -885,10 +898,12 @@
     </div>
 
     <script src="/inventory-shared.js"></script>
+    <script src="/hunt-shared.js"></script>
+    <script src="/hunt-transport.js"></script>
     <script src="/onboarding-wizard.js"></script>
     <script>
         const SCANNER_ID = 'HTE00072';
-        const TARGET_POLL_MS = 1500;
+        const HUNT_FAST_POLL_MS = 120;
         const INVENTORY_SYNC_MS = 2000;
         let activeView = 'scan';
         let inventorySyncTimer = null;
@@ -899,11 +914,11 @@
         let mobileBinsSearchQuery = '';
         let inventoryStatusFilter = 'ALL';
         let sheetEditEpc = null;
-        let findPollTimer = null;
+        let huntTransport = null;
+        let huntFocusIndex = 0;
+        let lastHuntPayload = null;
         let activeSearchQueue = [];
         let lastHuntSignal = null;
-        let radarFocusEpc = null;
-        let lastUpNextKey = '';
         let isAdvancingQueue = false;
         let itemLookup = {};
         let registeredContainers = [];
@@ -1118,62 +1133,71 @@
             return Math.round(clamp((dbm + 100) / 70 * 100, 0, 100));
         }
 
-        function updateGeigerBars(pct, zoneCls) {
-            const litCount = Math.max(1, Math.round((pct / 100) * 8));
-            document.querySelectorAll('#geiger-bars .geiger-bar').forEach((bar, i) => {
-                const lit = i < litCount;
-                bar.classList.toggle('lit', lit);
-                bar.classList.toggle('hot', lit && zoneCls === 'hot');
-                bar.classList.toggle('warm', lit && zoneCls === 'warm');
-            });
+        function applyHuntPayload(data) {
+            if (!data) return;
+            lastHuntPayload = data;
+            lastHuntSignal = data.hunt_signal || null;
+            activeSearchQueue = Array.isArray(data.activeSearchQueue) ? data.activeSearchQueue : [];
+            if (data.rssi_near_gate != null) {
+                rssiNearGate = parseInt(data.rssi_near_gate, 10) || rssiNearGate;
+            }
+            if (data.rssi_far_gate != null) {
+                rssiFarGate = parseInt(data.rssi_far_gate, 10) || rssiFarGate;
+            }
+            if (activeView === 'find') {
+                if (!activeSearchQueue.length) {
+                    showFindStandby();
+                } else {
+                    renderMultiHuntRadar(data);
+                }
+            }
         }
 
-        function applyHuntSignal(signal) {
-            lastHuntSignal = signal;
+        function renderMultiHuntRadar(data) {
+            const grid = document.getElementById('hunt-radar-grid');
             const statusEl = document.getElementById('find-signal-status');
-            if (!signal) {
-                document.getElementById('proximity-dbm').textContent = '— dBm';
-                document.getElementById('radar-pct').textContent = '—';
-                document.getElementById('radar-zone').textContent = 'WAITING';
-                document.getElementById('rssi-pct-text').textContent = '—';
-                document.getElementById('rssi-bar').style.width = '0%';
-                if (statusEl) statusEl.textContent = '';
-                return;
-            }
+            if (!grid) return;
 
-            const zoneLabel = signal.zone || 'NO_SIGNAL';
-            const cls = zoneClassFromLabel(zoneLabel);
-            let pct = 0;
-            let dbmText = '— dBm';
+            document.getElementById('find-standby').style.display = 'none';
+            document.getElementById('find-radar').style.display = 'block';
 
-            if (signal.rssi != null && !Number.isNaN(signal.rssi)) {
-                pct = dbmToPct(signal.rssi);
-                dbmText = signal.rssi + ' dBm';
-            }
+            const queue = data.activeSearchQueue || [];
+            const targets = data.hunt_targets || [];
+            if (huntFocusIndex >= queue.length) huntFocusIndex = Math.max(0, queue.length - 1);
 
-            document.getElementById('proximity-dbm').textContent = dbmText;
-            document.getElementById('radar-pct').textContent =
-                signal.rssi != null ? String(signal.rssi) : '—';
-            document.getElementById('radar-zone').textContent = zoneLabel.replace('_', ' ');
-            document.getElementById('rssi-pct-text').textContent =
-                signal.rssi != null ? pct + '% of gate span' : 'No read yet';
+            grid.innerHTML = queue
+                .map((epc, idx) => {
+                    const item = itemLookup[epc] || {};
+                    const signal = MerlinHunt.findSignalForEpc(targets, epc) || { zone: 'NO_SIGNAL' };
+                    const zoneCls = MerlinHunt.zoneMeterClass(signal.zone);
+                    const heightPct = MerlinHunt.meterHeightPct(signal, rssiNearGate, rssiFarGate);
+                    const focused = idx === huntFocusIndex ? ' focused' : '';
+                    const cat = item.category ? escapeHtml(item.category) : '—';
+                    return `
+                <div class="hunt-column${focused}" data-epc="${escapeHtml(epc)}" data-idx="${idx}">
+                    <p class="hunt-column-name">${escapeHtml(item.name || 'Unknown')}</p>
+                    <p class="hunt-column-cat">${cat}</p>
+                    <div class="hunt-meter-vert" aria-hidden="true">
+                        <div class="hunt-meter-fill ${zoneCls}" style="height:${heightPct}%"></div>
+                    </div>
+                    <p class="hunt-column-zone">${escapeHtml(MerlinHunt.normalizeZoneLabel(signal.zone))}</p>
+                    <p class="hunt-column-dbm">${escapeHtml(MerlinHunt.dbmDisplay(signal))}</p>
+                    <p class="hunt-column-epc">${escapeHtml(epc)}</p>
+                    <button type="button" class="hunt-column-remove" data-epc="${escapeHtml(epc)}">Remove</button>
+                </div>`;
+                })
+                .join('');
 
-            const ring = document.getElementById('radar-ring');
-            const bar = document.getElementById('rssi-bar');
-            const meter = document.getElementById('proximity-meter');
-            ring.className = 'radar-ring ' + cls;
-            bar.className = 'rssi-bar-fill ' + cls;
-            bar.style.width = pct + '%';
-            meter.className = 'proximity-meter ' + cls;
-            updateGeigerBars(pct, cls);
+            grid.querySelectorAll('.hunt-column-remove').forEach((btn) => {
+                btn.addEventListener('click', () => removeFromHuntQueue(btn.dataset.epc));
+            });
 
             if (statusEl) {
-                let msg = signal.message || '';
-                if (signal.stale && !msg) msg = 'Signal stale — pull trigger on the Merlin again.';
-                if (signal.age_ms != null && signal.rssi != null) {
-                    msg = (msg ? msg + ' ' : '') + '(' + Math.round(signal.age_ms / 100) / 10 + 's ago)';
-                }
-                statusEl.textContent = msg;
+                const liveCount = (targets || []).filter((t) => t && t.rssi != null).length;
+                statusEl.textContent =
+                    liveCount > 0
+                        ? liveCount + ' of ' + queue.length + ' target(s) with live wedge RSSI'
+                        : 'Pull trigger on Merlin — waiting for RFID reads with RSSI.';
             }
         }
 
@@ -1211,7 +1235,7 @@
                     rssiFarGate = parseInt(searchData.rssi_far_gate, 10) || rssiFarGate;
                 }
                 if (activeView === 'find' && activeSearchQueue.length) {
-                    applyHuntSignal(searchData.hunt_signal || null);
+                    applyHuntPayload(searchData);
                 }
                 applyLocalInventoryState(data.items || []);
                 if (badge) {
@@ -1400,21 +1424,32 @@
             return data;
         }
 
+        async function postHuntQueue(epcIds) {
+            const res = await fetch('/api/search/target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ epc_ids: epcIds }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Hunt queue update failed');
+            applyHuntPayload(data);
+            return data;
+        }
+
+        async function removeFromHuntQueue(epc) {
+            const next = activeSearchQueue.filter((id) => id !== epc);
+            await postHuntQueue(next);
+            await syncInventoryFromServer();
+        }
+
         async function toggleFindFromInventory(epc) {
+            let next;
             if (activeSearchQueue.includes(epc)) {
-                const next = activeSearchQueue.filter((id) => id !== epc);
-                await fetch('/api/search/target', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ epc_ids: next }),
-                });
+                next = activeSearchQueue.filter((id) => id !== epc);
             } else {
-                await fetch('/api/search/target', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ epc_ids: [epc] }),
-                });
+                next = activeSearchQueue.concat([epc]);
             }
+            await postHuntQueue(next);
             await syncInventoryFromServer();
             if (activeView !== 'find') switchView('find');
         }
@@ -1428,142 +1463,38 @@
         function showFindStandby() {
             document.getElementById('find-standby').style.display = 'block';
             document.getElementById('find-radar').style.display = 'none';
-            radarFocusEpc = null;
-            lastUpNextKey = '';
-            applyHuntSignal(null);
+            huntFocusIndex = 0;
+            lastHuntPayload = null;
+            lastHuntSignal = null;
         }
 
-        function renderUpNextList(upNext) {
-            const key = upNext.join('|');
-            if (key === lastUpNextKey) return;
-            lastUpNextKey = key;
-
-            const container = document.getElementById('up-next-list');
-            if (!upNext.length) {
-                container.innerHTML = '';
-                return;
-            }
-
-            container.innerHTML = upNext.map((epc, i) => `
-                <div class="up-next-item">
-                    <div class="name">${i + 2}. ${escapeHtml(resolveItemName(epc))}</div>
-                    <div class="epc">${escapeHtml(epc)}</div>
-                </div>
-            `).join('');
-        }
-
-        function syncFocusedHunt(queue) {
-            document.getElementById('find-standby').style.display = 'none';
-            document.getElementById('find-radar').style.display = 'block';
-
-            const primary = queue[0];
-            const upNext = queue.slice(1);
-            const isBatch = queue.length >= 2;
-
-            const posLabel = document.getElementById('batch-position-label');
-            posLabel.style.display = isBatch ? 'block' : 'none';
-            if (isBatch) {
-                posLabel.textContent = 'Active target 1 of ' + queue.length + ' in batch';
-            }
-
-            const nameEl = document.getElementById('radar-name');
-            const epcEl = document.getElementById('radar-epc');
-            const nextName = resolveItemName(primary);
-
-            if (radarFocusEpc !== primary) {
-                radarFocusEpc = primary;
-                nameEl.textContent = nextName;
-                epcEl.textContent = primary;
-            } else if (nameEl.textContent !== nextName) {
-                nameEl.textContent = nextName;
-            }
-
-            document.getElementById('confirm-found-next').style.display = isBatch ? 'block' : 'none';
-            document.getElementById('up-next-section').style.display = isBatch ? 'block' : 'none';
-
-            if (isBatch) {
-                renderUpNextList(upNext);
-            } else {
-                lastUpNextKey = '';
-            }
-        }
-
-        async function confirmFoundNext() {
-            if (activeSearchQueue.length < 2 || isAdvancingQueue) return;
-
-            const btn = document.getElementById('confirm-found-next');
-            btn.disabled = true;
-            isAdvancingQueue = true;
-
-            try {
-                const nextQueue = activeSearchQueue.slice(1);
-                const res = await fetch('/api/search/target', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ epc_ids: nextQueue }),
-                });
-                const data = await res.json();
-                activeSearchQueue = Array.isArray(data.activeSearchQueue) ? data.activeSearchQueue : nextQueue;
-                lastUpNextKey = '';
-
-                if (activeView === 'find') {
-                    if (!activeSearchQueue.length) {
-                        showFindStandby();
-                    } else {
-                        syncFocusedHunt(activeSearchQueue);
-                    }
-                }
-            } catch (err) {
-                alert('Could not advance queue: ' + err.message);
-            } finally {
-                btn.disabled = false;
-                isAdvancingQueue = false;
-            }
-        }
-
-        async function pollSearchTarget() {
-            if (isAdvancingQueue) return;
-
-            try {
-                const res = await fetch('/api/search/target');
-                const data = await res.json();
-                const queue = Array.isArray(data.activeSearchQueue) ? data.activeSearchQueue : [];
-
-                activeSearchQueue = queue;
-                if (data.rssi_near_gate != null) {
-                    rssiNearGate = parseInt(data.rssi_near_gate, 10) || rssiNearGate;
-                }
-                if (data.rssi_far_gate != null) {
-                    rssiFarGate = parseInt(data.rssi_far_gate, 10) || rssiFarGate;
-                }
-
-                if (!queue.length) {
-                    if (activeView === 'find') showFindStandby();
-                    return;
-                }
-
-                if (activeView === 'find') {
+        function startHuntTransport() {
+            if (huntTransport) return;
+            const badge = document.getElementById('hunt-transport-badge');
+            huntTransport = MerlinHuntTransport.create({
+                preferWebSocket: true,
+                trySse: true,
+                fastPollMs: HUNT_FAST_POLL_MS,
+                onMode: (mode) => {
+                    if (badge) badge.textContent = 'Hunt link: ' + mode;
+                },
+                onPayload: async (data) => {
+                    const queue = data.activeSearchQueue || [];
                     const needsLookup = queue.some((epc) => !itemLookup[epc]);
                     if (needsLookup) await refreshItemLookup();
-                    syncFocusedHunt(queue);
-                    applyHuntSignal(data.hunt_signal || null);
-                }
-            } catch (err) {
-                console.warn('Find poll failed:', err);
-            }
+                    applyHuntPayload(data);
+                },
+            });
+            huntTransport.start();
         }
 
-        function startFindPolling() {
-            if (findPollTimer) return;
-            pollSearchTarget();
-            findPollTimer = setInterval(pollSearchTarget, TARGET_POLL_MS);
-        }
-
-        function stopFindPolling() {
-            if (findPollTimer) {
-                clearInterval(findPollTimer);
-                findPollTimer = null;
+        function stopHuntTransport() {
+            if (huntTransport) {
+                huntTransport.stop();
+                huntTransport = null;
             }
+            const badge = document.getElementById('hunt-transport-badge');
+            if (badge) badge.textContent = '';
         }
 
         async function clearHuntTarget() {
@@ -1662,8 +1593,15 @@
             });
 
             if (view === 'find') {
-                startFindPolling();
-                pollSearchTarget();
+                startHuntTransport();
+                if (lastHuntPayload) {
+                    applyHuntPayload(lastHuntPayload);
+                } else {
+                    fetch('/api/search/target')
+                        .then((r) => r.json())
+                        .then((data) => applyHuntPayload(data))
+                        .catch(() => {});
+                }
             }
 
             if (view === 'inventory') {
@@ -1684,8 +1622,6 @@
 
         document.getElementById('trigger-scan').addEventListener('click', triggerQuickScan);
         document.getElementById('clear-hunt').addEventListener('click', clearHuntTarget);
-        document.getElementById('confirm-found-next').addEventListener('click', confirmFoundNext);
-
         document.getElementById('bin-select').addEventListener('change', () => {
             document.getElementById('bin-epc-custom').value = '';
         });
@@ -1835,7 +1771,7 @@
                 document.getElementById('bin-select').selectedIndex = 0;
             }
         });
-        startFindPolling();
+        startHuntTransport();
     </script>
 </body>
 </html>
