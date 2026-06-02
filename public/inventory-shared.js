@@ -255,6 +255,20 @@
         return enrichItems([{ ...item, home_container_id: currentId, container_id: currentId }])[0];
     }
 
+    async function pullHandheldSync() {
+        const res = await fetch('/api/handheld/sync');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Handheld sync failed');
+        return data;
+    }
+
+    async function pullHandheldSyncSummary() {
+        const res = await fetch('/api/handheld/sync-summary');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Hunt sync failed');
+        return data;
+    }
+
     global.MerlinInventory = {
         normalizeContainerId,
         computeItemStatus,
@@ -277,6 +291,8 @@
         parseServerTimestamp,
         formatScanTimestamp,
         formatScanTimestampWithDate,
+        pullHandheldSync,
+        pullHandheldSyncSummary,
         STATUS_PILLS,
     };
 })(typeof window !== 'undefined' ? window : global);

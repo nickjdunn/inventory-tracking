@@ -13,6 +13,9 @@ namespace MerlinHandheld
         public string ScannerId = "merlin-handheld-01";
         public string LastBinId = "";
         public string LastMode = "Receive";
+        public bool HardwareNurEnabled = true;
+        public bool HardwareWedgeEnabled = true;
+        public string NurAssemblyPath = "";
 
         public static string ConfigDirectory
         {
@@ -48,6 +51,9 @@ namespace MerlinHandheld
                     else if (key == "scanner") cfg.ScannerId = val;
                     else if (key == "bin") cfg.LastBinId = val;
                     else if (key == "mode") cfg.LastMode = val;
+                    else if (key == "nur") cfg.HardwareNurEnabled = val == "1" || val.ToLower() == "true";
+                    else if (key == "wedge") cfg.HardwareWedgeEnabled = val == "1" || val.ToLower() == "true";
+                    else if (key == "nur_dll") cfg.NurAssemblyPath = val;
                 }
             }
             catch { }
@@ -62,6 +68,12 @@ namespace MerlinHandheld
             sb.AppendLine("scanner=" + ScannerId);
             sb.AppendLine("bin=" + (LastBinId ?? ""));
             sb.AppendLine("mode=" + (LastMode ?? "Receive"));
+            sb.AppendLine("nur=" + (HardwareNurEnabled ? "1" : "0"));
+            sb.AppendLine("wedge=" + (HardwareWedgeEnabled ? "1" : "0"));
+            if (NurAssemblyPath != null && NurAssemblyPath.Length > 0)
+            {
+                sb.AppendLine("nur_dll=" + NurAssemblyPath);
+            }
             File.WriteAllText(ConfigPath, sb.ToString());
         }
     }

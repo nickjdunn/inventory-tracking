@@ -157,8 +157,21 @@ Run the exe from `\Program Files\MerlinInventory\` on the device. CAB is nicer f
 2. Server: `http://10.17.17.17:3000` (your IP).
 3. Scanner ID: e.g. `merlin-handheld-01`.
 4. Tap **Save** → **Sync inventory** (wait for item/bin counts).
-5. **Receive** tab → pick bin → paste a test EPC → **Send tags**.
+5. **Receive** tab → pick bin → pull RFID trigger (or F1) → tags post to server.
 6. On desktop dashboard, confirm scanner shows online.
+
+### Hardware (RFID trigger, barcode, hunt-only sync)
+
+The native app uses **HardwareBridge** (`HardwareBridge.cs`, `NurApiBridge.cs`, `WedgeInputCapture.cs`):
+
+| Input | Behavior |
+|-------|----------|
+| RFID trigger / F1 | Nordic **NUR** inventory when `NurApi.dll` is on device; otherwise keyboard **wedge** capture |
+| Scan key / F2 (Add mode) | Barcode wedge for UPC |
+| **Set → Refresh hunt only** | `GET /api/handheld/sync-summary` — hunt queue only, not full inventory |
+| **Find → Refresh hunt** | Same lightweight hunt sync |
+
+Settings still offers **full Sync inventory** (`/api/handheld/sync`). On weak Wi‑Fi, use hunt-only refresh while hunting.
 
 ---
 
@@ -178,7 +191,7 @@ Run the exe from `\Program Files\MerlinInventory\` on the device. CAB is nicer f
 
 - Build errors: paste the **full Error List** from VS2008.
 - Merlin CPU/platform: tell us exact model (e.g. HTE00072) and CE version from **Settings → System**.
-- After CAB works: wire **real trigger** + **Scan key** via Nordic SDK (replaces F1/F2).
+- NUR DLL missing on gun: F1/F2 + wedge still work; copy Nordic `NurApi` DLL per Merlin SDK if trigger inventory is silent.
 
 ---
 

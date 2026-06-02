@@ -10,6 +10,7 @@ namespace MerlinHandheld
         private readonly AppConfig _cfg = AppConfig.Load();
         private readonly HandheldState _state = new HandheldState();
         private readonly InventoryApiClient _api;
+        private readonly HardwareBridge _hardware;
         private readonly Panel _host;
         private readonly Label _topStatus;
         private readonly Timer _heartbeatTimer;
@@ -65,12 +66,23 @@ namespace MerlinHandheld
             _find = new FindPanel(_cfg, _state, _api);
             _add = new AddPanel(_cfg, _state, _api);
             _settings = new SettingsPanel(_cfg, _state, _api);
+
+            _hardware = new HardwareBridge(this, _cfg);
+            _hardware.RfidDataReceived += HardwareOnRfid;
+            _hardware.BarcodeReceived += HardwareOnBarcode;
+
             _receive.StatusChanged += delegate { UpdateTopStatus(); };
             _settings.SyncCompleted += delegate
             {
                 _receive.RefreshBins();
                 _add.RefreshBins();
                 _find.RefreshList();
+                UpdateTopStatus();
+            };
+            _settings.HuntSyncCompleted += delegate
+            {
+                _find.RefreshList();
+                _find.RefreshHuntDisplay();
                 UpdateTopStatus();
             };
 
@@ -87,6 +99,7 @@ namespace MerlinHandheld
             _heartbeatTimer.Enabled = true;
 
             Load += MainForm_Load;
+            FormClosed += delegate { if (_hardware != null) _hardware.Dispose(); };
             ShowMode(_cfg.LastMode != null && _cfg.LastMode.Length > 0 ? _cfg.LastMode : "Receive");
         }
 
@@ -106,6 +119,7 @@ namespace MerlinHandheld
         private void MainForm_Load(object sender, EventArgs e)
         {
             UpdateTopStatus();
+            ApplyHardwareModeForView();
             ThreadPool.QueueUserWorkItem(delegate
             {
                 _api.ScannerPing();
@@ -121,9 +135,70 @@ namespace MerlinHandheld
                         _find.RefreshList();
                     }
                     _topStatus.Text = ok ? _state.LastMessage : ("Sync failed: " + err);
+                    UpdateTopStatus();
                     CheckForAppUpdate(false);
                 }), null, EventArgs.Empty);
             });
+        }
+
+        private void ApplyHardwareModeForView()
+        {
+            if (_mode == "Add")
+            {
+                _hardware.SetInputMode("barcode");
+            }
+            else
+            {
+                _hardware.SetInputMode("rfid");
+            }
+        }
+
+        private void HardwareOnRfid(object sender, HardwareRfidEventArgs e)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new EventHandler(delegate { HardwareOnRfid(sender, e); }), null, EventArgs.Empty);
+                return;
+            }
+            if (_mode == "Receive")
+            {
+                _receive.SetWedgeText(e.WedgeText);
+            }
+            else if (_mode == "Find")
+            {
+                _find.OnTriggerRead(e.WedgeText);
+            }
+            else if (_mode == "Add")
+            {
+                _add.SetEpc(FirstEpcFromWedge(e.WedgeText));
+            }
+        }
+
+        private void HardwareOnBarcode(object sender, HardwareBarcodeEventArgs e)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new EventHandler(delegate { HardwareOnBarcode(sender, e); }), null, EventArgs.Empty);
+                return;
+            }
+            if (_mode == "Add")
+            {
+                _add.SetUpc(e.Code);
+            }
+        }
+
+        private static string FirstEpcFromWedge(string wedgeText)
+        {
+            if (wedgeText == null) return "";
+            string[] parts = wedgeText.Split(new char[] { ',', '\n', '\r', '\t', ' ' });
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (parts[i] != null && parts[i].Trim().Length > 0)
+                {
+                    return parts[i].Trim();
+                }
+            }
+            return wedgeText.Trim();
         }
 
         private void CheckForAppUpdate(bool alwaysPromptOnError)
@@ -137,7 +212,6 @@ namespace MerlinHandheld
                     if (upd.UpdateAvailable)
                     {
                         UpdateChecker.PromptIfUpdateAvailable(upd, _cfg.ServerUrl);
-                        _topStatus.Text = "Update " + upd.ServerVersion + " available (you have " + AppConfig.AppVersion + ")";
                     }
                     else if (alwaysPromptOnError)
                     {
@@ -155,20 +229,15 @@ namespace MerlinHandheld
         {
             if (e.KeyCode == Keys.F1)
             {
-                if (_mode == "Receive")
+                _hardware.SetInputMode("rfid");
+                if (_hardware.NurAvailable)
                 {
-                    string t = PromptWedgeRead();
-                    if (t != null) _receive.SetWedgeText(t);
+                    _hardware.FireTriggerInventory();
                 }
-                else if (_mode == "Find")
+                else
                 {
-                    string t = PromptWedgeRead();
-                    if (t != null) _find.OnTriggerRead(t);
-                }
-                else if (_mode == "Add")
-                {
-                    string t = PromptWedgeRead();
-                    if (t != null) _add.SetEpc(t);
+                    _hardware.ArmWedgeCapture();
+                    _topStatus.Text = "Pull trigger or scan into wedge…";
                 }
                 e.Handled = true;
             }
@@ -176,48 +245,11 @@ namespace MerlinHandheld
             {
                 if (_mode == "Add")
                 {
-                    string u = PromptScanRead();
-                    if (u != null) _add.SetUpc(u);
+                    _hardware.SetInputMode("barcode");
+                    _hardware.ArmWedgeCapture();
+                    _topStatus.Text = "Scan barcode (Scan key)…";
                 }
                 e.Handled = true;
-            }
-        }
-
-        private string PromptWedgeRead()
-        {
-            using (var dlg = new Form())
-            {
-                dlg.Text = "RFID read (Trigger)";
-                dlg.Width = 280;
-                dlg.Height = 160;
-                var tb = new TextBox
-                {
-                    Multiline = true,
-                    Dock = DockStyle.Fill,
-                    Font = new Font("Tahoma", 8f),
-                    Text = "EPC001,EPC002"
-                };
-                var ok = new Button { Text = "OK", Dock = DockStyle.Bottom, Height = 32 };
-                ok.Click += delegate { dlg.DialogResult = DialogResult.OK; dlg.Close(); };
-                dlg.Controls.Add(tb);
-                dlg.Controls.Add(ok);
-                return dlg.ShowDialog() == DialogResult.OK ? tb.Text : null;
-            }
-        }
-
-        private string PromptScanRead()
-        {
-            using (var dlg = new Form())
-            {
-                dlg.Text = "UPC (Scan key)";
-                dlg.Width = 280;
-                dlg.Height = 120;
-                var tb = new TextBox { Dock = DockStyle.Top, Height = 28 };
-                var ok = new Button { Text = "OK", Dock = DockStyle.Bottom, Height = 32 };
-                ok.Click += delegate { dlg.DialogResult = DialogResult.OK; dlg.Close(); };
-                dlg.Controls.Add(ok);
-                dlg.Controls.Add(tb);
-                return dlg.ShowDialog() == DialogResult.OK ? tb.Text : null;
             }
         }
 
@@ -226,6 +258,7 @@ namespace MerlinHandheld
             _mode = mode;
             _cfg.LastMode = mode;
             _cfg.Save();
+            ApplyHardwareModeForView();
 
             _host.Controls.Clear();
             UserControl panel;
@@ -242,14 +275,19 @@ namespace MerlinHandheld
             _btnAdd.BackColor = mode == "Add" ? Color.FromArgb(56, 189, 248) : Color.FromArgb(51, 65, 85);
             _btnSet.BackColor = mode == "Set" ? Color.FromArgb(56, 189, 248) : Color.FromArgb(51, 65, 85);
 
-            if (mode == "Find") _find.RefreshList();
+            if (mode == "Find")
+            {
+                _find.RefreshList();
+                _find.RefreshHuntDisplay();
+            }
             UpdateTopStatus();
         }
 
         private void UpdateTopStatus()
         {
             string bin = _cfg.LastBinId != null && _cfg.LastBinId.Length > 0 ? _cfg.LastBinId : "—";
-            _topStatus.Text = _state.LastMessage + " | Bin:" + bin;
+            string hw = _hardware != null ? _hardware.StatusLine : "";
+            _topStatus.Text = _state.LastMessage + " | Bin:" + bin + " | " + hw;
         }
     }
 }

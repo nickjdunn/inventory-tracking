@@ -87,6 +87,40 @@ namespace MerlinHandheld
             return TryApplySync(json, state, out error);
         }
 
+        /// <summary>Updates hunt queue and RSSI gates only — does not replace item/bin cache.</summary>
+        public bool TryApplyHuntSummary(string json, HandheldState state, out string error)
+        {
+            error = "";
+            if (json == null || json.IndexOf("\"error\"") >= 0)
+            {
+                error = SimpleJson.ExtractString(json, "error");
+                if (error.Length == 0) error = "Hunt sync failed";
+                return false;
+            }
+
+            state.RssiNearGate = SimpleJson.ExtractInt(json, "rssi_near_gate", state.RssiNearGate);
+            int far = SimpleJson.ExtractInt(json, "rssi_far_gate", -999);
+            if (far > -999) { }
+
+            state.HuntQueue.Clear();
+            string huntJson = ExtractArrayBody(json, "activeSearchQueue");
+            if (huntJson != null)
+            {
+                ParseStringArray(huntJson, state.HuntQueue);
+            }
+
+            int serverCount = SimpleJson.ExtractInt(json, "hunt_targets", state.HuntQueue.Count);
+            if (state.HuntQueue.Count == 0 && serverCount > 0)
+            {
+                state.LastMessage = "Hunt: " + serverCount + " on server (list empty in response)";
+            }
+            else
+            {
+                state.LastMessage = "Hunt refreshed: " + state.HuntQueue.Count + " target(s)";
+            }
+            return true;
+        }
+
         public HttpResult PostScan(ArrayList tags, string targetBinId)
         {
             var sb = new StringBuilder();

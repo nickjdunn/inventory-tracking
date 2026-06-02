@@ -45,6 +45,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AppConfig.cs" />
+    <Compile Include="HardwareBridge.cs" />
     <Compile Include="HandheldPanels.cs" />
     <Compile Include="HandheldState.cs" />
     <Compile Include="HttpHelper.cs" />
@@ -53,11 +54,13 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Models.cs" />
+    <Compile Include="NurApiBridge.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="SimpleJson.cs" />
     <Compile Include="TagParser.cs" />
     <Compile Include="UpdateChecker.cs" />
     <Compile Include="UrlCodec.cs" />
+    <Compile Include="WedgeInputCapture.cs" />
     <Compile Include="VersionCompare.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

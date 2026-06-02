@@ -24,7 +24,7 @@ namespace MerlinHandheld
 
             var hint = new Label
             {
-                Text = "TRIGGER=RFID (paste wedge tags below until SDK wired)",
+                Text = "Trigger / F1 = RFID wedge or NUR. Paste tags below if needed.",
                 Top = 4,
                 Left = 4,
                 Width = 300,
@@ -162,15 +162,25 @@ namespace MerlinHandheld
             _state = state;
             _api = api;
 
-            _searchBox = new TextBox { Top = 4, Left = 4, Width = 300 };
+            var refreshHuntBtn = new Button
+            {
+                Text = "Refresh hunt",
+                Top = 4,
+                Left = 4,
+                Width = 300,
+                Height = 26
+            };
+            refreshHuntBtn.Click += delegate { RefreshHuntFromServer(); };
+
+            _searchBox = new TextBox { Top = 34, Left = 4, Width = 300 };
             _searchBox.TextChanged += delegate { RefreshList(); };
 
-            _list = new ListBox { Top = 28, Left = 4, Width = 300, Height = 150, Font = new Font("Tahoma", 8f) };
+            _list = new ListBox { Top = 58, Left = 4, Width = 300, Height = 122, Font = new Font("Tahoma", 8f) };
 
             var huntBtn = new Button
             {
                 Text = "Hunt selected",
-                Top = 182,
+                Top = 186,
                 Left = 4,
                 Width = 300,
                 Height = 32
@@ -180,7 +190,7 @@ namespace MerlinHandheld
             var clearBtn = new Button
             {
                 Text = "Clear hunt",
-                Top = 218,
+                Top = 222,
                 Left = 4,
                 Width = 140,
                 Height = 28
@@ -201,18 +211,63 @@ namespace MerlinHandheld
             _huntLabel = new Label
             {
                 Text = "Sync inventory on Settings tab",
-                Top = 252,
+                Top = 256,
                 Left = 4,
                 Width = 300,
                 Height = 50,
                 Font = new Font("Tahoma", 8f)
             };
 
+            Controls.Add(refreshHuntBtn);
             Controls.Add(_searchBox);
             Controls.Add(_list);
             Controls.Add(huntBtn);
             Controls.Add(clearBtn);
             Controls.Add(_huntLabel);
+        }
+
+        public void RefreshHuntDisplay()
+        {
+            if (_state.HuntQueue.Count == 0)
+            {
+                _huntLabel.Text = "No hunt targets — select item and Hunt";
+                _huntLabel.ForeColor = Color.White;
+                return;
+            }
+            var sb = new System.Text.StringBuilder();
+            sb.Append("Hunting ");
+            sb.Append(_state.HuntQueue.Count);
+            sb.Append(": ");
+            for (int i = 0; i < _state.HuntQueue.Count && i < 2; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append((string)_state.HuntQueue[i]);
+            }
+            if (_state.HuntQueue.Count > 2) sb.Append("…");
+            _huntLabel.Text = sb.ToString();
+            _huntLabel.ForeColor = Color.Khaki;
+        }
+
+        public void RefreshHuntFromServer()
+        {
+            _huntLabel.Text = "Refreshing hunt…";
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                HttpResult res = _api.SyncSummary();
+                string err = "";
+                bool ok = res.Ok && _api.TryApplyHuntSummary(res.Body, _state, out err);
+                BeginInvoke(new EventHandler(delegate
+                {
+                    if (ok)
+                    {
+                        RefreshHuntDisplay();
+                    }
+                    else
+                    {
+                        _huntLabel.Text = err.Length > 0 ? err : res.Error;
+                    }
+                }), null, EventArgs.Empty);
+            });
         }
 
         public void RefreshList()
@@ -340,7 +395,7 @@ namespace MerlinHandheld
             _state = state;
             _api = api;
 
-            Controls.Add(new Label { Text = "SCAN key = UPC", Top = 4, Left = 4, Width = 200, Height = 16 });
+            Controls.Add(new Label { Text = "Scan key / F2 = UPC wedge", Top = 4, Left = 4, Width = 200, Height = 16 });
 
             _upcBox = new TextBox { Top = 22, Left = 4, Width = 200 };
             var lookupBtn = new Button { Text = "Lookup", Top = 22, Left = 210, Width = 90, Height = 22 };
@@ -533,10 +588,20 @@ namespace MerlinHandheld
             var updateBtn = new Button { Text = "Check updates", Top = 112, Left = 196, Width = 104, Height = 28 };
             updateBtn.Click += delegate { CheckUpdates(); };
 
+            var huntBtn = new Button
+            {
+                Text = "Refresh hunt only",
+                Top = 146,
+                Left = 4,
+                Width = 296,
+                Height = 28
+            };
+            huntBtn.Click += delegate { HuntSync(); };
+
             var syncBtn = new Button
             {
-                Text = "Sync inventory",
-                Top = 146,
+                Text = "Sync full inventory",
+                Top = 178,
                 Left = 4,
                 Width = 296,
                 Height = 32,
@@ -548,10 +613,10 @@ namespace MerlinHandheld
             _status = new Label
             {
                 Text = _state.LastMessage,
-                Top = 184,
+                Top = 216,
                 Left = 4,
                 Width = 296,
-                Height = 100,
+                Height = 80,
                 Font = new Font("Tahoma", 8f)
             };
 
@@ -560,9 +625,12 @@ namespace MerlinHandheld
             Controls.Add(saveBtn);
             Controls.Add(pingBtn);
             Controls.Add(updateBtn);
+            Controls.Add(huntBtn);
             Controls.Add(syncBtn);
             Controls.Add(_status);
         }
+
+        public event EventHandler HuntSyncCompleted;
 
         private void CheckUpdates()
         {
@@ -611,6 +679,25 @@ namespace MerlinHandheld
         }
 
         public event EventHandler SyncCompleted;
+
+        private void HuntSync()
+        {
+            _cfg.ServerUrl = HttpHelper.NormalizeBaseUrl(_serverBox.Text);
+            _cfg.ScannerId = _scannerBox.Text.Trim();
+            _cfg.Save();
+            _status.Text = "Refreshing hunt…";
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                HttpResult res = _api.SyncSummary();
+                string err = "";
+                bool ok = res.Ok && _api.TryApplyHuntSummary(res.Body, _state, out err);
+                BeginInvoke(new EventHandler(delegate
+                {
+                    _status.Text = ok ? _state.LastMessage : (err.Length > 0 ? err : res.Error);
+                    if (ok && HuntSyncCompleted != null) HuntSyncCompleted(this, EventArgs.Empty);
+                }), null, EventArgs.Empty);
+            });
+        }
 
         private void Sync()
         {

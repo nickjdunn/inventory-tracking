@@ -783,6 +783,9 @@
                     Live RSSI from Merlin wedge — push updates via WebSocket (fallback long-poll on legacy guns).
                 </p>
                 <p id="hunt-transport-badge" class="hunt-transport-badge" aria-live="polite">Connecting…</p>
+                <button type="button" class="btn-giant" id="refresh-hunt-queue-btn" style="margin-bottom:12px;">
+                    ↻ Refresh hunt only
+                </button>
                 <div class="find-active-zone">
                     <div id="hunt-radar-grid" class="hunt-radar-grid" aria-live="polite"></div>
                     <p id="find-signal-status" class="standby" style="text-align:left;font-size:12px;margin-top:8px;"></p>
@@ -1248,19 +1251,33 @@
             }
         }
 
-        function useHandheldSyncPayload() {
-            return (
-                typeof MerlinHandheldDetect !== 'undefined' &&
-                MerlinHandheldDetect.shouldRedirectToHandheld &&
-                MerlinHandheldDetect.shouldRedirectToHandheld()
-            );
+        async function refreshHuntQueueOnly() {
+            try {
+                const data = await MerlinInventory.pullHandheldSyncSummary();
+                activeSearchQueue = data.activeSearchQueue || [];
+                if (data.rssi_near_gate != null) {
+                    rssiNearGate = parseInt(data.rssi_near_gate, 10) || rssiNearGate;
+                }
+                if (data.rssi_far_gate != null) {
+                    rssiFarGate = parseInt(data.rssi_far_gate, 10) || rssiFarGate;
+                }
+                if (activeView === 'find') {
+                    const searchRes = await fetch('/api/search/target');
+                    const searchData = await searchRes.json();
+                    applyHuntPayload(searchData);
+                }
+            } catch (err) {
+                console.warn('Hunt refresh:', err);
+            }
         }
 
         async function syncInventoryFromServer() {
             const badge = document.getElementById('inventory-sync-badge');
             try {
-                const searchRes = await fetch('/api/search/target');
-                const searchData = await searchRes.json();
+                const [syncData, searchData] = await Promise.all([
+                    MerlinInventory.pullHandheldSync(),
+                    fetch('/api/search/target').then((r) => r.json()),
+                ]);
                 activeSearchQueue = searchData.activeSearchQueue || [];
                 if (searchData.rssi_near_gate != null) {
                     rssiNearGate = parseInt(searchData.rssi_near_gate, 10) || rssiNearGate;
@@ -1272,27 +1289,12 @@
                     applyHuntPayload(searchData);
                 }
 
-                let items = [];
-                if (useHandheldSyncPayload()) {
-                    const syncRes = await fetch('/api/handheld/sync');
-                    const syncData = await syncRes.json();
-                    if (Array.isArray(syncData.containers) && syncData.containers.length) {
-                        registeredContainers = syncData.containers;
-                    }
-                    items = syncData.items || [];
-                } else {
-                    const dashRes = await fetch('/api/dashboard');
-                    const data = await dashRes.json();
-                    if (Array.isArray(data.containers) && data.containers.length) {
-                        registeredContainers = data.containers;
-                    }
-                    items = data.items || [];
+                if (Array.isArray(syncData.containers) && syncData.containers.length) {
+                    registeredContainers = syncData.containers;
                 }
-                applyLocalInventoryState(items);
+                applyLocalInventoryState(syncData.items || []);
                 if (badge) {
-                    badge.textContent = useHandheldSyncPayload()
-                        ? '● Handheld sync'
-                        : '● Live sync active';
+                    badge.textContent = '● Handheld sync';
                     badge.className = 'sync-badge';
                 }
             } catch (_) {
@@ -1683,6 +1685,7 @@
 
         document.getElementById('trigger-scan').addEventListener('click', triggerQuickScan);
         document.getElementById('clear-hunt').addEventListener('click', clearHuntTarget);
+        document.getElementById('refresh-hunt-queue-btn').addEventListener('click', refreshHuntQueueOnly);
         document.getElementById('bin-select').addEventListener('change', () => {
             document.getElementById('bin-epc-custom').value = '';
         });

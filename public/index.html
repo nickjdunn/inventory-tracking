@@ -137,6 +137,19 @@
             padding: 10px 14px;
         }
         .find-banner.hidden { display: none; }
+        .find-banner-row {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .find-banner-row.hidden { display: none; }
+        .find-banner-row .find-banner {
+            flex: 1;
+            margin-bottom: 0;
+            min-width: 200px;
+        }
         th.col-select, td.col-select {
             padding: 12px 8px;
             text-align: center;
@@ -299,7 +312,10 @@
         <div class="grid">
             <div class="card">
                 <h2>📦 Registered Items Master List</h2>
-                <div id="find-banner" class="find-banner hidden"></div>
+                <div id="find-banner-row" class="find-banner-row hidden">
+                    <div id="find-banner" class="find-banner"></div>
+                    <button type="button" class="btn" id="refresh-hunt-queue-btn" title="Lightweight hunt sync">↻ Refresh hunt</button>
+                </div>
                 <div class="inventory-toolbar">
                     <input type="search" id="inventory-search" class="inventory-search" placeholder="🔍 Search name, EPC, or bin…" autocomplete="off" aria-label="Filter inventory">
                     <div id="status-pill-row" class="status-pill-row" role="group" aria-label="Filter by status"></div>
@@ -591,17 +607,28 @@
         }
 
         function updateFindBanner() {
+            const row = document.getElementById('find-banner-row');
             const banner = document.getElementById('find-banner');
             if (!activeSearchQueue.length) {
-                banner.classList.add('hidden');
+                row.classList.add('hidden');
                 banner.textContent = '';
                 return;
             }
-            banner.classList.remove('hidden');
+            row.classList.remove('hidden');
             if (activeSearchQueue.length === 1) {
                 banner.textContent = '🔍 Batch Hunt active — 1 target: ' + activeSearchQueue[0];
             } else {
                 banner.textContent = '🔍 Batch Hunt active — ' + activeSearchQueue.length + ' targets queued';
+            }
+        }
+
+        async function refreshHuntQueueOnly() {
+            try {
+                const data = await MerlinInventory.pullHandheldSyncSummary();
+                activeSearchQueue = data.activeSearchQueue || [];
+                updateFindBanner();
+            } catch (err) {
+                console.warn('Hunt refresh:', err);
             }
         }
 
@@ -836,35 +863,42 @@
             }
         }
 
-        async function fetchDashboardData() {
+        async function fetchInventoryCore() {
+            const [syncResponse, searchResponse] = await Promise.all([
+                MerlinInventory.pullHandheldSync(),
+                fetch('/api/search/target'),
+            ]);
+            refreshScannerStatus();
+            const data = syncResponse;
+            const searchData = await searchResponse.json();
+            if (Array.isArray(data.containers) && data.containers.length) {
+                availableContainers = data.containers;
+            }
+            activeSearchQueue = searchData.activeSearchQueue || [];
+            updateFindBanner();
+
+            lastDashboardItems = MerlinInventory.enrichItems(data.items || []);
+            renderStatusPills();
+            const tableBody = document.getElementById('inventory-table');
+            if (lastDashboardItems.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag or use Add Item.</td></tr>`;
+            } else {
+                renderInventoryTable(lastDashboardItems);
+            }
+            document.getElementById('connection-status').textContent = '● Handheld sync active';
+            document.getElementById('connection-status').className = 'badge success';
+        }
+
+        async function fetchHistoryFeed() {
             try {
-                const [dashResponse, searchResponse] = await Promise.all([
-                    fetch('/api/dashboard'),
-                    fetch('/api/search/target')
-                ]);
-                refreshScannerStatus();
+                const dashResponse = await fetch('/api/dashboard');
                 const data = await dashResponse.json();
-                const searchData = await searchResponse.json();
-                if (Array.isArray(data.containers) && data.containers.length) {
-                    availableContainers = data.containers;
-                }
-                activeSearchQueue = searchData.activeSearchQueue || [];
-                updateFindBanner();
-
-                lastDashboardItems = MerlinInventory.enrichItems(data.items || []);
-                renderStatusPills();
-                const tableBody = document.getElementById('inventory-table');
-                if (lastDashboardItems.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No items registered. Scan an RFID tag or use Add Item.</td></tr>`;
-                } else {
-                    renderInventoryTable(lastDashboardItems);
-                }
-
                 const historyFeed = document.getElementById('history-feed');
-                if (data.history.length === 0) {
+                const history = data.history || [];
+                if (history.length === 0) {
                     historyFeed.innerHTML = `<p style="text-align:center; color: var(--text-muted);">No active scanning history logged.</p>`;
                 } else {
-                    historyFeed.innerHTML = data.history.map(log => {
+                    historyFeed.innerHTML = history.map(log => {
                         let badgeClass = 'info';
                         if (log.action === 'MOVED') badgeClass = 'warning';
                         if (log.action === 'FOUND') badgeClass = 'success';
@@ -880,10 +914,16 @@
                         `;
                     }).join('');
                 }
-                document.getElementById('connection-status').textContent = '● Live Sync Active';
-                document.getElementById('connection-status').className = 'badge success';
             } catch (error) {
-                console.error("Dashboard connection dropped:", error);
+                console.warn('History feed:', error);
+            }
+        }
+
+        async function fetchDashboardData() {
+            try {
+                await fetchInventoryCore();
+            } catch (error) {
+                console.error('Inventory sync failed:', error);
                 document.getElementById('connection-status').textContent = '⚠️ Sync Connection Interrupted';
                 document.getElementById('connection-status').className = 'badge warning';
             }
@@ -901,6 +941,7 @@
         });
 
         document.getElementById('hunt-selected-btn').addEventListener('click', huntSelectedItems);
+        document.getElementById('refresh-hunt-queue-btn').addEventListener('click', refreshHuntQueueOnly);
 
         MerlinInventory.bindInstantSearch(document.getElementById('inventory-search'), (query) => {
             inventorySearchQuery = query;
@@ -919,8 +960,10 @@
 
         loadContainersFromApi();
         fetchDashboardData();
+        fetchHistoryFeed();
         refreshScannerStatus();
         setInterval(fetchDashboardData, 2000);
+        setInterval(fetchHistoryFeed, 12000);
         setInterval(refreshScannerStatus, 5000);
     </script>
     <script src="/app-shell.js"></script>
