@@ -2,93 +2,222 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CE Wi‑Fi Test</title>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>CE Wi-Fi Test</title>
     <style>
-        body { font-family: Tahoma, sans-serif; background: #0f172a; color: #f8fafc; margin: 10px; font-size: 16px; }
-        h1 { font-size: 17px; color: #38bdf8; }
-        button { width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; background: #0369a1; color: #fff; border: none; border-radius: 6px; }
-        #log { background: #1e293b; padding: 10px; min-height: 120px; font-size: 14px; white-space: pre-wrap; word-break: break-all; }
+        body { font-family: Tahoma, Arial, sans-serif; background: #0f172a; color: #f8fafc; margin: 10px; font-size: 15px; }
+        h1 { font-size: 17px; color: #38bdf8; margin: 0 0 8px; }
+        button { width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; background: #0369a1; color: #fff; border: none; }
+        #log { background: #1e293b; padding: 10px; min-height: 140px; font-size: 13px; }
         .pass { color: #4ade80; }
         .fail { color: #fecaca; }
-        input { width: 100%; box-sizing: border-box; padding: 10px; margin: 6px 0; font-size: 15px; }
-        label { font-size: 13px; color: #94a3b8; }
+        .info { color: #94a3b8; }
+        input { width: 100%; padding: 10px; margin: 6px 0; font-size: 15px; box-sizing: border-box; }
+        label { font-size: 12px; color: #94a3b8; }
     </style>
 </head>
 <body>
-    <h1>📶 Wi‑Fi + API test</h1>
-    <p>No install — runs in the scanner browser.</p>
-    <label>Server (leave blank = this host)</label>
-    <input type="text" id="server" placeholder="10.17.17.17:3000">
+    <h1>Wi-Fi + API test</h1>
+    <p style="font-size:12px;color:#94a3b8;">Windows CE mode: JSONP (no XMLHttpRequest required)</p>
+    <label>Server (blank = this page host)</label>
+    <input type="text" id="server" value="">
     <button type="button" id="run">Run all tests</button>
-    <button type="button" id="hb">Heartbeat only</button>
     <div id="log">Tap Run…</div>
-    <p style="font-size:12px;color:#94a3b8;"><a href="/deploy/">← Deploy menu</a></p>
-    <script>
-        function base() {
-            var v = document.getElementById('server').value.replace(/^\s+|\s+$/g, '');
-            if (v) {
-                if (v.indexOf('http') !== 0) v = 'http://' + v;
-                return v.replace(/\/$/, '');
-            }
-            return location.protocol + '//' + location.host;
+    <p style="font-size:12px;"><a href="/deploy/">Deploy menu</a> | <a href="/mobile.html">Mobile UI</a></p>
+    <script type="text/javascript">
+        var jsonpCounter = 0;
+
+        function trim(s) {
+            return String(s || '').replace(/^\s+|\s+$/g, '');
         }
-        function log(msg, ok) {
+
+        function baseUrl() {
+            var v = trim(document.getElementById('server').value);
+            if (v) {
+                if (v.indexOf('http://') !== 0 && v.indexOf('https://') !== 0) {
+                    v = 'http://' + v;
+                }
+                while (v.length > 0 && v.charAt(v.length - 1) === '/') {
+                    v = v.substring(0, v.length - 1);
+                }
+                return v;
+            }
+            var loc = window.location;
+            return loc.protocol + '//' + loc.host;
+        }
+
+        function log(msg, kind) {
             var el = document.getElementById('log');
             var line = document.createElement('div');
-            line.className = ok ? 'pass' : 'fail';
+            line.className = kind || 'info';
             line.appendChild(document.createTextNode(msg));
             el.appendChild(line);
         }
-        function clear() { document.getElementById('log').innerHTML = ''; }
-        function xhr(method, url, body, cb) {
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function createXhr() {
             try {
-                var x = new XMLHttpRequest();
+                if (typeof XMLHttpRequest !== 'undefined') {
+                    return new XMLHttpRequest();
+                }
+            } catch (e1) {}
+            try {
+                return new ActiveXObject('Microsoft.XMLHTTP');
+            } catch (e2) {}
+            try {
+                return new ActiveXObject('Msxml2.XMLHTTP');
+            } catch (e3) {}
+            return null;
+        }
+
+        function httpRequest(method, url, body, cb) {
+            var x = createXhr();
+            if (!x) {
+                cb(false, 0, 'No XMLHttpRequest on this browser — use JSONP');
+                return;
+            }
+            try {
                 x.open(method, url, true);
-                x.setRequestHeader('Content-Type', 'application/json');
+                if (body) {
+                    try {
+                        x.setRequestHeader('Content-Type', 'application/json');
+                    } catch (hdrErr) {}
+                }
                 x.onreadystatechange = function () {
                     if (x.readyState !== 4) return;
-                    var ok = x.status >= 200 && x.status < 300;
-                    var text = x.responseText || '';
-                    cb(ok, x.status, text);
+                    var st = 0;
+                    try { st = x.status; } catch (stErr) {}
+                    var text = '';
+                    try { text = x.responseText || ''; } catch (txErr) {}
+                    cb(st >= 200 && st < 300, st, text);
                 };
-                x.send(body ? JSON.stringify(body) : null);
-            } catch (e) {
-                cb(false, 0, String(e.message || e));
+                x.send(body || null);
+            } catch (reqErr) {
+                cb(false, 0, String(reqErr.message || reqErr));
             }
         }
-        function runAll() {
-            clear();
-            var b = base();
-            log('Base URL: ' + b, true);
-            xhr('GET', b + '/api/deploy/info', null, function (ok, st, text) {
-                log('Deploy info: HTTP ' + st + (ok ? ' OK' : ' FAIL'), ok);
-                if (ok) log(text.substring(0, 200), true);
-            });
-            xhr('POST', b + '/api/scanner/heartbeat', {
-                scanner_id: 'merlin-ce-browser-test',
-                mode: 'wifi-test'
-            }, function (ok, st, text) {
-                log('Heartbeat: HTTP ' + st + (ok ? ' OK' : ' FAIL'), ok);
-            });
-            xhr('GET', b + '/api/handheld/sync', null, function (ok, st, text) {
-                log('Handheld sync: HTTP ' + st + (ok ? ' OK' : ' FAIL'), ok);
-                if (ok) {
-                    try {
-                        var d = JSON.parse(text);
-                        log('Items: ' + (d.items ? d.items.length : 0) + ', bins: ' + (d.containers ? d.containers.length : 0), true);
-                    } catch (e) { log('Parse sync JSON failed', false); }
+
+        function jsonpGet(url, cb) {
+            jsonpCounter += 1;
+            var cbName = 'merlinJsonp' + jsonpCounter + '_' + new Date().getTime();
+            var done = false;
+            var script = document.createElement('script');
+            var sep = url.indexOf('?') >= 0 ? '&' : '?';
+
+            function finish(ok, status, text, data) {
+                if (done) return;
+                done = true;
+                try { window[cbName] = null; } catch (e) {}
+                if (script.parentNode) {
+                    script.parentNode.removeChild(script);
                 }
+                cb(ok, status, text, data);
+            }
+
+            window[cbName] = function (data) {
+                var text = '';
+                try {
+                    text = JSON.stringify(data);
+                } catch (jsonErr) {
+                    text = '[object]';
+                }
+                finish(true, 200, text, data);
+            };
+
+            script.onerror = function () {
+                finish(false, 0, 'JSONP script load failed (network or blocked)', null);
+            };
+
+            script.src = url + sep + 'callback=' + cbName + '&_=' + new Date().getTime();
+            document.getElementsByTagName('head')[0].appendChild(script);
+
+            setTimeout(function () {
+                finish(false, 0, 'JSONP timeout (15s)', null);
+            }, 15000);
+        }
+
+        function apiGet(path, label, onDone) {
+            var b = baseUrl();
+            var url = b + path;
+            log(label + ' → ' + path, 'info');
+
+            jsonpGet(url, function (ok, st, text, data) {
+                if (ok) {
+                    log(label + ': OK (JSONP)', 'pass');
+                    if (data && data.error) {
+                        log(label + ' server error: ' + data.error, 'fail');
+                        onDone(false);
+                        return;
+                    }
+                    if (text && text.length < 220) {
+                        log(text, 'info');
+                    }
+                    onDone(true);
+                    return;
+                }
+
+                log(label + ': JSONP failed — ' + text, 'fail');
+                httpRequest('GET', url, null, function (xhrOk, xhrSt, xhrText) {
+                    if (xhrOk) {
+                        log(label + ': OK (XHR HTTP ' + xhrSt + ')', 'pass');
+                        onDone(true);
+                    } else {
+                        log(label + ': FAIL HTTP ' + xhrSt + ' — ' + xhrText, 'fail');
+                        onDone(false);
+                    }
+                });
             });
         }
-        document.getElementById('run').onclick = runAll;
-        document.getElementById('hb').onclick = function () {
-            clear();
-            var b = base();
-            xhr('POST', b + '/api/scanner/heartbeat', { scanner_id: 'merlin-ce-browser-test' }, function (ok, st) {
-                log('Heartbeat HTTP ' + st, ok);
+
+        function runNext(tests, index) {
+            if (index >= tests.length) {
+                log('Done.', 'info');
+                return;
+            }
+            tests[index](function () {
+                runNext(tests, index + 1);
             });
-        };
+        }
+
+        function runAll() {
+            clearLog();
+            var b = baseUrl();
+            log('Base URL: ' + b, 'info');
+            log('Browser: ' + (navigator.userAgent || 'unknown').substring(0, 80), 'info');
+
+            var tests = [
+                function (next) {
+                    apiGet('/api/ping', 'Ping', next);
+                },
+                function (next) {
+                    apiGet('/api/deploy/info', 'Deploy info', next);
+                },
+                function (next) {
+                    apiGet(
+                        '/api/scanner/ping?scanner_id=merlin-ce-browser-test&mode=wifi-test',
+                        'Scanner ping',
+                        next
+                    );
+                },
+                function (next) {
+                    apiGet('/api/handheld/sync-summary', 'Inventory sync summary', next);
+                }
+            ];
+
+            runNext(tests, 0);
+        }
+
+        document.getElementById('run').onclick = runAll;
+
+        (function init() {
+            var loc = window.location;
+            if (loc.host) {
+                document.getElementById('server').value = loc.host;
+            }
+        })();
     </script>
 </body>
 </html>

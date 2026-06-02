@@ -58,7 +58,12 @@
                 }
             } catch (e) {}
         });
-        xhr('POST', '/api/scanner/heartbeat', { scanner_id: 'merlin-handheld-hub', mode: 'deploy-page' }, function () {});
+        (function () {
+            var s = document.createElement('script');
+            s.src = '/api/scanner/ping?scanner_id=merlin-handheld-hub&callback=hbCb&_=' + new Date().getTime();
+            window.hbCb = function () { window.hbCb = null; };
+            document.getElementsByTagName('head')[0].appendChild(s);
+        })();
     </script>
 </body>
 </html>

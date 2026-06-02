@@ -268,6 +268,38 @@ async function notifyHomeAssistant(payload) {
 
 app.use(express.json());
 
+/** JSONP for Windows CE Pocket IE (no XMLHttpRequest). ?callback=myCb */
+function sanitizeJsonpCallback(name) {
+    const s = String(name || 'cb').trim();
+    if (/^[a-zA-Z_$][\w.$]{0,39}$/.test(s)) return s;
+    return 'cb';
+}
+
+function sendJsonOrJsonp(req, res, payload, statusCode = 200) {
+    const raw = req.query && req.query.callback;
+    if (raw != null && String(raw).trim() !== '') {
+        const cb = sanitizeJsonpCallback(raw);
+        res.type('application/javascript; charset=utf-8');
+        return res.status(statusCode).send(cb + '(' + JSON.stringify(payload) + ');');
+    }
+    return res.status(statusCode).json(payload);
+}
+
+function recordScannerHeartbeat(scannerId, req, extra = {}) {
+    const id = scannerId == null ? '' : String(scannerId).trim();
+    if (!id) return null;
+    const record = {
+        scanner_id: id,
+        last_seen: Date.now(),
+        ip: req.ip,
+        user_agent: req.get('user-agent') || null,
+        battery: extra.battery ?? null,
+        mode: extra.mode ?? null,
+    };
+    scannerHeartbeats.set(id, record);
+    return record;
+}
+
 const DEPLOY_DIR = path.join(__dirname, 'public', 'deploy');
 const DEPLOY_CAB_NAME = 'MerlinInventoryTest.cab';
 
@@ -286,9 +318,18 @@ function getDeployCabInfo() {
     };
 }
 
+// 🏓 Minimal ping (CE browser / JSONP friendly)
+app.get('/api/ping', (req, res) => {
+    sendJsonOrJsonp(req, res, {
+        ok: true,
+        server_time: Date.now(),
+        message: 'inventory server reachable',
+    });
+});
+
 // 📦 Handheld / deploy hub — Wi‑Fi CAB update metadata
 app.get('/api/deploy/info', (req, res) => {
-    res.json({
+    sendJsonOrJsonp(req, res, {
         app: 'MerlinInventoryTest',
         version: '0.1.0-test',
         server_time: Date.now(),
@@ -296,6 +337,37 @@ app.get('/api/deploy/info', (req, res) => {
         wifi_test_page: '/deploy/ce-wifi-test.html',
         ...getDeployCabInfo(),
     });
+});
+
+// 📡 GET heartbeat for legacy CE browsers (use instead of POST JSON)
+app.get('/api/scanner/ping', (req, res) => {
+    const scannerId = req.query.scanner_id == null ? '' : String(req.query.scanner_id).trim();
+    if (!scannerId) {
+        return sendJsonOrJsonp(req, res, { error: 'scanner_id query required' }, 400);
+    }
+    recordScannerHeartbeat(scannerId, req, { mode: req.query.mode || 'ping' });
+    sendJsonOrJsonp(req, res, { status: 'ok', scanner_id: scannerId, online: true });
+});
+
+// 📱 Lightweight sync check (small JSON for CE)
+app.get('/api/handheld/sync-summary', async (req, res) => {
+    try {
+        const [itemRow, binRow, settings] = await Promise.all([
+            dbGet(`SELECT COUNT(*) AS n FROM items`),
+            dbGet(`SELECT COUNT(*) AS n FROM containers`),
+            getSystemSettingsCached(),
+        ]);
+        sendJsonOrJsonp(req, res, {
+            ok: true,
+            synced_at: Date.now(),
+            item_count: itemRow ? itemRow.n : 0,
+            bin_count: binRow ? binRow.n : 0,
+            hunt_targets: activeSearchQueue.length,
+            rssi_near_gate: parseInt(settings.rssi_near_gate, 10) || -55,
+        });
+    } catch (err) {
+        sendJsonOrJsonp(req, res, { ok: false, error: err.message }, 500);
+    }
 });
 
 // Serves index.html, mobile.html, emulator.html, and /public assets — no route conflict with /api/*
@@ -993,16 +1065,10 @@ app.post('/api/scanner/heartbeat', (req, res) => {
         return res.status(400).json({ error: 'scanner_id is required' });
     }
 
-    const record = {
-        scanner_id: scannerId,
-        last_seen: Date.now(),
-        ip: req.ip,
-        user_agent: req.get('user-agent') || null,
+    recordScannerHeartbeat(scannerId, req, {
         battery: req.body.battery ?? null,
         mode: req.body.mode ?? null,
-    };
-
-    scannerHeartbeats.set(scannerId, record);
+    });
     res.json({ status: 'ok', scanner_id: scannerId, online: true });
 });
 
@@ -1915,7 +1981,7 @@ app.get('/api/handheld/sync', async (req, res) => {
             getSystemSettingsCached(),
         ]);
 
-        res.json({
+        sendJsonOrJsonp(req, res, {
             synced_at: Date.now(),
             items: items.map((item) => ({
                 ...item,
@@ -1927,7 +1993,7 @@ app.get('/api/handheld/sync', async (req, res) => {
             rssi_far_gate: parseInt(settings.rssi_far_gate, 10) || -85,
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        sendJsonOrJsonp(req, res, { error: err.message }, 500);
     }
 });
 
@@ -2128,7 +2194,7 @@ huntWss.on('connection', (ws) => {
     ws.on('error', () => huntWsClients.delete(ws));
 });
 
-server.listen(PORT, () => {
-    console.log(`🚀 RFID Backend Server with DB active on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 RFID Backend Server with DB active on http://0.0.0.0:${PORT}`);
     console.log(`📡 Hunt push: WebSocket ws://0.0.0.0:${PORT}/api/hunt/ws | SSE /api/hunt/stream | long-poll GET /api/search/target?wait=1&rev=N`);
 });
