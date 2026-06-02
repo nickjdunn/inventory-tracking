@@ -25,7 +25,11 @@
 
     <a class="big" href="/deploy/MerlinInventoryTest.cab" id="cab-link">⬇ Install native app (.cab)</a>
     <p id="cab-hint" class="warn">Tap the link above to download. Checking server…</p>
-    <p style="font-size:12px;color:#94a3b8;">Merlin CE: use this direct link if the page looks empty — no JavaScript required.</p>
+
+    <a class="big secondary" href="/deploy/MerlinInventoryUninstall.cab" id="uninstall-cab-link" style="border-color:#f87171;color:#fecaca;">🗑 Force uninstall (.cab)</a>
+    <p id="uninstall-hint" class="warn">Stuck? Set → Exit app on the gun, tap this CAB, choose Remove when asked, then reinstall.</p>
+
+    <p style="font-size:12px;color:#94a3b8;">Merlin CE: use the direct .cab links above if this page looks empty — no JavaScript required.</p>
 
     <p class="terminal-back"><a href="/index.html?desktop=1">← Desktop dashboard</a></p>
 
@@ -47,13 +51,23 @@
                 hint.className = 'ok';
                 hint.innerHTML = '';
                 hint.appendChild(document.createTextNode(
-                    'CAB on server: ' + d.cab_filename + ' (' + d.cab_size_kb + ' KB) — tap link above.'
+                    'CAB on server: ' + d.cab_filename + ' (' + d.cab_size_kb + ' KB) — adds Start Menu + desktop shortcut.'
                 ));
             } else {
                 hint.className = 'warn';
                 hint.innerHTML = '';
                 hint.appendChild(document.createTextNode(
                     'CAB not found on server — copy MerlinInventoryTest.cab to public/deploy/ on the server.'
+                ));
+            }
+            var unLink = document.getElementById('uninstall-cab-link');
+            var unHint = document.getElementById('uninstall-hint');
+            if (d.uninstall_cab_available && d.uninstall_cab_url) {
+                unLink.href = d.uninstall_cab_url;
+                unHint.className = 'ok';
+                unHint.innerHTML = '';
+                unHint.appendChild(document.createTextNode(
+                    'Force remove CAB: ' + d.uninstall_cab_filename + ' (' + d.uninstall_cab_size_kb + ' KB).'
                 ));
             }
             if (window.MerlinHandheldUpdate && d.version && MerlinHandheldUpdate.compareVersion(d.version, clientVer) > 0) {

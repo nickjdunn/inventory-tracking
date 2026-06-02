@@ -21,4 +21,13 @@ Copy-Item -Path $CabPath -Destination $destFile -Force
 
 $sizeKb = [math]::Round((Get-Item $destFile).Length / 1KB, 1)
 Write-Host "Published: $destFile ($sizeKb KB)"
+
+$uninstallSrc = Join-Path (Split-Path $CabPath -Parent) 'MerlinInventoryUninstall.cab'
+$uninstallDest = Join-Path $destDir 'MerlinInventoryUninstall.cab'
+if (Test-Path $uninstallSrc) {
+    Copy-Item -Path $uninstallSrc -Destination $uninstallDest -Force
+    $unKb = [math]::Round((Get-Item $uninstallDest).Length / 1KB, 1)
+    Write-Host "Published: $uninstallDest ($unKb KB)"
+}
+
 Write-Host "On Merlin browser open: http://<server-ip>:3000/deploy/"

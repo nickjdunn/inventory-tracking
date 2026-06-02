@@ -206,6 +206,16 @@ namespace MerlinHandheld
             return HttpHelper.PostJson(Base + "/api/items", sb.ToString(), TimeoutMs);
         }
 
+        public HttpResult ReplaceItemEpc(string oldEpc, string newEpc)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"new_epc_id\":\"");
+            sb.Append(SimpleJson.Escape(newEpc ?? ""));
+            sb.Append("\"}");
+            string path = Base + "/api/items/" + UrlCodec.Encode(oldEpc ?? "") + "/replace-epc";
+            return HttpHelper.PostJson(path, sb.ToString(), TimeoutMs);
+        }
+
         public static string FormatScanResult(string json)
         {
             if (json == null) return "No response";

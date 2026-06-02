@@ -304,6 +304,7 @@ const { isNewerVersion } = require('./lib/version');
 
 const DEPLOY_DIR = path.join(__dirname, 'public', 'deploy');
 const DEPLOY_CAB_NAME = 'MerlinInventoryTest.cab';
+const DEPLOY_UNINSTALL_CAB_NAME = 'MerlinInventoryUninstall.cab';
 
 let handheldVersionMeta = { version: '0.0.0+dev', assemblyVersion: '0.0.0.0' };
 try {
@@ -312,19 +313,40 @@ try {
     console.warn('⚠ version.generated.json missing — run: node scripts/sync-version.js');
 }
 
-function getDeployCabInfo() {
-    const cabPath = path.join(DEPLOY_DIR, DEPLOY_CAB_NAME);
+function getDeployCabMeta(filename) {
+    const cabPath = path.join(DEPLOY_DIR, filename);
     if (!fs.existsSync(cabPath)) {
-        return { cab_available: false, cab_filename: DEPLOY_CAB_NAME };
+        return { available: false, filename };
     }
     const stat = fs.statSync(cabPath);
     return {
-        cab_available: true,
-        cab_filename: DEPLOY_CAB_NAME,
-        cab_url: '/deploy/' + DEPLOY_CAB_NAME,
-        cab_size_kb: Math.round(stat.size / 1024),
-        cab_modified: stat.mtime.toISOString(),
+        available: true,
+        filename,
+        url: '/deploy/' + filename,
+        size_kb: Math.round(stat.size / 1024),
+        modified: stat.mtime.toISOString(),
     };
+}
+
+function getDeployCabInfo() {
+    const install = getDeployCabMeta(DEPLOY_CAB_NAME);
+    const uninstall = getDeployCabMeta(DEPLOY_UNINSTALL_CAB_NAME);
+    const out = {
+        cab_available: install.available,
+        cab_filename: DEPLOY_CAB_NAME,
+        uninstall_cab_available: uninstall.available,
+        uninstall_cab_filename: DEPLOY_UNINSTALL_CAB_NAME,
+    };
+    if (install.available) {
+        out.cab_url = install.url;
+        out.cab_size_kb = install.size_kb;
+        out.cab_modified = install.modified;
+    }
+    if (uninstall.available) {
+        out.uninstall_cab_url = uninstall.url;
+        out.uninstall_cab_size_kb = uninstall.size_kb;
+    }
+    return out;
 }
 
 // 🏓 Minimal ping (CE browser / JSONP friendly)
@@ -395,14 +417,22 @@ app.get('/api/handheld/sync-summary', async (req, res) => {
 });
 
 // Explicit CAB download (some Windows CE browsers need octet-stream)
-app.get('/deploy/' + DEPLOY_CAB_NAME, (req, res) => {
-    const cabPath = path.join(DEPLOY_DIR, DEPLOY_CAB_NAME);
+function sendDeployCab(res, filename) {
+    const cabPath = path.join(DEPLOY_DIR, filename);
     if (!fs.existsSync(cabPath)) {
         return res.status(404).type('text/plain').send('CAB not found on server');
     }
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', 'attachment; filename="' + DEPLOY_CAB_NAME + '"');
-    res.sendFile(cabPath);
+    res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
+    return res.sendFile(cabPath);
+}
+
+app.get('/deploy/' + DEPLOY_CAB_NAME, (req, res) => {
+    sendDeployCab(res, DEPLOY_CAB_NAME);
+});
+
+app.get('/deploy/' + DEPLOY_UNINSTALL_CAB_NAME, (req, res) => {
+    sendDeployCab(res, DEPLOY_UNINSTALL_CAB_NAME);
 });
 
 // Serves index.html, mobile.html, emulator.html, and /public assets — no route conflict with /api/*

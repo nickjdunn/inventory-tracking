@@ -37,6 +37,7 @@ On gun: `http://<server>:3000/deploy/` → install CAB.
 | **Receive** | Pick bin → paste/type EPCs (wedge) → **Send tags (Trigger)** |
 | **Find** | Search → **Hunt selected** → F1 = simulate RFID read |
 | **Add** | F2 = UPC (Scan key) → Lookup → F1 = EPC (Trigger) → Register |
+| **Find** | Select item → **Swap tag** → F1 scan new EPC (damaged tag replacement) |
 | **Set** | Server URL, scanner ID, **Sync inventory** |
 
 Until Nordic RFID/Barcode SDK is wired:

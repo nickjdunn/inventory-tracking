@@ -141,7 +141,8 @@ Run the exe from `\Program Files\MerlinInventory\` on the device. CAB is nicer f
    - Open `http://10.17.17.17:3000/deploy/`
    - Tap **Install native test app** when the link appears
    - Tap the downloaded `.cab` → install to **Device**
-4. **Start → Programs** — look for **Merlin Inventory**, or open File Explorer → `\Program Files\MerlinInventory\MerlinInventoryTest.exe` (older CABs had no Start Menu shortcut).
+4. **Start → Programs → Merlin Inventory** (desktop shortcut **Merlin Inv** on newer CABs), or File Explorer → `\Program Files\MerlinInventory\MerlinInventoryTest.exe`.
+5. Stuck install? **Set → Exit app**, then deploy page → **Force uninstall (.cab)** → reinstall.
 
 ### USB (if Wi‑Fi CAB download fails)
 

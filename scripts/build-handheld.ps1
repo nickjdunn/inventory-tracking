@@ -52,6 +52,28 @@ finally {
 $cabFinal = Join-Path $cabDir "MerlinInventoryTest.cab"
 $kb = [math]::Round((Get-Item $cabFinal).Length / 1KB, 1)
 Write-Host "Built: $cabFinal ($kb KB)" -ForegroundColor Green
+
+$uninf = Join-Path $cabDir "MerlinInventoryUninstall.inf"
+if (Test-Path $uninf) {
+    Write-Host "Creating force-uninstall CAB..." -ForegroundColor Cyan
+    Push-Location $cabDir
+    try {
+        if (Test-Path "MerlinInventoryUninstall.cab") { Remove-Item -Force "MerlinInventoryUninstall.cab" }
+        & $cabwiz $uninf /dest $cabDir /cpu ARMV4I
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $unCabOut = Get-ChildItem -Recurse -Filter "*.cab" | Where-Object { $_.Name -like "*Uninstall*" -or $_.Name -eq "1.cab" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($unCabOut) {
+            Copy-Item $unCabOut.FullName (Join-Path $cabDir "MerlinInventoryUninstall.cab") -Force
+            $unKb = [math]::Round((Get-Item (Join-Path $cabDir "MerlinInventoryUninstall.cab")).Length / 1KB, 1)
+            Write-Host "Built: $(Join-Path $cabDir 'MerlinInventoryUninstall.cab') ($unKb KB)" -ForegroundColor Green
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 Write-Host "Install on device: tap CAB or run wceload.exe" -ForegroundColor DarkGray
+Write-Host "Start Menu + desktop shortcuts included; force remove via deploy uninstall CAB." -ForegroundColor DarkGray
 
 & (Join-Path $repoRoot "scripts\publish-to-deploy.ps1") -CabPath $cabFinal

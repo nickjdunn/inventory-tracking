@@ -132,6 +132,7 @@ namespace MerlinHandheld
         private readonly TextBox _searchBox;
         private readonly ListBox _list;
         private readonly Label _huntLabel;
+        private string _swapOldEpc = "";
 
         public FindPanel(AppConfig cfg, HandheldState state, InventoryApiClient api)
         {
@@ -180,12 +181,36 @@ namespace MerlinHandheld
             var refreshHuntBtn = MerlinUi.MakeButton("Refresh hunt");
             refreshHuntBtn.Click += delegate { RefreshHuntFromServer(); };
 
+            var swapBtn = MerlinUi.MakeButton("Swap tag");
+            swapBtn.Click += delegate { BeginSwapTag(); };
+
             Controls.Add(_huntLabel);
             Controls.Add(btnRow);
             Controls.Add(_list);
             Controls.Add(_searchBox);
             Controls.Add(MerlinUi.MakeCaption("Search"));
+            Controls.Add(swapBtn);
             Controls.Add(refreshHuntBtn);
+        }
+
+        private void BeginSwapTag()
+        {
+            _swapOldEpc = "";
+            if (_list.SelectedItem == null)
+            {
+                _huntLabel.Text = "Select item first";
+                _huntLabel.ForeColor = Color.Salmon;
+                return;
+            }
+            var it = (ItemInfo)_list.SelectedItem;
+            _swapOldEpc = it.EpcId;
+            _huntLabel.Text = MerlinUi.ShortLine("Scan NEW tag: " + it.Name, 80);
+            _huntLabel.ForeColor = Color.Khaki;
+        }
+
+        private void CancelSwapTag()
+        {
+            _swapOldEpc = "";
         }
 
         public void RefreshHuntDisplay()
@@ -236,6 +261,13 @@ namespace MerlinHandheld
             ArrayList tags = TagParser.ParseText(wedgeText);
             if (tags.Count == 0) return;
             string epc = ((TagRead)tags[0]).Epc;
+
+            if (_swapOldEpc != null && _swapOldEpc.Length > 0)
+            {
+                CompleteSwapTag(epc);
+                return;
+            }
+
             ItemInfo hit = _state.FindItem(epc);
 
             if (_state.HuntQueue.Count > 0)
@@ -273,8 +305,71 @@ namespace MerlinHandheld
             _huntLabel.ForeColor = Color.Salmon;
         }
 
+        private void CompleteSwapTag(string newEpc)
+        {
+            string oldEpc = _swapOldEpc;
+            _swapOldEpc = "";
+            if (newEpc == null || newEpc.Length == 0)
+            {
+                _huntLabel.Text = "No EPC read";
+                return;
+            }
+            if (string.Compare(oldEpc, newEpc, StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                _huntLabel.Text = "New tag must differ";
+                _huntLabel.ForeColor = Color.Salmon;
+                return;
+            }
+
+            _huntLabel.Text = "Validating…";
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                HttpResult valid = _api.ValidateEpc(newEpc);
+                bool epcOk = valid.Ok && SimpleJson.ExtractBool(valid.Body, "valid", false);
+                if (!epcOk)
+                {
+                    string err = SimpleJson.ExtractString(valid.Body, "error");
+                    BeginInvoke(new EventHandler(delegate
+                    {
+                        _huntLabel.Text = MerlinUi.ShortLine(err.Length > 0 ? err : "EPC in use", 80);
+                        _huntLabel.ForeColor = Color.Salmon;
+                    }), null, EventArgs.Empty);
+                    return;
+                }
+
+                HttpResult res = _api.ReplaceItemEpc(oldEpc, newEpc);
+                BeginInvoke(new EventHandler(delegate
+                {
+                    if (!res.Ok)
+                    {
+                        string err = SimpleJson.ExtractString(res.Body, "error");
+                        _huntLabel.Text = MerlinUi.ShortLine(err.Length > 0 ? err : res.Error, 80);
+                        _huntLabel.ForeColor = Color.Salmon;
+                        return;
+                    }
+
+                    ItemInfo item = _state.FindItem(oldEpc);
+                    if (item != null)
+                    {
+                        item.EpcId = newEpc;
+                    }
+                    for (int i = 0; i < _state.HuntQueue.Count; i++)
+                    {
+                        if (string.Compare((string)_state.HuntQueue[i], oldEpc, StringComparison.OrdinalIgnoreCase) == 0)
+                        {
+                            _state.HuntQueue[i] = newEpc;
+                        }
+                    }
+                    _huntLabel.Text = MerlinUi.ShortLine("Tag swapped OK", 80);
+                    _huntLabel.ForeColor = Color.LightGreen;
+                    RefreshList();
+                }), null, EventArgs.Empty);
+            });
+        }
+
         private void StartHunt()
         {
+            CancelSwapTag();
             if (_list.SelectedItem == null)
             {
                 _huntLabel.Text = "Select item";

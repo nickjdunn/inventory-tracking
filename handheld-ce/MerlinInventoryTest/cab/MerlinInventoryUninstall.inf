@@ -1,5 +1,5 @@
-; Nordic ID Merlin: Windows Embedded CE 6.0, ARM (ARM11 class devices).
-; Built with Cabwiz.exe — not plain Makecab.
+; Force-remove Merlin Inventory when reinstall fails or the app is stuck.
+; Tap on deploy page — exit the native app first (Set → Exit app).
 [Version]
 Signature="$Windows NT$"
 Provider="Merlin Inventory"
@@ -11,25 +11,21 @@ MinorVersion=0
 AppName="Merlin Inventory"
 InstallDir=%CE1%\MerlinInventory
 
-[Strings]
-
 [CEDevice]
 VersionMin=6.0
 VersionMax=6.99
 
 [CEDevice.ARMV4I]
-; Merlin ARM11 — leave ProcessorType unset so CE does not reject on CPU ID mismatch.
 
 [DefaultInstall]
 CopyFiles=Files.App
-CEShortcuts=Shortcuts
 
 [DefaultUninstall]
 DelFiles=Files.App
 DelShortcuts=Shortcuts
 
 [SourceDisksNames]
-1=,"Merlin Inventory",,.
+1=,"Merlin Inventory Remove",,.
 
 [SourceDisksFiles]
 MerlinInventoryTest.exe=1
