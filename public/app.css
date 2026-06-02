@@ -89,14 +89,115 @@ body {
 
 .sidebar-footer {
     border-top: 1px solid #334155;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
     margin-top: auto;
     padding-top: 16px;
 }
 
-.sidebar-footer a {
+.sidebar-footer-link {
     color: var(--accent);
     font-size: 13px;
+    line-height: 1.35;
     text-decoration: none;
+}
+
+.sidebar-footer-link:hover {
+    color: #7dd3fc;
+    text-decoration: underline;
+}
+
+.sidebar-nav-tools {
+    border-top: 1px solid #334155;
+    margin-top: 12px;
+    padding-top: 12px;
+}
+
+.sidebar-nav-label {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    margin: 0 0 8px 14px;
+    text-transform: uppercase;
+}
+
+.sidebar-link-tool {
+    font-size: 14px;
+}
+
+/* Minimal terminal / deploy pages (scanner) */
+body.terminal-page {
+    background: var(--bg-color);
+    color: var(--text-main);
+    font-family: Tahoma, "Segoe UI", sans-serif;
+    margin: 12px;
+}
+
+.terminal-page h1 {
+    color: var(--accent);
+    font-size: 18px;
+    margin: 0 0 8px;
+}
+
+.terminal-page p {
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.terminal-page a.big {
+    background: #0369a1;
+    border-radius: 8px;
+    color: #fff;
+    display: block;
+    font-weight: bold;
+    margin: 10px 0;
+    padding: 16px;
+    text-align: center;
+    text-decoration: none;
+}
+
+.terminal-page a.big.secondary {
+    background: #334155;
+}
+
+.terminal-page code {
+    background: var(--card-bg);
+    border-radius: 4px;
+    font-size: 13px;
+    padding: 2px 6px;
+}
+
+.terminal-page .ok {
+    color: var(--success);
+}
+
+.terminal-page .warn {
+    color: var(--warning);
+}
+
+.terminal-back {
+    font-size: 13px;
+    margin-top: 20px;
+}
+
+.terminal-back a {
+    color: var(--accent);
+}
+
+/* Emulator inside standard shell */
+.emulator-main .emu-shell {
+    display: grid;
+    gap: 0;
+    grid-template-columns: minmax(320px, 1fr) minmax(300px, 420px);
+    min-height: calc(100vh - 180px);
+}
+
+@media (max-width: 960px) {
+    .emulator-main .emu-shell {
+        grid-template-columns: 1fr;
+    }
 }
 
 .main-content {

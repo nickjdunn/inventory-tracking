@@ -1,0 +1,204 @@
+/**
+ * Handheld mobile UI — uses design tokens from app.css
+ */
+body.mobile-body {
+    --nav-h: 72px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    margin: 0;
+    min-height: 100dvh;
+    padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+}
+
+.mobile-brand {
+    background: var(--sidebar-bg);
+    border-bottom: 1px solid #334155;
+    padding: 14px 18px 12px;
+}
+
+.mobile-brand-row {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: space-between;
+}
+
+.mobile-brand h1 {
+    font-size: 18px;
+    line-height: 1.25;
+    margin: 0;
+}
+
+.mobile-brand h1 a.brand-link {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.mobile-brand .mobile-badge {
+    background: #1e3a8a;
+    border-radius: 999px;
+    color: #93c5fd;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 4px 10px;
+    text-transform: uppercase;
+}
+
+.mobile-brand .mobile-subtitle {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 6px 0 0;
+}
+
+.mobile-brand .mobile-meta {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.mobile-brand .desktop-link {
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.mobile-brand .app-version-line {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin: 0;
+}
+
+.mobile-body main {
+    padding: 16px 18px;
+}
+
+.mobile-body .view {
+    display: none;
+}
+
+.mobile-body .view.active {
+    display: block;
+}
+
+.mobile-body .card {
+    background: var(--card-bg);
+    border: 1px solid #334155;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.12);
+    margin-bottom: 16px;
+    padding: 18px;
+}
+
+.mobile-body .card h2 {
+    border-bottom: 1px solid #334155;
+    font-size: 17px;
+    margin: 0 0 14px;
+    padding-bottom: 10px;
+}
+
+.mobile-body label {
+    color: var(--text-muted);
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.mobile-body select,
+.mobile-body input[type="text"],
+.mobile-body textarea {
+    background: var(--bg-color);
+    border: 1px solid #475569;
+    border-radius: 8px;
+    color: var(--text-main);
+    font-size: 16px;
+    margin-bottom: 14px;
+    min-height: 48px;
+    padding: 12px 14px;
+    width: 100%;
+}
+
+.mobile-body textarea {
+    min-height: 72px;
+    resize: vertical;
+}
+
+.mobile-body .inventory-search {
+    margin-bottom: 12px;
+}
+
+.mobile-body .bottom-nav {
+    background: var(--sidebar-bg);
+    border-top: 1px solid #334155;
+    bottom: 0;
+    display: flex;
+    height: calc(var(--nav-h) + var(--safe-bottom));
+    left: 0;
+    padding-bottom: var(--safe-bottom);
+    position: fixed;
+    right: 0;
+    z-index: 50;
+}
+
+.mobile-body .nav-tab {
+    align-items: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    font-size: 10px;
+    font-weight: 600;
+    gap: 4px;
+    justify-content: center;
+    min-height: var(--nav-h);
+    padding: 8px 4px;
+    touch-action: manipulation;
+}
+
+.mobile-body .nav-tab .icon {
+    font-size: 22px;
+}
+
+.mobile-body .nav-tab.active {
+    background: #1e3a8a;
+    color: var(--accent);
+}
+
+.mobile-body .update-banner {
+    background: #422006;
+    border-bottom: 1px solid #fbbf24;
+    margin: 0;
+    padding: 12px 18px;
+}
+
+.mobile-body .update-banner a {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.mobile-body .header-util-row {
+    margin-top: 12px;
+}
+
+.mobile-body .sync-badge {
+    color: var(--success);
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.mobile-body .sync-badge.warn {
+    color: var(--warning);
+}

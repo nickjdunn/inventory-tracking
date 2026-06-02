@@ -6,23 +6,9 @@
     <title>🗃️ Bin & Location Manager</title>
     <link rel="stylesheet" href="/app.css">
 </head>
-<body>
+<body data-nav-page="bins">
     <div class="app-shell">
-        <aside class="sidebar">
-            <div class="sidebar-brand">
-                <h1>🧠 RFID Inventory</h1>
-                <p>Navigation</p>
-            </div>
-            <nav class="sidebar-nav" aria-label="Main navigation">
-                <a class="sidebar-link" href="/index.html">📦 Inventory Dashboard</a>
-                <a class="sidebar-link active" href="/bins.html">🗃️ Bin & Location Manager</a>
-                <a class="sidebar-link" href="/admin.html">⚙️ Admin Settings</a>
-            </nav>
-            <div class="sidebar-footer">
-                <a href="/mobile.html">📱 Handheld Mobile View</a>
-                <a href="/emulator.html" style="display:block;margin-top:8px;">📡 Hardware Simulator</a>
-            </div>
-        </aside>
+        <aside class="sidebar" data-app-sidebar></aside>
 
         <main class="main-content">
             <header class="page-header">
@@ -428,5 +414,6 @@
         BoundarySniffer.init();
         loadBins();
     </script>
+    <script src="/app-shell.js"></script>
 </body>
 </html>

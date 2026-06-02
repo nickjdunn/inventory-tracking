@@ -4,19 +4,18 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>CE Wi-Fi Test</title>
+    <link rel="stylesheet" href="/app.css">
     <style>
-        body { font-family: Tahoma, Arial, sans-serif; background: #0f172a; color: #f8fafc; margin: 10px; font-size: 15px; }
-        h1 { font-size: 17px; color: #38bdf8; margin: 0 0 8px; }
-        button { width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; background: #0369a1; color: #fff; border: none; }
-        #log { background: #1e293b; padding: 10px; min-height: 140px; font-size: 13px; }
-        .pass { color: #4ade80; }
+        button { width: 100%; padding: 14px; margin: 8px 0; font-size: 16px; background: #0369a1; color: #fff; border: none; border-radius: 8px; }
+        #log { background: var(--card-bg); border: 1px solid #334155; border-radius: 8px; padding: 10px; min-height: 140px; font-size: 13px; }
+        .pass { color: var(--success); }
         .fail { color: #fecaca; }
-        .info { color: #94a3b8; }
-        input { width: 100%; padding: 10px; margin: 6px 0; font-size: 15px; box-sizing: border-box; }
-        label { font-size: 12px; color: #94a3b8; }
+        .info { color: var(--text-muted); }
+        input { width: 100%; padding: 10px; margin: 6px 0; font-size: 15px; box-sizing: border-box; background: var(--bg-color); border: 1px solid #475569; color: var(--text-main); border-radius: 6px; }
+        label { font-size: 12px; color: var(--text-muted); }
     </style>
 </head>
-<body>
+<body class="terminal-page">
     <h1>Wi-Fi + API test</h1>
     <p id="version-line" style="font-size:12px;color:#94a3b8;">Version…</p>
     <p style="font-size:12px;color:#94a3b8;">Windows CE mode: JSONP (no XMLHttpRequest required)</p>
@@ -24,7 +23,7 @@
     <input type="text" id="server" value="">
     <button type="button" id="run">Run all tests</button>
     <div id="log">Tap Run…</div>
-    <p style="font-size:12px;"><a href="/deploy/">Deploy menu</a> | <a href="/mobile.html">Mobile UI</a></p>
+    <p class="terminal-back"><a href="/deploy/">← Deploy menu</a> · <a href="/index.html?desktop=1">Desktop dashboard</a></p>
     <script type="text/javascript">
         var jsonpCounter = 0;
 

@@ -277,27 +277,9 @@
         .add-step.hidden { display: none; }
     </style>
 </head>
-<body>
+<body data-nav-page="dashboard">
     <div class="app-shell">
-        <aside class="sidebar">
-            <div class="sidebar-brand">
-                <h1>🧠 RFID Inventory</h1>
-                <p>Navigation</p>
-            </div>
-            <nav class="sidebar-nav" aria-label="Main navigation">
-                <a class="sidebar-link active" href="/index.html">📦 Inventory Dashboard</a>
-                <a class="sidebar-link" href="/bins.html">🗃️ Bin & Location Manager</a>
-                <a class="sidebar-link" href="/diagnostics.html">🧪 Spatial Diagnostics</a>
-                <a class="sidebar-link" href="/discovery.html">🏴 Rogue Tag Discovery</a>
-                <a class="sidebar-link" href="/admin.html">⚙️ Admin Settings</a>
-            </nav>
-            <div class="sidebar-footer">
-                <a href="/deploy/" id="handheld-hub-link">📡 Handheld / Scanner hub</a>
-                <a href="/deploy/ce-wifi-test.html" style="display:block;margin-top:8px;">📶 Wi‑Fi test (scanner)</a>
-                <a href="/mobile.html" style="display:block;margin-top:8px;">📱 Full mobile web UI</a>
-                <a href="/emulator.html" style="display:block;margin-top:8px;">🧪 Test Control Deck</a>
-            </div>
-        </aside>
+        <aside class="sidebar" data-app-sidebar></aside>
 
         <main class="main-content">
         <div class="container">
@@ -941,5 +923,6 @@
         setInterval(fetchDashboardData, 2000);
         setInterval(refreshScannerStatus, 5000);
     </script>
+    <script src="/app-shell.js"></script>
 </body>
 </html>

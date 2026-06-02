@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <title>📱 Merlin Handheld</title>
+    <script src="/handheld-detect.js"></script>
+    <link rel="stylesheet" href="/app.css">
+    <link rel="stylesheet" href="/mobile-app.css">
     <link rel="stylesheet" href="/onboarding-wizard.css">
     <link rel="stylesheet" href="/category-chips.css">
     <style>
@@ -720,17 +723,22 @@
         }
     </style>
 </head>
-<body>
+<body class="mobile-body">
     <div id="handheld-update-banner" class="update-banner" style="display:none;" role="alert">
         <strong>⬆ Update available</strong>
         <p id="handheld-update-banner-text" style="margin:6px 0;font-size:13px;"></p>
         <a href="/deploy/" id="handheld-update-banner-link">Open deploy page</a>
     </div>
-    <header class="app-header">
-        <h1>📱 Merlin HTE00072</h1>
-        <p>Nordic ID UHF handheld — production inventory &amp; find</p>
-        <p id="handheld-client-version" class="app-version-line">Version…</p>
-        <a class="desktop-link" href="/index.html">🖥️ Switch to Desktop Dashboard</a>
+    <header class="mobile-brand">
+        <div class="mobile-brand-row">
+            <h1><a class="brand-link" href="/index.html">🧠 RFID Inventory</a></h1>
+            <span class="mobile-badge">Handheld</span>
+        </div>
+        <p class="mobile-subtitle">Scan · Find · Add · Bins on the Merlin</p>
+        <div class="mobile-meta">
+            <p id="handheld-client-version" class="app-version-line">Version…</p>
+            <a class="desktop-link" href="/index.html?desktop=1">🖥️ Desktop</a>
+        </div>
         <div class="header-util-row">
             <button type="button" class="btn-register-tag" id="open-onboard-wizard">🏷️ Register New Tag</button>
         </div>

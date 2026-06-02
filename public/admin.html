@@ -147,24 +147,9 @@
         }
     </style>
 </head>
-<body>
+<body data-nav-page="admin">
     <div class="app-shell">
-        <aside class="sidebar">
-            <div class="sidebar-brand">
-                <h1>🧠 RFID Inventory</h1>
-                <p>Navigation</p>
-            </div>
-            <nav class="sidebar-nav" aria-label="Main navigation">
-                <a class="sidebar-link" href="/index.html">📦 Inventory Dashboard</a>
-                <a class="sidebar-link" href="/bins.html">🗃️ Bin & Location Manager</a>
-                <a class="sidebar-link" href="/diagnostics.html">🧪 Spatial Diagnostics</a>
-                <a class="sidebar-link" href="/discovery.html">🏴 Rogue Tag Discovery</a>
-                <a class="sidebar-link active" href="/admin.html">⚙️ Admin Settings</a>
-            </nav>
-            <div class="sidebar-footer">
-                <a href="/mobile.html">📱 Handheld Mobile View</a>
-            </div>
-        </aside>
+        <aside class="sidebar" data-app-sidebar></aside>
 
         <main class="main-content">
             <header class="page-header">
@@ -496,5 +481,6 @@
         loadSettings().catch((err) => showToast('❌ ' + err.message, true));
         loadCategories().catch((err) => showToast('❌ ' + err.message, true));
     </script>
+    <script src="/app-shell.js"></script>
 </body>
 </html>
