@@ -28,7 +28,7 @@ const {
     validateContainerSaveAsync,
     toNearFieldReason,
 } = require('./epc-registry');
-const { dbAll, dbRun } = require('./db-async');
+const { dbAll, dbGet, dbRun } = require('./db-async');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
