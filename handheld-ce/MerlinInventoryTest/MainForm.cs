@@ -34,6 +34,13 @@ namespace MerlinHandheld
         public MainForm()
         {
             _api = new InventoryApiClient(_cfg);
+            DiagnosticLog.SetUploadClient(_api);
+            DiagnosticLog.Configure(_cfg.DiagnosticLogFile);
+            if (_cfg.DiagnosticLogFile)
+            {
+                DiagnosticLog.LogSessionStart(_cfg);
+            }
+
             _stream = new ScannerStreamService(_cfg, _api);
             MerlinUi.StyleForm(this);
             Text = "Merlin " + AppConfig.AppVersion;
@@ -247,7 +254,11 @@ namespace MerlinHandheld
                 BeginInvoke(new EventHandler(delegate { HardwareOnRfid(sender, e); }), null, EventArgs.Empty);
                 return;
             }
-            _stream.OnRfid(e.WedgeText, _mode);
+            _stream.OnRfid(e.WedgeText, _mode, e.Source);
+            if (DiagnosticLog.IsEnabled)
+            {
+                _diagnostics.RefreshTracePreview();
+            }
             if (_mode == "Diag")
             {
                 _diagnostics.ShowLastRead(e.WedgeText);
@@ -358,6 +369,15 @@ namespace MerlinHandheld
 
             panel.Dock = DockStyle.Fill;
             _host.Controls.Add(panel);
+
+            if (mode == "Diag")
+            {
+                _diagnostics.OnPanelShown();
+            }
+            else
+            {
+                _diagnostics.OnPanelHidden();
+            }
 
             _btnReceive.BackColor = mode == "Receive" ? MerlinUi.Accent : Color.FromArgb(51, 65, 85);
             _btnFind.BackColor = mode == "Find" ? MerlinUi.Accent : Color.FromArgb(51, 65, 85);

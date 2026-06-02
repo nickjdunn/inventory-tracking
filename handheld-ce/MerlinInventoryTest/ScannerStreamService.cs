@@ -18,42 +18,40 @@ namespace MerlinHandheld
             _api = api;
         }
 
-        public void OnRfid(string wedgeText, string uiMode)
+        public void OnRfid(string wedgeText, string uiMode, string source)
         {
             if (wedgeText == null || wedgeText.Length == 0) return;
             string mode = uiMode ?? "";
-
-            if (_cfg.DiagnosticLogFile)
-            {
-                DiagnosticLog.Info("RFID mode=" + mode + " len=" + wedgeText.Length);
-            }
+            ArrayList tags = ScanLimits.ParseTags(wedgeText);
+            DiagnosticLog.LogParsedTags("stream " + (source ?? ""), tags, wedgeText.Length);
 
             if (_cfg.LiveRawStream || _cfg.LiveScanStream)
             {
                 ThreadPool.QueueUserWorkItem(delegate
                 {
-                    PostRfidToServer(wedgeText, mode);
+                    PostRfidToServer(wedgeText, mode, tags);
                 });
+            }
+            else if (DiagnosticLog.IsEnabled)
+            {
+                DiagnosticLog.LogLivePost(mode, wedgeText.Length, tags.Count, false, false, null);
             }
         }
 
         public void OnBarcode(string code, string uiMode)
         {
             if (code == null || code.Length == 0) return;
-            if (_cfg.DiagnosticLogFile)
-            {
-                DiagnosticLog.Info("BARCODE mode=" + uiMode + " code=" + code);
-            }
+            DiagnosticLog.Info("BARCODE ui=" + (uiMode ?? "") + " code=" + code);
             if (!_cfg.LiveRawStream) return;
             ThreadPool.QueueUserWorkItem(delegate
             {
-                _api.PostScannerLive("barcode", code, null, null, false, null);
+                HttpResult live = _api.PostScannerLive("barcode", code, null, null, false, uiMode);
+                DiagnosticLog.LogLivePost(uiMode, code.Length, 0, false, true, live);
             });
         }
 
-        private void PostRfidToServer(string wedgeText, string uiMode)
+        private void PostRfidToServer(string wedgeText, string uiMode, ArrayList tags)
         {
-            ArrayList tags = ScanLimits.ParseTags(wedgeText);
             string binId = _cfg.LiveScanBinId;
             if (binId == null) binId = "";
             if (binId.Length == 0) binId = _cfg.LastBinId ?? "";
@@ -69,20 +67,25 @@ namespace MerlinHandheld
                 }
             }
 
-            if (_cfg.LiveRawStream || applyScan)
+            bool attempted = _cfg.LiveRawStream || applyScan;
+            HttpResult live = null;
+            if (attempted)
             {
-                HttpResult live = _api.PostScannerLive(
+                live = _api.PostScannerLive(
                     "rfid",
                     wedgeText,
                     tags,
                     binId,
                     applyScan,
                     uiMode);
-                if (_cfg.DiagnosticLogFile && !live.Ok)
-                {
-                    DiagnosticLog.Warn("live POST fail: " + live.Error);
-                }
             }
+            DiagnosticLog.LogLivePost(
+                uiMode,
+                wedgeText.Length,
+                tags.Count,
+                applyScan,
+                attempted,
+                live);
         }
     }
 }

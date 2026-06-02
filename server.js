@@ -77,6 +77,7 @@ const scannerHeartbeats = new Map();
 const scannerLiveFeeds = new Map();
 const SCANNER_LIVE_MAX_LINES = 800;
 const SCANNER_DIAG_LOG_MAX = 512000;
+const SCANNER_STREAM_MAX_EVENTS = 4000;
 
 function getScannerLiveFeed(scannerId) {
     const id = scannerId == null ? '' : String(scannerId).trim();
@@ -87,6 +88,9 @@ function getScannerLiveFeed(scannerId) {
             lines: [],
             diagLog: '',
             diagUpdated: 0,
+            streamEvents: [],
+            streamNextId: 1,
+            streamUpdated: 0,
         });
     }
     return scannerLiveFeeds.get(id);
@@ -395,7 +399,12 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const DEPLOY_DIR = path.join(PUBLIC_DIR, 'deploy');
 const DEPLOY_CAB_NAME = 'MerlinInventoryTest.cab';
 const DEPLOY_UNINSTALL_CAB_NAME = 'MerlinInventoryUninstall.cab';
-const DEPLOY_STATIC_PAGES = ['index.html', 'ce-wifi-test.html', 'scanner-live.html'];
+const DEPLOY_STATIC_PAGES = [
+    'index.html',
+    'ce-wifi-test.html',
+    'scanner-live.html',
+    'scanner-stream-test.html',
+];
 const { discoverLanHosts } = require('./lib/scanner-discovery');
 
 function deployFilesStatus() {
@@ -537,7 +546,7 @@ app.get('/api/scanner/live', (req, res) => {
     const latestId = feed && feed.lines.length ? feed.lines[feed.lines.length - 1].id : 0;
     const presence = getScannerPresence(scannerId);
     const allScanners = listScannerPresence();
-    sendJsonOrJsonp(req, res, {
+    const payload = {
         ok: true,
         scanner_id: scannerId,
         since_id: since,
@@ -547,7 +556,13 @@ app.get('/api/scanner/live', (req, res) => {
         presence,
         online_threshold_ms: SCANNER_ONLINE_THRESHOLD_MS,
         known_scanners: allScanners,
-    });
+    };
+    if (req.query.include_diag === '1' && feed) {
+        payload.diag_log = feed.diagLog || '';
+        payload.diag_log_bytes = payload.diag_log.length;
+        payload.diag_log_updated = feed.diagUpdated || 0;
+    }
+    sendJsonOrJsonp(req, res, payload);
 });
 
 app.get('/api/scanner/discover', async (req, res) => {
@@ -592,6 +607,109 @@ app.post('/api/scanner/live/clear', (req, res) => {
     if (feed) {
         feed.lines = [];
         feed.nextId = 1;
+    }
+    res.json({ ok: true, scanner_id: id });
+});
+
+function appendStreamEvent(scannerId, entry) {
+    const feed = getScannerLiveFeed(scannerId);
+    if (!feed) return null;
+    if (!feed.streamEvents) feed.streamEvents = [];
+    feed.streamNextId = feed.streamNextId || 1;
+    entry.id = feed.streamNextId++;
+    entry.t = entry.t || Date.now();
+    feed.streamEvents.push(entry);
+    while (feed.streamEvents.length > SCANNER_STREAM_MAX_EVENTS) {
+        feed.streamEvents.shift();
+    }
+    feed.streamUpdated = Date.now();
+    return entry;
+}
+
+/** Direct stream from MerlinStreamTest — no local log on gun. */
+app.post('/api/scanner/stream/event', (req, res) => {
+    const body = req.body || {};
+    const scannerId = body.scanner_id == null ? '' : String(body.scanner_id).trim();
+    if (!scannerId) {
+        return res.status(400).json({ error: 'scanner_id is required' });
+    }
+
+    recordScannerHeartbeat(scannerId, req, {
+        mode: body.screen || body.event_type || 'stream',
+        app_version: body.app_version,
+        live_raw: true,
+    });
+
+    const tagList = Array.isArray(body.tags) ? body.tags : [];
+    const saved = appendStreamEvent(scannerId, {
+        type: body.event_type || 'event',
+        screen: body.screen || null,
+        action: body.action || null,
+        source: body.source || null,
+        raw: body.raw == null ? '' : String(body.raw),
+        tag_count: body.tag_count != null ? body.tag_count : tagList.length,
+        tags: tagList,
+        http_ok: body.http_ok,
+        http_error: body.http_error || null,
+        app_version: body.app_version || null,
+    });
+
+    if (body.announce === true || body.announce === 'true') {
+        appendScannerLiveLine(scannerId, {
+            mode: 'session',
+            ui_mode: body.screen,
+            app_version: body.app_version,
+            raw: 'Stream: ' + (body.event_type || 'event'),
+            tag_count: 0,
+            tags: [],
+        });
+    }
+
+    res.json({
+        ok: true,
+        scanner_id: scannerId,
+        event_id: saved ? saved.id : null,
+        stream_bytes: getScannerLiveFeed(scannerId).streamEvents.length,
+    });
+});
+
+app.get('/api/scanner/stream', (req, res) => {
+    const scannerId = req.query.scanner_id == null ? '' : String(req.query.scanner_id).trim();
+    if (!scannerId) {
+        return sendJsonOrJsonp(req, res, { error: 'scanner_id query required' }, 400);
+    }
+    const since = parseInt(req.query.since_id, 10) || 0;
+    const feed = getScannerLiveFeed(scannerId);
+    const events =
+        feed && feed.streamEvents
+            ? feed.streamEvents.filter((ev) => ev.id > since)
+            : [];
+    const latestId =
+        feed && feed.streamEvents && feed.streamEvents.length
+            ? feed.streamEvents[feed.streamEvents.length - 1].id
+            : 0;
+    sendJsonOrJsonp(req, res, {
+        ok: true,
+        scanner_id: scannerId,
+        since_id: since,
+        latest_id: latestId,
+        events,
+        server_time: Date.now(),
+        stream_updated: feed ? feed.streamUpdated : 0,
+        presence: getScannerPresence(scannerId),
+    });
+});
+
+app.post('/api/scanner/stream/clear', (req, res) => {
+    const scannerId =
+        (req.body && req.body.scanner_id) || req.query.scanner_id || '';
+    const id = String(scannerId).trim();
+    if (!id) return res.status(400).json({ error: 'scanner_id required' });
+    const feed = getScannerLiveFeed(id);
+    if (feed) {
+        feed.streamEvents = [];
+        feed.streamNextId = 1;
+        feed.streamUpdated = Date.now();
     }
     res.json({ ok: true, scanner_id: id });
 });

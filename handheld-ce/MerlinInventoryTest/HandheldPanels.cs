@@ -90,6 +90,7 @@ namespace MerlinHandheld
             ArrayList parsed = ScanLimits.ParseTags(text);
             _lastRawTagCount = parsed.Count;
             _pendingTags = parsed;
+            DiagnosticLog.LogParsedTags("Receive SetWedge", parsed, text != null ? text.Length : 0);
             _tagsBox.Text = ScanLimits.FormatSummary(_pendingTags);
             _resultLabel.Text = _pendingTags.Count + " tag(s) ready";
         }
@@ -118,11 +119,13 @@ namespace MerlinHandheld
             }
 
             int sentCount = tags.Count;
+            DiagnosticLog.Info("Send tags bin=" + bin.Id + " count=" + sentCount);
             _resultLabel.Text = "Sending " + sentCount + "…";
             string binId = bin.Id;
             ThreadPool.QueueUserWorkItem(delegate
             {
                 HttpResult res = _api.PostScan(tags, binId);
+                DiagnosticLog.LogHttp("PostScan x" + sentCount + " bin=" + binId, res);
                 string summary = res.Ok
                     ? InventoryApiClient.FormatScanResult(res.Body)
                     : (res.Error.Length > 0 ? res.Error : res.Body);
@@ -271,6 +274,7 @@ namespace MerlinHandheld
         {
             if (wedgeText == null || wedgeText.Length == 0) return;
             ArrayList tags = ScanLimits.ParseTags(wedgeText);
+            DiagnosticLog.LogParsedTags("Find trigger", tags, wedgeText.Length);
             if (tags.Count == 0) return;
             string epc = ((TagRead)tags[0]).Epc;
 

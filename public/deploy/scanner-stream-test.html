@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Merlin — scanner stream test</title>
+    <link rel="stylesheet" href="/app.css">
+    <style>
+        body { padding: 12px; max-width: 1000px; margin: 0 auto; }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+        .toolbar input { flex: 1; min-width: 140px; padding: 8px; border-radius: 6px;
+            border: 1px solid #475569; background: #0f172a; color: #e2e8f0; }
+        #events {
+            background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+            padding: 8px; height: 70vh; overflow-y: auto;
+            font-family: Consolas, monospace; font-size: 11px;
+        }
+        .ev { border-bottom: 1px solid #1e293b; padding: 8px 4px; }
+        .ev .meta { color: #64748b; margin-bottom: 4px; }
+        .ev .raw { color: #e2e8f0; white-space: pre-wrap; word-break: break-all; }
+        .ev .tags { color: #7dd3fc; margin-top: 4px; }
+        .ev.scan_ok .meta { color: #4ade80; }
+        .ev.scan_fail .meta { color: #f87171; }
+        .hint { font-size: 12px; color: #94a3b8; margin-bottom: 10px; }
+        #meta { font-size: 12px; color: #94a3b8; margin-bottom: 8px; }
+    </style>
+</head>
+<body class="terminal-page">
+    <h1>📡 Scanner stream test</h1>
+    <p class="hint">
+        Install <strong>MerlinStreamTest.cab</strong> on the gun. Set Scanner ID to match below.
+        Modes: <strong>Ign</strong> = stream only · <strong>Watch</strong> = stream · <strong>Scan</strong> = stream + inventory POST.
+    </p>
+
+    <div class="toolbar">
+        <label for="scanner-id">Scanner ID</label>
+        <input type="text" id="scanner-id" value="merlin-handheld-01" autocomplete="off">
+        <button type="button" class="btn" id="btn-clear">Clear</button>
+        <button type="button" class="btn" id="btn-pause">Pause</button>
+        <a class="btn" href="/deploy/">Deploy hub</a>
+    </div>
+    <p id="meta">Polling…</p>
+    <div id="events"><p class="meta">Waiting for events…</p></div>
+    <div data-terminal-chrome></div>
+
+    <script src="/site-version.js"></script>
+    <script src="/terminal-chrome.js"></script>
+    <script>
+        var sinceId = 0;
+        var paused = false;
+        var eventsEl = document.getElementById('events');
+        var metaEl = document.getElementById('meta');
+
+        function qsScanner() {
+            var p = new URLSearchParams(location.search);
+            return (p.get('scanner_id') || document.getElementById('scanner-id').value || 'merlin-handheld-01').trim();
+        }
+
+        function esc(s) {
+            return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function renderEvent(ev) {
+            var div = document.createElement('div');
+            var cls = 'ev';
+            if (ev.action === 'scan_ok' || ev.type === 'inventory_scan' && ev.http_ok) cls += ' scan_ok';
+            if (ev.action === 'scan_fail' || ev.http_ok === false) cls += ' scan_fail';
+            div.className = cls;
+            var t = new Date(ev.t || Date.now()).toLocaleTimeString();
+            var meta = '#' + ev.id + ' ' + t + ' [' + (ev.type || '?') + '] screen=' + (ev.screen || '?') +
+                ' action=' + (ev.action || '-') + ' src=' + (ev.source || '-');
+            if (ev.tag_count != null) meta += ' tags=' + ev.tag_count;
+            if (ev.app_version) meta += ' app=' + ev.app_version;
+            var html = '<div class="meta">' + esc(meta) + '</div>';
+            if (ev.raw) html += '<div class="raw">' + esc(ev.raw) + '</div>';
+            if (ev.tags && ev.tags.length) {
+                html += '<div class="tags">' + ev.tags.map(function (x) {
+                    return x.epc + (x.rssi != null ? '|' + x.rssi : '');
+                }).join(', ') + '</div>';
+            }
+            if (ev.http_error) html += '<div class="tags" style="color:#fca5a5">HTTP: ' + esc(ev.http_error) + '</div>';
+            div.innerHTML = html;
+            return div;
+        }
+
+        function poll() {
+            if (paused) return;
+            var scannerId = qsScanner();
+            fetch('/api/scanner/stream?scanner_id=' + encodeURIComponent(scannerId) +
+                '&since_id=' + sinceId + '&_=' + Date.now())
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok) {
+                        metaEl.textContent = data.error || 'Error';
+                        return;
+                    }
+                    var online = data.presence && data.presence.online;
+                    metaEl.textContent = (online ? '● Online' : '○ Offline') + ' · events through #' +
+                        data.latest_id + ' · polling every 400ms';
+                    if (data.events && data.events.length) {
+                        if (sinceId === 0 && eventsEl.querySelector('.meta')) {
+                            eventsEl.innerHTML = '';
+                        }
+                        for (var i = 0; i < data.events.length; i++) {
+                            eventsEl.appendChild(renderEvent(data.events[i]));
+                            sinceId = data.events[i].id;
+                        }
+                        eventsEl.scrollTop = eventsEl.scrollHeight;
+                        while (eventsEl.childNodes.length > 500) {
+                            eventsEl.removeChild(eventsEl.firstChild);
+                        }
+                    }
+                })
+                .catch(function (err) {
+                    metaEl.textContent = 'Poll failed: ' + err.message;
+                });
+        }
+
+        document.getElementById('btn-clear').addEventListener('click', function () {
+            fetch('/api/scanner/stream/clear', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scanner_id: qsScanner() }),
+            }).then(function () {
+                sinceId = 0;
+                eventsEl.innerHTML = '<p class="meta">Cleared.</p>';
+            });
+        });
+
+        document.getElementById('btn-pause').addEventListener('click', function () {
+            paused = !paused;
+            this.textContent = paused ? 'Resume' : 'Pause';
+        });
+
+        document.getElementById('scanner-id').addEventListener('change', function () {
+            sinceId = 0;
+            eventsEl.innerHTML = '<p class="meta">Switched scanner.</p>';
+        });
+
+        (function init() {
+            var p = new URLSearchParams(location.search);
+            if (p.get('scanner_id')) {
+                document.getElementById('scanner-id').value = p.get('scanner_id');
+            }
+            setInterval(poll, 400);
+            poll();
+        })();
+    </script>
+</body>
+</html>

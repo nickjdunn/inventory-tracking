@@ -38,6 +38,14 @@
         .line .err { color: #fca5a5; }
         .hint { font-size: 12px; color: #94a3b8; margin-bottom: 10px; }
         .scanner-list { font-size: 12px; color: #94a3b8; margin-bottom: 8px; }
+        h2.section { font-size: 15px; margin: 18px 0 8px; color: #e2e8f0; }
+        #diag-log {
+            background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+            padding: 10px; height: 32vh; overflow-y: auto;
+            font-family: Consolas, monospace; font-size: 11px;
+            white-space: pre-wrap; word-break: break-all; color: #cbd5e1;
+        }
+        #diag-meta { font-size: 12px; color: #94a3b8; margin-bottom: 6px; }
     </style>
 </head>
 <body class="terminal-page">
@@ -49,8 +57,8 @@
     </div>
 
     <p class="hint" id="hint">
-        Open the native app on the gun (same Scanner ID as below). In <strong>Diag</strong> tab enable
-        <strong>Live raw → server</strong> and tap <strong>Save stream opts</strong>, then scan tags.
+        On the gun: <strong>Diag</strong> → check <strong>Trace → browser (all tabs)</strong> (no Save needed).
+        Scan on <strong>Recv</strong> or any tab — trace appears below within ~1s.
     </p>
 
     <div class="toolbar">
@@ -65,6 +73,16 @@
 
     <p class="scanner-list" id="scanner-list"></p>
     <div id="feed"><p class="meta">No data yet.</p></div>
+
+    <h2 class="section">📋 Scanner trace log (from gun)</h2>
+    <p id="diag-meta">Waiting for trace…</p>
+    <div class="toolbar">
+        <button type="button" class="btn" id="btn-clear-diag">Clear trace on server</button>
+        <button type="button" class="btn" id="btn-refresh-diag">Refresh trace</button>
+        <a class="btn" id="btn-log-dl" href="#">Download .log</a>
+    </div>
+    <pre id="diag-log">(enable Trace → browser on gun, then scan)</pre>
+
     <div data-terminal-chrome></div>
 
     <script src="/site-version.js"></script>
@@ -80,6 +98,9 @@
         var presenceDetail = document.getElementById('presence-detail');
         var scannerPick = document.getElementById('scanner-pick');
         var scannerListEl = document.getElementById('scanner-list');
+        var diagLogEl = document.getElementById('diag-log');
+        var diagMetaEl = document.getElementById('diag-meta');
+        var lastDiagUpdated = 0;
 
         function qsScanner() {
             var p = new URLSearchParams(location.search);
@@ -87,9 +108,32 @@
         }
 
         function updateLogLink() {
-            document.getElementById('btn-log').href =
-                '/api/handheld/diagnostic-log?scanner_id=' +
-                encodeURIComponent(qsScanner()) + '&download=1';
+            var q = '?scanner_id=' + encodeURIComponent(qsScanner()) + '&download=1';
+            document.getElementById('btn-log').href = '/api/handheld/diagnostic-log' + q;
+            document.getElementById('btn-log-dl').href = '/api/handheld/diagnostic-log' + q;
+        }
+
+        function pollDiagLog() {
+            var scannerId = qsScanner();
+            updateLogLink();
+            var url = '/api/scanner/live?scanner_id=' + encodeURIComponent(scannerId) +
+                '&since_id=0&include_diag=1&_=' + Date.now();
+            fetch(url)
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok) return;
+                    var log = data.diag_log != null ? String(data.diag_log) : '';
+                    var bytes = data.diag_log_bytes != null ? data.diag_log_bytes : log.length;
+                    var updated = data.diag_log_updated || 0;
+                    if (updated !== lastDiagUpdated || diagLogEl.textContent.indexOf('enable Trace') >= 0) {
+                        lastDiagUpdated = updated;
+                        diagLogEl.textContent = log.length ? log : '(no trace yet — check Trace → browser on gun and scan)';
+                        diagLogEl.scrollTop = diagLogEl.scrollHeight;
+                    }
+                    var ago = updated ? formatAgo(Date.now() - updated) : 'never';
+                    diagMetaEl.textContent = bytes + ' bytes on server · updated ' + ago;
+                })
+                .catch(function () {});
         }
 
         function esc(s) {
@@ -193,7 +237,7 @@
             var scannerId = qsScanner();
             updateLogLink();
             var url = '/api/scanner/live?scanner_id=' + encodeURIComponent(scannerId) +
-                '&since_id=' + sinceId + '&_=' + Date.now();
+                '&since_id=' + sinceId + '&include_diag=0&_=' + Date.now();
             fetch(url)
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
@@ -228,6 +272,22 @@
         document.getElementById('btn-pause').addEventListener('click', function () {
             paused = !paused;
             this.textContent = paused ? 'Resume' : 'Pause';
+        });
+
+        document.getElementById('btn-clear-diag').addEventListener('click', function () {
+            fetch('/api/handheld/diagnostic-log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scanner_id: qsScanner(), reset: true }),
+            }).then(function () {
+                lastDiagUpdated = 0;
+                diagLogEl.textContent = '(cleared)';
+                pollDiagLog();
+            });
+        });
+
+        document.getElementById('btn-refresh-diag').addEventListener('click', function () {
+            pollDiagLog();
         });
 
         document.getElementById('btn-clear').addEventListener('click', function () {
@@ -293,7 +353,9 @@
                 }
             });
             setInterval(poll, pollMs);
+            setInterval(pollDiagLog, 800);
             poll();
+            pollDiagLog();
         })();
     </script>
 </body>

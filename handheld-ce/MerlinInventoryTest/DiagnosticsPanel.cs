@@ -16,6 +16,7 @@ namespace MerlinHandheld
         private readonly TextBox _previewBox;
         private readonly Label _status;
         private readonly Label _urlLabel;
+        private readonly System.Windows.Forms.Timer _previewTimer;
 
         public DiagnosticsPanel(AppConfig cfg, InventoryApiClient api)
         {
@@ -29,12 +30,15 @@ namespace MerlinHandheld
 
             _previewBox = MerlinUi.MakeField();
             _previewBox.Multiline = true;
-            _previewBox.Height = 40;
+            _previewBox.Height = 56;
+            _previewBox.ScrollBars = ScrollBars.Vertical;
             _previewBox.ReadOnly = true;
+            _previewBox.Font = new Font("Tahoma", 7f, FontStyle.Regular);
 
             _chkLiveRaw = MakeCheck("Live raw → server", _cfg.LiveRawStream);
             _chkLiveScan = MakeCheck("Live scan → inventory", _cfg.LiveScanStream);
-            _chkDiagLog = MakeCheck("Log to file on gun", _cfg.DiagnosticLogFile);
+            _chkDiagLog = MakeCheck("Trace → browser (all tabs)", _cfg.DiagnosticLogFile);
+            _chkDiagLog.CheckStateChanged += DiagLog_CheckedChanged;
 
             _liveBinBox = MerlinUi.MakeField();
             _liveBinBox.Text = _cfg.LiveScanBinId != null && _cfg.LiveScanBinId.Length > 0
@@ -59,15 +63,15 @@ namespace MerlinHandheld
             var testLiveBtn = MerlinUi.MakeButton("Test live POST");
             testLiveBtn.Click += delegate { TestLivePost(); };
 
-            var uploadBtn = MerlinUi.MakeButton("Upload log");
-            uploadBtn.Click += delegate { UploadLog(); };
+            var uploadBtn = MerlinUi.MakeButton("Flush log now");
+            uploadBtn.Click += delegate { FlushLogNow(); };
 
-            var clearBtn = MerlinUi.MakeButton("Clear file log");
-            clearBtn.Click += delegate
-            {
-                DiagnosticLog.Clear();
-                _status.Text = "File log cleared";
-            };
+            var clearBtn = MerlinUi.MakeButton("Clear trace");
+            clearBtn.Click += delegate { ClearTrace(); };
+
+            _previewTimer = new System.Windows.Forms.Timer();
+            _previewTimer.Interval = 1500;
+            _previewTimer.Tick += delegate { RefreshTracePreview(); };
 
             Controls.Add(_status);
             Controls.Add(clearBtn);
@@ -76,7 +80,7 @@ namespace MerlinHandheld
             Controls.Add(pingBtn);
             Controls.Add(saveBtn);
             Controls.Add(_previewBox);
-            Controls.Add(MerlinUi.MakeCaption("Last read"));
+            Controls.Add(MerlinUi.MakeCaption("Trace preview (also on PC)"));
             Controls.Add(_liveBinBox);
             Controls.Add(MerlinUi.MakeCaption("Live scan bin"));
             Controls.Add(_chkDiagLog);
@@ -84,6 +88,63 @@ namespace MerlinHandheld
             Controls.Add(_chkLiveRaw);
             Controls.Add(_urlLabel);
             Controls.Add(MakeUrlHint());
+
+            ApplyTraceEnabled(_cfg.DiagnosticLogFile, false);
+        }
+
+        public void OnPanelShown()
+        {
+            RefreshTracePreview();
+            _previewTimer.Enabled = DiagnosticLog.IsEnabled;
+        }
+
+        public void OnPanelHidden()
+        {
+            _previewTimer.Enabled = false;
+        }
+
+        public void RefreshTracePreview()
+        {
+            if (!DiagnosticLog.IsEnabled)
+            {
+                _previewBox.Text = "(trace off — check box above)";
+                return;
+            }
+            string tail = DiagnosticLog.GetRecentTail(1800);
+            string err = DiagnosticLog.LastUploadError;
+            string head = DiagnosticLog.LineCount + " lines";
+            if (err.Length > 0) head += " UPLOAD:" + MerlinUi.ShortLine(err, 40);
+            _previewBox.Text = head + "\r\n" + (tail.Length > 0 ? tail : "(waiting for scans…)");
+        }
+
+        private void DiagLog_CheckedChanged(object sender, EventArgs e)
+        {
+            ApplyTraceEnabled(_chkDiagLog.Checked, true);
+        }
+
+        private void ApplyTraceEnabled(bool on, bool saveCfg)
+        {
+            _cfg.DiagnosticLogFile = on;
+            DiagnosticLog.Configure(on);
+            _previewTimer.Enabled = on;
+            if (on)
+            {
+                DiagnosticLog.LogSessionStart(_cfg);
+                DiagnosticLog.Info("trace enabled — scan on Recv/Find/Diag");
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    _api.RegisterScannerSession();
+                    DiagnosticLog.FlushToServerNow();
+                });
+            }
+            if (saveCfg)
+            {
+                try { _cfg.Save(); } catch { }
+            }
+            _status.Text = on
+                ? "Trace ON — open scanner-live on PC"
+                : "Trace OFF";
+            RefreshTracePreview();
         }
 
         private Label MakeUrlHint()
@@ -123,6 +184,11 @@ namespace MerlinHandheld
         public void ShowLastRead(string wedgeText)
         {
             if (wedgeText == null) wedgeText = "";
+            if (DiagnosticLog.IsEnabled)
+            {
+                RefreshTracePreview();
+                return;
+            }
             _previewBox.Text = MerlinUi.ShortLine(wedgeText, 120);
         }
 
@@ -132,11 +198,7 @@ namespace MerlinHandheld
             _cfg.LiveScanStream = _chkLiveScan.Checked;
             _cfg.DiagnosticLogFile = _chkDiagLog.Checked;
             _cfg.LiveScanBinId = _liveBinBox.Text.Trim();
-            _cfg.Save();
-            if (_cfg.DiagnosticLogFile)
-            {
-                DiagnosticLog.Info("Stream opts saved live_raw=" + _cfg.LiveRawStream + " live_scan=" + _cfg.LiveScanStream);
-            }
+            ApplyTraceEnabled(_cfg.DiagnosticLogFile, true);
             _status.Text = "Saving + register…";
             ThreadPool.QueueUserWorkItem(delegate
             {
@@ -145,9 +207,11 @@ namespace MerlinHandheld
                 {
                     _api.PostScannerLive("session", "Stream opts saved", null, null, false, "Diag");
                 }
+                DiagnosticLog.FlushToServerNow();
                 BeginInvoke(new EventHandler(delegate
                 {
                     _status.Text = hb.Ok ? "Saved — live ON" : MerlinUi.ShortLine("Save err: " + hb.Error, 80);
+                    RefreshTracePreview();
                 }), null, EventArgs.Empty);
             });
         }
@@ -187,29 +251,33 @@ namespace MerlinHandheld
             });
         }
 
-        private void UploadLog()
+        private void FlushLogNow()
         {
-            _status.Text = "Uploading…";
-            string text = DiagnosticLog.ReadAll();
-            if (text.Length == 0)
-            {
-                text = "(empty log " + DateTime.UtcNow.ToString("o") + ")";
-            }
+            _status.Text = "Flushing…";
             ThreadPool.QueueUserWorkItem(delegate
             {
+                DiagnosticLog.FlushToServerNow();
+                string text = DiagnosticLog.ExportForUpload();
                 HttpResult res = _api.UploadDiagnosticLog(text, false);
                 BeginInvoke(new EventHandler(delegate
                 {
-                    if (res.Ok)
-                    {
-                        _status.Text = "Log on server — download in browser";
-                    }
-                    else
-                    {
-                        _status.Text = MerlinUi.ShortLine(res.Error, 80);
-                    }
+                    RefreshTracePreview();
+                    _status.Text = res.Ok
+                        ? "Flushed " + text.Length + " B"
+                        : MerlinUi.ShortLine(res.Error, 80);
                 }), null, EventArgs.Empty);
             });
+        }
+
+        private void ClearTrace()
+        {
+            DiagnosticLog.Clear();
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                _api.UploadDiagnosticLog("", true);
+            });
+            _status.Text = "Trace cleared";
+            RefreshTracePreview();
         }
     }
 }

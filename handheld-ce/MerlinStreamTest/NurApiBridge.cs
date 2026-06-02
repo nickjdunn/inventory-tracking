@@ -7,7 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace MerlinHandheld
+namespace MerlinStream
 {
     /// <summary>
     /// Optional Nordic NUR API integration via reflection (no compile-time SDK reference).
@@ -15,14 +15,14 @@ namespace MerlinHandheld
     /// </summary>
     public sealed class NurApiBridge : IDisposable
     {
-        private readonly AppConfig _cfg;
+        private readonly StreamConfig _cfg;
         private object _api;
         private bool _inventoryRunning;
         private System.Windows.Forms.Timer _statusTimer;
         private string _status = "NUR: not loaded";
         private long _lastEmitTicks;
 
-        public NurApiBridge(AppConfig cfg)
+        public NurApiBridge(StreamConfig cfg)
         {
             _cfg = cfg;
         }
@@ -160,23 +160,13 @@ namespace MerlinHandheld
             if (!force)
             {
                 long minTicks = 800 * 10000L;
-                if (now - _lastEmitTicks < minTicks)
-                {
-                    DiagnosticLog.LogNur("emit throttled (800ms)");
-                    return;
-                }
+                if (now - _lastEmitTicks < minTicks) return;
             }
             _lastEmitTicks = now;
 
             object tags = TryInvokeReturn(_api, "GetTagStorage", null);
-            if (tags == null)
-            {
-                DiagnosticLog.LogNur("GetTagStorage returned null");
-                return;
-            }
+            if (tags == null) return;
             string text = FormatTagsFromStorage(tags);
-            int lineCount = text.Length == 0 ? 0 : text.Split(',').Length;
-            DiagnosticLog.LogNur("emit len=" + text.Length + " approx_tags=" + lineCount + " force=" + force);
             if (text.Length > 0 && TagsInventoryReady != null)
             {
                 TagsInventoryReady(this, new NurTagsEventArgs(text));
@@ -272,7 +262,7 @@ namespace MerlinHandheld
                 @"\Program Files\Nordic ID\NUR API",
                 @"\Program Files\NordicId\NurApi",
                 @"\Flash\Nordic",
-                Path.GetDirectoryName(AppConfig.ConfigDirectory)
+                Path.GetDirectoryName(StreamConfig.ConfigDirectory)
             };
 
             for (int d = 0; d < dirs.Length; d++)

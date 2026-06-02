@@ -1,0 +1,3 @@
+C:\Users\nickj\Documents\Coding Projects\inventory-tracking\inventory-tracking\handheld-ce\MerlinStreamTest\obj\Release\ResolveAssemblyReference.cache
+C:\Users\nickj\Documents\Coding Projects\inventory-tracking\inventory-tracking\handheld-ce\MerlinStreamTest\bin\Release\MerlinStreamTest.exe
+C:\Users\nickj\Documents\Coding Projects\inventory-tracking\inventory-tracking\handheld-ce\MerlinStreamTest\obj\Release\MerlinStreamTest.exe
