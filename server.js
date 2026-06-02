@@ -331,7 +331,7 @@ app.get('/api/ping', (req, res) => {
 app.get('/api/deploy/info', (req, res) => {
     sendJsonOrJsonp(req, res, {
         app: 'MerlinInventoryTest',
-        version: '0.1.0-test',
+        version: '1.0.0-native',
         server_time: Date.now(),
         deploy_page: '/deploy/',
         wifi_test_page: '/deploy/ce-wifi-test.html',
@@ -357,13 +357,19 @@ app.get('/api/handheld/sync-summary', async (req, res) => {
             dbGet(`SELECT COUNT(*) AS n FROM containers`),
             getSystemSettingsCached(),
         ]);
+        const nearGate = parseInt(settings.rssi_near_gate, 10) || -55;
+        const farGate = parseInt(settings.rssi_far_gate, 10) || -85;
         sendJsonOrJsonp(req, res, {
             ok: true,
             synced_at: Date.now(),
             item_count: itemRow ? itemRow.n : 0,
             bin_count: binRow ? binRow.n : 0,
             hunt_targets: activeSearchQueue.length,
-            rssi_near_gate: parseInt(settings.rssi_near_gate, 10) || -55,
+            activeSearchQueue: [...activeSearchQueue],
+            revision: huntRevision,
+            hunt_targets_detail: buildHuntTargetsForQueue(nearGate, farGate),
+            rssi_near_gate: nearGate,
+            rssi_far_gate: farGate,
         });
     } catch (err) {
         sendJsonOrJsonp(req, res, { ok: false, error: err.message }, 500);

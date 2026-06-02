@@ -146,6 +146,7 @@
 
             jsonpGet(url, function (ok, st, text, data) {
                 if (ok) {
+                    window.__lastApiJson = data;
                     log(label + ': OK (JSONP)', 'pass');
                     if (data && data.error) {
                         log(label + ' server error: ' + data.error, 'fail');
@@ -204,6 +205,51 @@
                 },
                 function (next) {
                     apiGet('/api/handheld/sync-summary', 'Inventory sync summary', next);
+                },
+                function (next) {
+                    apiGet('/api/handheld/sync', 'Handheld full sync', function (ok) {
+                        if (ok) {
+                            try {
+                                var d = window.__lastApiJson;
+                                if (d && d.items) {
+                                    log('  items=' + d.items.length + ' bins=' + (d.containers ? d.containers.length : 0), 'info');
+                                }
+                            } catch (e) {}
+                        }
+                        next();
+                    });
+                },
+                function (next) {
+                    apiGet('/api/search/target', 'Hunt target state', next);
+                },
+                function (next) {
+                    var url = baseUrl() + '/api/scan/near-field-ingest';
+                    var body = JSON.stringify({
+                        scanned_tags: [{ epc: 'CE-WIFI-TEST-EPC', rssi: -48 }]
+                    });
+                    if (typeof ActiveXObject !== 'undefined') {
+                        httpRequest('POST', url, body, function (xhrOk, xhrSt, xhrText) {
+                            if (xhrOk) log('Near-field ingest: OK', 'pass');
+                            else log('Near-field ingest: FAIL HTTP ' + xhrSt, 'fail');
+                            next();
+                        });
+                    } else {
+                        try {
+                            var x = new XMLHttpRequest();
+                            x.open('POST', url, true);
+                            x.setRequestHeader('Content-Type', 'application/json');
+                            x.onreadystatechange = function () {
+                                if (x.readyState !== 4) return;
+                                if (x.status >= 200 && x.status < 300) log('Near-field ingest: OK', 'pass');
+                                else log('Near-field ingest: FAIL HTTP ' + x.status, 'fail');
+                                next();
+                            };
+                            x.send(body);
+                        } catch (e) {
+                            log('Near-field ingest: ' + e.message, 'fail');
+                            next();
+                        }
+                    }
                 }
             ];
 

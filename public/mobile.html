@@ -1220,18 +1220,19 @@
             }
         }
 
+        function useHandheldSyncPayload() {
+            return (
+                typeof MerlinHandheldDetect !== 'undefined' &&
+                MerlinHandheldDetect.shouldRedirectToHandheld &&
+                MerlinHandheldDetect.shouldRedirectToHandheld()
+            );
+        }
+
         async function syncInventoryFromServer() {
             const badge = document.getElementById('inventory-sync-badge');
             try {
-                const [dashRes, searchRes] = await Promise.all([
-                    fetch('/api/dashboard'),
-                    fetch('/api/search/target'),
-                ]);
-                const data = await dashRes.json();
+                const searchRes = await fetch('/api/search/target');
                 const searchData = await searchRes.json();
-                if (Array.isArray(data.containers) && data.containers.length) {
-                    registeredContainers = data.containers;
-                }
                 activeSearchQueue = searchData.activeSearchQueue || [];
                 if (searchData.rssi_near_gate != null) {
                     rssiNearGate = parseInt(searchData.rssi_near_gate, 10) || rssiNearGate;
@@ -1242,9 +1243,28 @@
                 if (activeView === 'find' && activeSearchQueue.length) {
                     applyHuntPayload(searchData);
                 }
-                applyLocalInventoryState(data.items || []);
+
+                let items = [];
+                if (useHandheldSyncPayload()) {
+                    const syncRes = await fetch('/api/handheld/sync');
+                    const syncData = await syncRes.json();
+                    if (Array.isArray(syncData.containers) && syncData.containers.length) {
+                        registeredContainers = syncData.containers;
+                    }
+                    items = syncData.items || [];
+                } else {
+                    const dashRes = await fetch('/api/dashboard');
+                    const data = await dashRes.json();
+                    if (Array.isArray(data.containers) && data.containers.length) {
+                        registeredContainers = data.containers;
+                    }
+                    items = data.items || [];
+                }
+                applyLocalInventoryState(items);
                 if (badge) {
-                    badge.textContent = '● Live sync active';
+                    badge.textContent = useHandheldSyncPayload()
+                        ? '● Handheld sync'
+                        : '● Live sync active';
                     badge.className = 'sync-badge';
                 }
             } catch (_) {

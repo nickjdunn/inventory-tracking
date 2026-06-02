@@ -8,14 +8,14 @@
     <ProjectGuid>{B8E5F1A2-3C4D-5E6F-9012-3456789ABCDE}</ProjectGuid>
     <OutputType>WinExe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>MerlinInventoryTest</RootNamespace>
+    <RootNamespace>MerlinHandheld</RootNamespace>
     <AssemblyName>MerlinInventoryTest</AssemblyName>
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <ProjectTypeGuids>{4D628B5B-2FBC-4AA6-8A15-DF267A380131};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <PlatformFamilyName>WindowsCE</PlatformFamilyName>
     <PlatformID>{E206BF2F-DCFB-4B44-8D7A-9B02B3F2F0C0}</PlatformID>
-    <DeployDirSuffix>MerlinInventoryTest</DeployDirSuffix>
+    <DeployDirSuffix>MerlinInventory</DeployDirSuffix>
     <TargetFrameworkIdentifier>.NETCompactFramework</TargetFrameworkIdentifier>
     <GenerateManifests>false</GenerateManifests>
   </PropertyGroup>
@@ -39,23 +39,25 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Data" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AppConfig.cs" />
+    <Compile Include="HandheldPanels.cs" />
+    <Compile Include="HandheldState.cs" />
+    <Compile Include="HttpHelper.cs" />
+    <Compile Include="InventoryApiClient.cs" />
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Models.cs" />
     <Compile Include="Program.cs" />
+    <Compile Include="SimpleJson.cs" />
+    <Compile Include="TagParser.cs" />
+    <Compile Include="UrlCodec.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CompactFramework.CSharp.targets" />
-  <PropertyGroup>
-    <PreBuildEvent></PreBuildEvent>
-    <PostBuildEvent></PostBuildEvent>
-  </PropertyGroup>
 </Project>

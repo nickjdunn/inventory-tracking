@@ -24,7 +24,8 @@
     <p>Run first — no install. Confirms connection to inventory server.</p>
 
     <a class="big secondary" href="/mobile.html">📱 Inventory mobile UI</a>
-    <p>Full scan / find / add workflow in the browser.</p>
+    <p>Full scan / find / add in the browser (fallback).</p>
+    <p class="ok"><strong>Native app (recommended):</strong> install <code>MerlinInventoryTest.cab</code> below — Receive / Find / Add / Settings.</p>
 
     <a class="big secondary" href="#" id="cab-link" style="display:none;">⬇ Install native test app (.cab)</a>
     <p id="cab-hint" class="warn">Native .cab not on server yet — build on PC, copy to <code>public/deploy/</code>.</p>
@@ -49,12 +50,15 @@
             if (!ok) return;
             try {
                 var d = JSON.parse(text);
+                var ver = d.version ? 'Server app version: <code>' + d.version + '</code>. ' : '';
                 if (d.cab_available) {
                     var a = document.getElementById('cab-link');
                     a.style.display = 'block';
                     a.href = d.cab_url;
                     document.getElementById('cab-hint').innerHTML =
-                        '<span class="ok">CAB ready: ' + d.cab_filename + ' (' + d.cab_size_kb + ' KB)</span>';
+                        ver + '<span class="ok">CAB ready: ' + d.cab_filename + ' (' + d.cab_size_kb + ' KB)</span>';
+                } else if (ver) {
+                    document.getElementById('cab-hint').innerHTML = ver + document.getElementById('cab-hint').innerHTML;
                 }
             } catch (e) {}
         });

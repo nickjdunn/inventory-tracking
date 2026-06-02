@@ -1,57 +1,56 @@
-# Build MerlinInventoryTest.cab (first native test)
+# Merlin native handheld app (v1.0)
 
-This is a **.NET Compact Framework 3.5** app that only tests HTTP to your inventory server. No RFID yet.
+**.NET Compact Framework 3.5** WinForms app for Nordic ID Merlin — **Receive**, **Find**, **Add**, **Settings**.
 
-## What you need on the PC
+Output assembly: `MerlinInventoryTest.exe` (CAB name unchanged for Wi‑Fi deploy: `MerlinInventoryTest.cab`).
 
-- **Visual Studio 2008** with **Smart Device Programmability** (Windows Mobile 6 / CE SDK)
-- Or open the `.csproj` and retarget to your installed CE platform if VS prompts you
+## Build (Visual Studio 2008 + Windows CE SDK)
 
-If you do not have VS2008, use the **browser test only** (no build):
+1. Open `handheld-ce/MerlinInventoryTest/MerlinInventoryTest.csproj`
+2. Platform: **Windows CE** / **ARMV4I** (match your Merlin)
+3. **Build → Build Solution**
+4. Create a **Smart Device CAB Project** → add primary output → build CAB
 
-`http://<server-ip>:3000/deploy/ce-wifi-test.html`
-
-## Build steps (VS2008)
-
-1. Open `handheld-ce/MerlinInventoryTest/MerlinInventoryTest.csproj`.
-2. When prompted, select platform **Windows CE** / **Professional** matching your Merlin (usually **ARMV4I**).
-3. Menu **Build → Build Solution**.
-4. Menu **Build → Deploy** (USB) **or** create CAB:
-   - **File → New → Project → Setup and Deployment → Smart Device CAB Project**
-   - Add primary output of `MerlinInventoryTest`
-   - Build CAB → `MerlinInventoryTest.cab`
-
-## Publish to Wi‑Fi deploy folder
-
-From repo root (PowerShell):
+## Publish to server (Wi‑Fi install)
 
 ```powershell
-.\scripts\publish-to-deploy.ps1 -CabPath "C:\path\to\MerlinInventoryTest.cab"
+.\scripts\publish-to-deploy.ps1 -CabPath "path\to\MerlinInventoryTest.cab"
 ```
 
-Or manually copy `MerlinInventoryTest.cab` to:
+On gun: `http://<server>:3000/deploy/` → install CAB.
 
-`public/deploy/MerlinInventoryTest.cab`
+## Using the app
 
-Restart server (if running). Open on Merlin browser:
+| Control | Action |
+|---------|--------|
+| **Receive** | Pick bin → paste/type EPCs (wedge) → **Send tags (Trigger)** |
+| **Find** | Search → **Hunt selected** → F1 = simulate RFID read |
+| **Add** | F2 = UPC (Scan key) → Lookup → F1 = EPC (Trigger) → Register |
+| **Set** | Server URL, scanner ID, **Sync inventory** |
 
-`http://<server-ip>:3000/deploy/`
+Until Nordic RFID/Barcode SDK is wired:
 
-## On the Merlin
+- **F1** = Trigger / RFID (prompt for EPC list)
+- **F2** = Scan key / UPC (Add mode)
 
-1. **Browser test:** `/deploy/ce-wifi-test.html` → Run all tests.
-2. **Native app:** tap CAB link → install → run **Merlin Inventory Test** from Programs.
-3. Enter server `10.17.17.17:3000` (or your IP) → **Test connection**.
+When wedge posts tags into a text field automatically, paste into **Receive** tag box or we hook `HardwareBridge.cs` (next step) to Nordic samples.
 
-Dashboard should show scanner **merlin-ce-native-test** online after a successful heartbeat.
+## Config file
 
-## Troubleshooting
+Saved next to the exe: `merlin-handheld.cfg`
 
-| Problem | Fix |
-|---------|-----|
-| Project won't load | Create new Smart Device WinForms app, paste `Program.cs` + `MainForm.cs` |
-| HTTP fails on device | Ping server IP; check Wi‑Fi; disable HTTPS (use `http://`) |
-| CAB won't install | Wrong CPU (need ARM CE CAB); try USB + WMDC instead |
-| No .cab link on deploy page | CAB not copied to `public/deploy/` |
+```
+server=http://10.17.17.17:3000
+scanner=merlin-handheld-01
+bin=BIN-GARAGE-01
+mode=Receive
+```
 
-See `docs/MERLIN_WIFI_DEPLOY.md` for NAS vs HTTP update workflow.
+## Next integration step
+
+Copy Nordic **NUR API** trigger events into a new `RfidReader.cs` that calls:
+
+- Receive/Find → fill tag text → `PostScan`
+- Add → single EPC → `ValidateEpc` + register
+
+Barcode SDK → `AddPanel.SetUpc()` on scan button event.
