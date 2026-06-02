@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Runtime.InteropServices;
 
 [assembly: AssemblyTitle("Merlin Inventory Handheld")]
@@ -11,4 +11,4 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCulture("")]
 [assembly: ComVisible(false)]
 [assembly: Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567891")]
-[assembly: AssemblyVersion("1.0.49.0")]
+[assembly: AssemblyVersion("1.0.51.0")]

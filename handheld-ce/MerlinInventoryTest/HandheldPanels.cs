@@ -21,59 +21,36 @@ namespace MerlinHandheld
             _cfg = cfg;
             _state = state;
             _api = api;
+            MerlinUi.StylePanel(this);
+
+            _resultLabel = MerlinUi.MakeStatusLabel();
+            _resultLabel.Text = "Ready";
+
+            _tagsBox = MerlinUi.MakeField();
+            _tagsBox.Multiline = true;
+            _tagsBox.Height = 72;
+            _tagsBox.ScrollBars = ScrollBars.Vertical;
+            _tagsBox.Dock = DockStyle.Fill;
+
+            var sendBtn = MerlinUi.MakePrimaryButton("Send tags");
+            sendBtn.Click += delegate { SendTags(); };
+
+            _binCombo = MerlinUi.MakeCombo();
 
             var hint = new Label
             {
-                Text = "Trigger / F1 = RFID wedge or NUR. Paste tags below if needed.",
-                Top = 4,
-                Left = 4,
-                Width = 300,
-                Height = 28,
-                Font = new Font("Tahoma", 8f, FontStyle.Regular)
+                Text = "F1/trigger = RFID. Tags below.",
+                Height = 24,
+                Dock = DockStyle.Top,
+                ForeColor = Color.FromArgb(148, 163, 184),
             };
 
-            var binLbl = new Label { Text = "Target bin", Top = 34, Left = 4, Width = 80, Height = 16 };
-            _binCombo = new ComboBox { Top = 52, Left = 4, Width = 300, DropDownStyle = ComboBoxStyle.DropDownList };
-
-            var sendBtn = new Button
-            {
-                Text = "Send tags (Trigger)",
-                Top = 82,
-                Left = 4,
-                Width = 300,
-                Height = 36,
-                BackColor = Color.FromArgb(3, 105, 161),
-                ForeColor = Color.White
-            };
-            sendBtn.Click += delegate { SendTags(); };
-
-            _tagsBox = new TextBox
-            {
-                Top = 124,
-                Left = 4,
-                Width = 300,
-                Height = 120,
-                Multiline = true,
-                ScrollBars = ScrollBars.Vertical,
-                Font = new Font("Tahoma", 8f, FontStyle.Regular)
-            };
-
-            _resultLabel = new Label
-            {
-                Text = "Ready",
-                Top = 250,
-                Left = 4,
-                Width = 300,
-                Height = 60,
-                Font = new Font("Tahoma", 8f, FontStyle.Regular)
-            };
-
-            Controls.Add(hint);
-            Controls.Add(binLbl);
-            Controls.Add(_binCombo);
-            Controls.Add(sendBtn);
-            Controls.Add(_tagsBox);
             Controls.Add(_resultLabel);
+            Controls.Add(_tagsBox);
+            Controls.Add(sendBtn);
+            Controls.Add(_binCombo);
+            Controls.Add(MerlinUi.MakeCaption("Bin"));
+            Controls.Add(hint);
         }
 
         public void RefreshBins()
@@ -115,7 +92,7 @@ namespace MerlinHandheld
         {
             if (_binCombo.SelectedItem == null)
             {
-                _resultLabel.Text = "Select a bin first";
+                _resultLabel.Text = "Select a bin";
                 return;
             }
             var bin = (BinInfo)_binCombo.SelectedItem;
@@ -125,11 +102,11 @@ namespace MerlinHandheld
             ArrayList tags = TagParser.ParseText(_tagsBox.Text);
             if (tags.Count == 0)
             {
-                _resultLabel.Text = "No tags to send";
+                _resultLabel.Text = "No tags";
                 return;
             }
 
-            _resultLabel.Text = "Sending " + tags.Count + " tags…";
+            _resultLabel.Text = "Sending " + tags.Count + "…";
             string binId = bin.Id;
             ThreadPool.QueueUserWorkItem(delegate
             {
@@ -139,7 +116,7 @@ namespace MerlinHandheld
                     : (res.Error.Length > 0 ? res.Error : res.Body);
                 BeginInvoke(new EventHandler(delegate
                 {
-                    _resultLabel.Text = summary;
+                    _resultLabel.Text = MerlinUi.ShortLine(summary, 120);
                     _state.LastScanSummary = summary;
                     if (StatusChanged != null) StatusChanged(this, EventArgs.Empty);
                 }), null, EventArgs.Empty);
@@ -161,40 +138,16 @@ namespace MerlinHandheld
             _cfg = cfg;
             _state = state;
             _api = api;
+            MerlinUi.StylePanel(this);
 
-            var refreshHuntBtn = new Button
-            {
-                Text = "Refresh hunt",
-                Top = 4,
-                Left = 4,
-                Width = 300,
-                Height = 26
-            };
-            refreshHuntBtn.Click += delegate { RefreshHuntFromServer(); };
+            _huntLabel = MerlinUi.MakeStatusLabel();
+            _huntLabel.Height = 40;
+            _huntLabel.Text = "Sync on Set tab first";
 
-            _searchBox = new TextBox { Top = 34, Left = 4, Width = 300 };
-            _searchBox.TextChanged += delegate { RefreshList(); };
-
-            _list = new ListBox { Top = 58, Left = 4, Width = 300, Height = 122, Font = new Font("Tahoma", 8f, FontStyle.Regular) };
-
-            var huntBtn = new Button
-            {
-                Text = "Hunt selected",
-                Top = 186,
-                Left = 4,
-                Width = 300,
-                Height = 32
-            };
-            huntBtn.Click += delegate { StartHunt(); };
-
-            var clearBtn = new Button
-            {
-                Text = "Clear hunt",
-                Top = 222,
-                Left = 4,
-                Width = 140,
-                Height = 28
-            };
+            var btnRow = new Panel { Height = MerlinUi.BtnH, Dock = DockStyle.Bottom };
+            var clearBtn = MerlinUi.MakeButton("Clear");
+            clearBtn.Dock = DockStyle.Right;
+            clearBtn.Width = MerlinUi.ContentW / 2 - 2;
             clearBtn.Click += delegate
             {
                 ThreadPool.QueueUserWorkItem(delegate
@@ -207,50 +160,52 @@ namespace MerlinHandheld
                     }), null, EventArgs.Empty);
                 });
             };
+            var huntBtn = MerlinUi.MakePrimaryButton("Hunt");
+            huntBtn.Dock = DockStyle.Fill;
+            huntBtn.Click += delegate { StartHunt(); };
+            btnRow.Controls.Add(clearBtn);
+            btnRow.Controls.Add(huntBtn);
 
-            _huntLabel = new Label
+            _list = new ListBox
             {
-                Text = "Sync inventory on Settings tab",
-                Top = 256,
-                Left = 4,
-                Width = 300,
-                Height = 50,
-                Font = new Font("Tahoma", 8f, FontStyle.Regular)
+                Dock = DockStyle.Fill,
+                Font = MerlinUi.FontSm,
+                BackColor = MerlinUi.Card,
+                ForeColor = Color.White,
             };
 
-            Controls.Add(refreshHuntBtn);
-            Controls.Add(_searchBox);
-            Controls.Add(_list);
-            Controls.Add(huntBtn);
-            Controls.Add(clearBtn);
+            _searchBox = MerlinUi.MakeField();
+            _searchBox.TextChanged += delegate { RefreshList(); };
+
+            var refreshHuntBtn = MerlinUi.MakeButton("Refresh hunt");
+            refreshHuntBtn.Click += delegate { RefreshHuntFromServer(); };
+
             Controls.Add(_huntLabel);
+            Controls.Add(btnRow);
+            Controls.Add(_list);
+            Controls.Add(_searchBox);
+            Controls.Add(MerlinUi.MakeCaption("Search"));
+            Controls.Add(refreshHuntBtn);
         }
 
         public void RefreshHuntDisplay()
         {
             if (_state.HuntQueue.Count == 0)
             {
-                _huntLabel.Text = "No hunt targets — select item and Hunt";
+                _huntLabel.Text = "No hunt — pick item, Hunt";
                 _huntLabel.ForeColor = Color.White;
                 return;
             }
-            var sb = new System.Text.StringBuilder();
-            sb.Append("Hunting ");
-            sb.Append(_state.HuntQueue.Count);
-            sb.Append(": ");
-            for (int i = 0; i < _state.HuntQueue.Count && i < 2; i++)
-            {
-                if (i > 0) sb.Append(", ");
-                sb.Append((string)_state.HuntQueue[i]);
-            }
-            if (_state.HuntQueue.Count > 2) sb.Append("…");
-            _huntLabel.Text = sb.ToString();
+            string epc = (string)_state.HuntQueue[0];
+            ItemInfo item = _state.FindItem(epc);
+            string name = item != null ? item.Name : epc;
+            _huntLabel.Text = MerlinUi.ShortLine("Hunt: " + name, 80);
             _huntLabel.ForeColor = Color.Khaki;
         }
 
         public void RefreshHuntFromServer()
         {
-            _huntLabel.Text = "Refreshing hunt…";
+            _huntLabel.Text = "Refreshing…";
             ThreadPool.QueueUserWorkItem(delegate
             {
                 HttpResult res = _api.SyncSummary();
@@ -258,14 +213,8 @@ namespace MerlinHandheld
                 bool ok = res.Ok && _api.TryApplyHuntSummary(res.Body, _state, out err);
                 BeginInvoke(new EventHandler(delegate
                 {
-                    if (ok)
-                    {
-                        RefreshHuntDisplay();
-                    }
-                    else
-                    {
-                        _huntLabel.Text = err.Length > 0 ? err : res.Error;
-                    }
+                    if (ok) RefreshHuntDisplay();
+                    else _huntLabel.Text = MerlinUi.ShortLine(err.Length > 0 ? err : res.Error, 80);
                 }), null, EventArgs.Empty);
             });
         }
@@ -276,8 +225,7 @@ namespace MerlinHandheld
             ArrayList filtered = _state.FilterItems(_searchBox.Text);
             for (int i = 0; i < filtered.Count; i++)
             {
-                var it = (ItemInfo)filtered[i];
-                _list.Items.Add(it);
+                _list.Items.Add((ItemInfo)filtered[i]);
             }
             _list.DisplayMember = "ListLine";
         }
@@ -292,7 +240,7 @@ namespace MerlinHandheld
 
             if (_state.HuntQueue.Count > 0)
             {
-                _huntLabel.Text = "Sending RSSI…";
+                _huntLabel.Text = "RSSI…";
                 ThreadPool.QueueUserWorkItem(delegate
                 {
                     _api.PostNearFieldIngest(tags);
@@ -313,49 +261,29 @@ namespace MerlinHandheld
         {
             if (hit != null)
             {
-                _huntLabel.Text = "MATCH: " + hit.ListLine;
+                _huntLabel.Text = MerlinUi.ShortLine("OK " + hit.Name, 80);
                 _huntLabel.ForeColor = Color.LightGreen;
-                if (huntSignal.Length > 0) _huntLabel.Text += " — " + huntSignal;
-                return;
-            }
-            if (_state.HuntQueue.Count > 0)
-            {
-                bool inQueue = false;
-                for (int i = 0; i < _state.HuntQueue.Count; i++)
-                {
-                    if (string.Compare((string)_state.HuntQueue[i], epc, StringComparison.OrdinalIgnoreCase) == 0)
-                    {
-                        inQueue = true;
-                        break;
-                    }
-                }
                 if (huntSignal.Length > 0)
                 {
-                    _huntLabel.Text = (inQueue ? "Hunt: " : "Read: ") + epc + " — " + huntSignal;
-                    _huntLabel.ForeColor = inQueue ? Color.Khaki : Color.Salmon;
-                }
-                else
-                {
-                    _huntLabel.Text = inQueue ? "Hunt target: " + epc : "Not in hunt queue: " + epc;
-                    _huntLabel.ForeColor = inQueue ? Color.Khaki : Color.Salmon;
+                    _huntLabel.Text = MerlinUi.ShortLine(_huntLabel.Text + " " + huntSignal, 90);
                 }
                 return;
             }
-            _huntLabel.Text = huntSignal.Length > 0 ? ("Read: " + epc + " — " + huntSignal) : ("Read: " + epc);
-            _huntLabel.ForeColor = Color.White;
+            _huntLabel.Text = MerlinUi.ShortLine(huntSignal.Length > 0 ? epc + " " + huntSignal : epc, 90);
+            _huntLabel.ForeColor = Color.Salmon;
         }
 
         private void StartHunt()
         {
             if (_list.SelectedItem == null)
             {
-                _huntLabel.Text = "Select an item";
+                _huntLabel.Text = "Select item";
                 return;
             }
             var it = (ItemInfo)_list.SelectedItem;
             var queue = new ArrayList();
             queue.Add(it.EpcId);
-            _huntLabel.Text = "Starting hunt…";
+            _huntLabel.Text = "Starting…";
             ThreadPool.QueueUserWorkItem(delegate
             {
                 HttpResult res = _api.PostHuntQueue(queue);
@@ -365,12 +293,12 @@ namespace MerlinHandheld
                     {
                         _state.HuntQueue.Clear();
                         _state.HuntQueue.Add(it.EpcId);
-                        _huntLabel.Text = "Hunting: " + it.ListLine + " (pull trigger for RSSI)";
+                        _huntLabel.Text = MerlinUi.ShortLine("Hunt: " + it.Name, 80);
                         _huntLabel.ForeColor = Color.Khaki;
                     }
                     else
                     {
-                        _huntLabel.Text = "Hunt failed: " + res.Error;
+                        _huntLabel.Text = MerlinUi.ShortLine("Failed: " + res.Error, 80);
                     }
                 }), null, EventArgs.Empty);
             });
@@ -394,43 +322,41 @@ namespace MerlinHandheld
             _cfg = cfg;
             _state = state;
             _api = api;
+            MerlinUi.StylePanel(this);
 
-            Controls.Add(new Label { Text = "Scan key / F2 = UPC wedge", Top = 4, Left = 4, Width = 200, Height = 16 });
+            _status = MerlinUi.MakeStatusLabel();
 
-            _upcBox = new TextBox { Top = 22, Left = 4, Width = 200 };
-            var lookupBtn = new Button { Text = "Lookup", Top = 22, Left = 210, Width = 90, Height = 22 };
-            lookupBtn.Click += delegate { LookupUpc(); };
-
-            Controls.Add(new Label { Text = "Name", Top = 50, Left = 4, Width = 60, Height = 16 });
-            _nameBox = new TextBox { Top = 68, Left = 4, Width = 296 };
-
-            Controls.Add(new Label { Text = "EPC (Trigger)", Top = 94, Left = 4, Width = 120, Height = 16 });
-            _epcBox = new TextBox { Top = 112, Left = 4, Width = 296 };
-
-            Controls.Add(new Label { Text = "Home bin", Top = 138, Left = 4, Width = 80, Height = 16 });
-            _binCombo = new ComboBox { Top = 156, Left = 4, Width = 296, DropDownStyle = ComboBoxStyle.DropDownList };
-
-            var saveBtn = new Button
-            {
-                Text = "Register item",
-                Top = 188,
-                Left = 4,
-                Width = 296,
-                Height = 36,
-                BackColor = Color.FromArgb(3, 105, 161),
-                ForeColor = Color.White
-            };
+            var saveBtn = MerlinUi.MakePrimaryButton("Register");
             saveBtn.Click += delegate { Register(); };
 
-            _status = new Label { Top = 230, Left = 4, Width = 296, Height = 70, Font = new Font("Tahoma", 8f, FontStyle.Regular) };
+            _binCombo = MerlinUi.MakeCombo();
+            _epcBox = MerlinUi.MakeField();
+            _nameBox = MerlinUi.MakeField();
+            _upcBox = MerlinUi.MakeField();
 
-            Controls.Add(_upcBox);
-            Controls.Add(lookupBtn);
-            Controls.Add(_nameBox);
-            Controls.Add(_epcBox);
-            Controls.Add(_binCombo);
-            Controls.Add(saveBtn);
+            var lookupBtn = MerlinUi.MakeButton("Lookup UPC");
+            lookupBtn.Click += delegate { LookupUpc(); };
+
+            var hint = new Label
+            {
+                Text = "F2 = barcode, F1 = EPC",
+                Height = 20,
+                Dock = DockStyle.Top,
+                ForeColor = Color.FromArgb(148, 163, 184),
+            };
+
             Controls.Add(_status);
+            Controls.Add(saveBtn);
+            Controls.Add(_binCombo);
+            Controls.Add(MerlinUi.MakeCaption("Home bin"));
+            Controls.Add(_epcBox);
+            Controls.Add(MerlinUi.MakeCaption("EPC"));
+            Controls.Add(_nameBox);
+            Controls.Add(MerlinUi.MakeCaption("Name"));
+            Controls.Add(lookupBtn);
+            Controls.Add(_upcBox);
+            Controls.Add(MerlinUi.MakeCaption("UPC"));
+            Controls.Add(hint);
         }
 
         public void RefreshBins()
@@ -455,7 +381,7 @@ namespace MerlinHandheld
         {
             string upc = _upcBox.Text.Trim();
             if (upc.Length == 0) return;
-            _status.Text = "Looking up UPC…";
+            _status.Text = "Lookup…";
             ThreadPool.QueueUserWorkItem(delegate
             {
                 HttpResult res = _api.LookupUpc(upc);
@@ -463,13 +389,13 @@ namespace MerlinHandheld
                 {
                     if (!res.Ok)
                     {
-                        _status.Text = "Lookup failed: " + res.Error;
+                        _status.Text = MerlinUi.ShortLine("Fail: " + res.Error, 80);
                         return;
                     }
                     bool found = SimpleJson.ExtractBool(res.Body, "found", false);
                     if (!found)
                     {
-                        _status.Text = "UPC not found — enter name manually";
+                        _status.Text = "UPC not found";
                         return;
                     }
                     string title = SimpleJson.ExtractString(res.Body, "name");
@@ -477,7 +403,7 @@ namespace MerlinHandheld
                     _nameBox.Text = title;
                     string cat = SimpleJson.ExtractString(res.Body, "category");
                     _lookupCategory = cat;
-                    _status.Text = "Found: " + title + (cat.Length > 0 ? " (" + cat + ")" : "");
+                    _status.Text = MerlinUi.ShortLine("Found: " + title, 80);
                 }), null, EventArgs.Empty);
             });
         }
@@ -493,14 +419,14 @@ namespace MerlinHandheld
             }
             if (epc.Length == 0)
             {
-                _status.Text = "EPC required — pull Trigger";
+                _status.Text = "EPC required (F1)";
                 return;
             }
 
             string homeBin = "";
             if (_binCombo.SelectedItem != null) homeBin = ((BinInfo)_binCombo.SelectedItem).Id;
 
-            _status.Text = "Validating EPC…";
+            _status.Text = "Saving…";
             ThreadPool.QueueUserWorkItem(delegate
             {
                 HttpResult valid = _api.ValidateEpc(epc);
@@ -510,7 +436,7 @@ namespace MerlinHandheld
                     string err = SimpleJson.ExtractString(valid.Body, "error");
                     BeginInvoke(new EventHandler(delegate
                     {
-                        _status.Text = err.Length > 0 ? err : "EPC not available";
+                        _status.Text = MerlinUi.ShortLine(err.Length > 0 ? err : "EPC in use", 80);
                     }), null, EventArgs.Empty);
                     return;
                 }
@@ -521,7 +447,7 @@ namespace MerlinHandheld
                 {
                     if (res.Ok)
                     {
-                        _status.Text = "Registered " + name;
+                        _status.Text = MerlinUi.ShortLine("OK " + name, 80);
                         var added = new ItemInfo();
                         added.EpcId = epc;
                         added.Name = name;
@@ -538,7 +464,7 @@ namespace MerlinHandheld
                     else
                     {
                         string err = SimpleJson.ExtractString(res.Body, "error");
-                        _status.Text = err.Length > 0 ? err : res.Error;
+                        _status.Text = MerlinUi.ShortLine(err.Length > 0 ? err : res.Error, 80);
                     }
                 }), null, EventArgs.Empty);
             });
@@ -560,99 +486,90 @@ namespace MerlinHandheld
             _cfg = cfg;
             _state = state;
             _api = api;
+            MerlinUi.StylePanel(this);
+
+            _status = MerlinUi.MakeStatusLabel();
+            _status.Height = 48;
+            _status.Text = _state.LastMessage;
+
+            var syncBtn = MerlinUi.MakePrimaryButton("Sync inventory");
+            syncBtn.Click += delegate { Sync(); };
+
+            var huntBtn = MerlinUi.MakeButton("Refresh hunt only");
+            huntBtn.Click += delegate { HuntSync(); };
+
+            var exitBtn = MerlinUi.MakeButton("Exit app");
+            exitBtn.Click += delegate { RequestExit(); };
+
+            var versionBtn = MerlinUi.MakeButton("Check git version");
+            versionBtn.Click += delegate { CheckGitVersion(true); };
+
+            var pingBtn = MerlinUi.MakeButton("Test ping");
+            pingBtn.Click += delegate { Ping(); };
+
+            var saveBtn = MerlinUi.MakeButton("Save settings");
+            saveBtn.Click += delegate { SaveSettings(); };
+
+            _scannerBox = MerlinUi.MakeField();
+            _scannerBox.Text = _cfg.ScannerId;
+
+            _serverBox = MerlinUi.MakeField();
+            _serverBox.Text = _cfg.ServerUrl;
 
             _versionLabel = new Label
             {
-                Text = "App v" + AppConfig.AppVersion,
-                Top = 4,
-                Left = 4,
-                Width = 296,
-                Height = 16,
-                Font = new Font("Tahoma", 8f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(56, 189, 248)
-            };
-            Controls.Add(_versionLabel);
-
-            Controls.Add(new Label { Text = "Server URL", Top = 22, Left = 4, Width = 120, Height = 16 });
-            _serverBox = new TextBox { Top = 40, Left = 4, Width = 296, Text = _cfg.ServerUrl };
-
-            Controls.Add(new Label { Text = "Scanner ID", Top = 66, Left = 4, Width = 120, Height = 16 });
-            _scannerBox = new TextBox { Top = 84, Left = 4, Width = 296, Text = _cfg.ScannerId };
-
-            var saveBtn = new Button { Text = "Save", Top = 112, Left = 4, Width = 90, Height = 28 };
-            saveBtn.Click += delegate { SaveSettings(); };
-
-            var pingBtn = new Button { Text = "Test ping", Top = 112, Left = 100, Width = 90, Height = 28 };
-            pingBtn.Click += delegate { Ping(); };
-
-            var updateBtn = new Button { Text = "Check updates", Top = 112, Left = 196, Width = 104, Height = 28 };
-            updateBtn.Click += delegate { CheckUpdates(); };
-
-            var huntBtn = new Button
-            {
-                Text = "Refresh hunt only",
-                Top = 146,
-                Left = 4,
-                Width = 296,
-                Height = 28
-            };
-            huntBtn.Click += delegate { HuntSync(); };
-
-            var syncBtn = new Button
-            {
-                Text = "Sync full inventory",
-                Top = 178,
-                Left = 4,
-                Width = 296,
-                Height = 32,
-                BackColor = Color.FromArgb(3, 105, 161),
-                ForeColor = Color.White
-            };
-            syncBtn.Click += delegate { Sync(); };
-
-            _status = new Label
-            {
-                Text = _state.LastMessage,
-                Top = 216,
-                Left = 4,
-                Width = 296,
-                Height = 80,
-                Font = new Font("Tahoma", 8f, FontStyle.Regular)
+                Text = AppVersionInfo.FormatInstalledLabel(),
+                Height = 28,
+                Dock = DockStyle.Top,
+                Font = MerlinUi.FontSmBold,
+                ForeColor = MerlinUi.Accent,
             };
 
-            Controls.Add(_serverBox);
-            Controls.Add(_scannerBox);
-            Controls.Add(saveBtn);
-            Controls.Add(pingBtn);
-            Controls.Add(updateBtn);
-            Controls.Add(huntBtn);
-            Controls.Add(syncBtn);
             Controls.Add(_status);
+            Controls.Add(exitBtn);
+            Controls.Add(syncBtn);
+            Controls.Add(huntBtn);
+            Controls.Add(versionBtn);
+            Controls.Add(pingBtn);
+            Controls.Add(saveBtn);
+            Controls.Add(_scannerBox);
+            Controls.Add(MerlinUi.MakeCaption("Scanner ID"));
+            Controls.Add(_serverBox);
+            Controls.Add(MerlinUi.MakeCaption("Server"));
+            Controls.Add(_versionLabel);
         }
 
         public event EventHandler HuntSyncCompleted;
+        public event EventHandler SyncCompleted;
+        public event EventHandler AppExitRequested;
+        public event EventHandler VersionCheckCompleted;
 
-        private void CheckUpdates()
+        private void RequestExit()
         {
-            _status.Text = "Checking for updates…";
+            if (AppExitRequested != null) AppExitRequested(this, EventArgs.Empty);
+        }
+
+        private void CheckGitVersion(bool promptIfNew)
+        {
+            _cfg.ServerUrl = HttpHelper.NormalizeBaseUrl(_serverBox.Text);
+            _cfg.Save();
+            _status.Text = "Checking git…";
             ThreadPool.QueueUserWorkItem(delegate
             {
                 UpdateCheckResult upd = UpdateChecker.Check(_api, AppConfig.AppVersion);
                 BeginInvoke(new EventHandler(delegate
                 {
-                    if (upd.UpdateAvailable)
+                    _status.Text = MerlinUi.ShortLine(UpdateChecker.DescribeForUi(upd), 90);
+                    _versionLabel.Text = AppVersionInfo.FormatInstalledLabel();
+                    if (upd.Reachable && upd.ServerVersion.Length > 0)
                     {
-                        _status.Text = "Update " + upd.ServerVersion + " ready";
+                        _versionLabel.Text = "Here: " + AppConfig.AppVersion + "\r\nSrv: " + upd.ServerVersion;
+                    }
+                    if (promptIfNew && upd.UpdateAvailable)
+                    {
                         UpdateChecker.PromptIfUpdateAvailable(upd, _cfg.ServerUrl);
                     }
-                    else if (upd.ServerVersion.Length > 0)
-                    {
-                        _status.Text = "Up to date (" + AppConfig.AppVersion + ")";
-                    }
-                    else
-                    {
-                        _status.Text = "Could not reach deploy info";
-                    }
+                    if (VersionCheckCompleted != null) VersionCheckCompleted(this, EventArgs.Empty);
                 }), null, EventArgs.Empty);
             });
         }
@@ -662,7 +579,7 @@ namespace MerlinHandheld
             _cfg.ServerUrl = HttpHelper.NormalizeBaseUrl(_serverBox.Text);
             _cfg.ScannerId = _scannerBox.Text.Trim();
             _cfg.Save();
-            _status.Text = "Settings saved";
+            _status.Text = "Saved";
         }
 
         private void Ping()
@@ -673,19 +590,17 @@ namespace MerlinHandheld
                 HttpResult res = _api.Ping();
                 BeginInvoke(new EventHandler(delegate
                 {
-                    _status.Text = res.Ok ? "Ping OK" : ("Ping failed: " + res.Error);
+                    _status.Text = res.Ok ? "Ping OK" : MerlinUi.ShortLine(res.Error, 80);
                 }), null, EventArgs.Empty);
             });
         }
-
-        public event EventHandler SyncCompleted;
 
         private void HuntSync()
         {
             _cfg.ServerUrl = HttpHelper.NormalizeBaseUrl(_serverBox.Text);
             _cfg.ScannerId = _scannerBox.Text.Trim();
             _cfg.Save();
-            _status.Text = "Refreshing hunt…";
+            _status.Text = "Hunt sync…";
             ThreadPool.QueueUserWorkItem(delegate
             {
                 HttpResult res = _api.SyncSummary();
@@ -693,7 +608,7 @@ namespace MerlinHandheld
                 bool ok = res.Ok && _api.TryApplyHuntSummary(res.Body, _state, out err);
                 BeginInvoke(new EventHandler(delegate
                 {
-                    _status.Text = ok ? _state.LastMessage : (err.Length > 0 ? err : res.Error);
+                    _status.Text = ok ? MerlinUi.ShortLine(_state.LastMessage, 80) : MerlinUi.ShortLine(err, 80);
                     if (ok && HuntSyncCompleted != null) HuntSyncCompleted(this, EventArgs.Empty);
                 }), null, EventArgs.Empty);
             });
@@ -713,7 +628,7 @@ namespace MerlinHandheld
                 bool ok = res.Ok && _api.TryApplyFullSync(res.Body, _state, out err);
                 BeginInvoke(new EventHandler(delegate
                 {
-                    _status.Text = ok ? _state.LastMessage : (err.Length > 0 ? err : res.Error);
+                    _status.Text = ok ? MerlinUi.ShortLine(_state.LastMessage, 80) : MerlinUi.ShortLine(err, 80);
                     if (SyncCompleted != null) SyncCompleted(this, EventArgs.Empty);
                 }), null, EventArgs.Empty);
             });

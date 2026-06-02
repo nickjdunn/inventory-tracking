@@ -1,9 +1,2 @@
-.OPTION EXPLICIT
-.Set CabinetNameTemplate=MerlinInventoryTest.cab
-.Set DiskDirectoryTemplate=CDROM
-.Set CompressionType=MSZIP
-.Set UniqueFiles="OFF"
-.Set Cabinet=on
-.Set Compress=on
-
-MerlinInventoryTest.exe
+; OBSOLETE — do not use Makecab alone for device install (wceload rejects it).
+; Use MerlinInventoryTest.inf + Cabwiz via scripts/build-handheld.ps1

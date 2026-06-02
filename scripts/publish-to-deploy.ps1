@@ -7,8 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 
-Write-Host "Syncing version metadata..."
-& node (Join-Path $repoRoot 'scripts\sync-version.js')
+& (Join-Path $PSScriptRoot 'Invoke-VersionSync.ps1') -RepoRoot $repoRoot
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $destDir = Join-Path $repoRoot 'public\deploy'
 $destFile = Join-Path $destDir 'MerlinInventoryTest.cab'

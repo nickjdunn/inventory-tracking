@@ -6,8 +6,11 @@ namespace MerlinHandheld
     public sealed class UpdateCheckResult
     {
         public bool UpdateAvailable;
+        public bool Reachable;
         public string ServerVersion = "";
+        public string ServerGitCommit = "";
         public string ClientVersion = "";
+        public string ClientGitCommit = "";
         public bool CabAvailable;
         public string CabUrl = "";
         public string DeployPage = "/deploy/";
@@ -24,13 +27,37 @@ namespace MerlinHandheld
             {
                 return result;
             }
+            result.Reachable = true;
             result.ServerVersion = SimpleJson.ExtractString(res.Body, "version");
+            result.ServerGitCommit = SimpleJson.ExtractString(res.Body, "git_commit");
+            if (result.ServerGitCommit.Length == 0)
+            {
+                result.ServerGitCommit = AppVersionInfo.GitHashFromVersion(result.ServerVersion);
+            }
+            result.ClientGitCommit = AppVersionInfo.GitHashFromVersion(result.ClientVersion);
             result.CabAvailable = SimpleJson.ExtractBool(res.Body, "cab_available", false);
             result.CabUrl = SimpleJson.ExtractString(res.Body, "cab_url");
             string page = SimpleJson.ExtractString(res.Body, "deploy_page");
             if (page.Length > 0) result.DeployPage = page;
             result.UpdateAvailable = VersionCompare.IsNewer(result.ServerVersion, result.ClientVersion);
             return result;
+        }
+
+        public static string DescribeForUi(UpdateCheckResult result)
+        {
+            if (result == null || !result.Reachable)
+            {
+                return "Server unreachable";
+            }
+            if (result.UpdateAvailable)
+            {
+                return "NEW on server: " + result.ServerVersion;
+            }
+            if (result.ServerVersion.Length > 0)
+            {
+                return "Up to date (git " + result.ServerVersion + ")";
+            }
+            return "No version on server";
         }
 
         public static void PromptIfUpdateAvailable(UpdateCheckResult result, string serverBaseUrl)

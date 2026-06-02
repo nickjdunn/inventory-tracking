@@ -29,30 +29,29 @@ namespace MerlinHandheld
         public MainForm()
         {
             _api = new InventoryApiClient(_cfg);
-            Text = "Merlin Inventory " + AppConfig.AppVersion;
-            Width = 320;
-            Height = 480;
-            MinimizeBox = false;
+            MerlinUi.StyleForm(this);
+            Text = "Merlin " + AppConfig.AppVersion;
             KeyPreview = true;
 
             _topStatus = new Label
             {
                 Text = "Starting…",
                 Dock = DockStyle.Top,
-                Height = 22,
+                Height = MerlinUi.StatusH,
                 TextAlign = ContentAlignment.TopLeft,
-                BackColor = Color.FromArgb(30, 41, 59),
+                BackColor = MerlinUi.Card,
                 ForeColor = Color.White,
-                Font = new Font("Tahoma", 8f, FontStyle.Regular)
+                Font = MerlinUi.FontSm,
             };
 
-            _host = new Panel { Dock = DockStyle.Fill };
+            _host = new Panel { Dock = DockStyle.Fill, BackColor = MerlinUi.Bg };
 
-            var nav = new Panel { Dock = DockStyle.Bottom, Height = 44 };
-            _btnReceive = MakeNavButton("Receive", 0);
-            _btnFind = MakeNavButton("Find", 1);
-            _btnAdd = MakeNavButton("Add", 2);
-            _btnSet = MakeNavButton("Set", 3);
+            var nav = new Panel { Dock = DockStyle.Bottom, Height = MerlinUi.NavH, BackColor = MerlinUi.Card };
+            int navW = MerlinUi.ScreenW / 4;
+            _btnReceive = MakeNavButton("Recv", 0, navW);
+            _btnFind = MakeNavButton("Find", 1, navW);
+            _btnAdd = MakeNavButton("Add", 2, navW);
+            _btnSet = MakeNavButton("Set", 3, navW);
             nav.Controls.Add(_btnReceive);
             nav.Controls.Add(_btnFind);
             nav.Controls.Add(_btnAdd);
@@ -85,6 +84,11 @@ namespace MerlinHandheld
                 _find.RefreshHuntDisplay();
                 UpdateTopStatus();
             };
+            _settings.AppExitRequested += delegate { RequestExit(); };
+            _settings.VersionCheckCompleted += delegate
+            {
+                UpdateTopStatus();
+            };
 
             _btnReceive.Click += delegate { ShowMode("Receive"); };
             _btnFind.Click += delegate { ShowMode("Find"); };
@@ -99,20 +103,37 @@ namespace MerlinHandheld
             _heartbeatTimer.Enabled = true;
 
             Load += MainForm_Load;
-            Closed += delegate { if (_hardware != null) _hardware.Dispose(); };
+            Closed += MainForm_Closed;
             ShowMode(_cfg.LastMode != null && _cfg.LastMode.Length > 0 ? _cfg.LastMode : "Receive");
         }
 
-        private Button MakeNavButton(string text, int index)
+        private void MainForm_Closed(object sender, EventArgs e)
+        {
+            _heartbeatTimer.Enabled = false;
+            _hardware.Dispose();
+        }
+
+        public void RequestExit()
+        {
+            _cfg.Save();
+            _heartbeatTimer.Enabled = false;
+            _hardware.Dispose();
+            Close();
+            Application.Exit();
+        }
+
+        private Button MakeNavButton(string text, int index, int width)
         {
             return new Button
             {
                 Text = text,
-                Width = 76,
-                Height = 36,
-                Left = 4 + index * 78,
-                Top = 4,
-                Font = new Font("Tahoma", 8f, FontStyle.Bold)
+                Width = width,
+                Height = MerlinUi.NavH - 4,
+                Left = index * width,
+                Top = 2,
+                Font = MerlinUi.FontSmBold,
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(51, 65, 85),
             };
         }
 
@@ -137,6 +158,31 @@ namespace MerlinHandheld
                     _topStatus.Text = ok ? _state.LastMessage : ("Sync failed: " + err);
                     UpdateTopStatus();
                     CheckForAppUpdate(false);
+                    RefreshVersionStatus(false);
+                }), null, EventArgs.Empty);
+            });
+        }
+
+        private void RefreshVersionStatus(bool alwaysPrompt)
+        {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                UpdateCheckResult upd = UpdateChecker.Check(_api, AppConfig.AppVersion);
+                BeginInvoke(new EventHandler(delegate
+                {
+                    if (upd.Reachable && !upd.UpdateAvailable)
+                    {
+                        _state.LastMessage = "Git up to date";
+                    }
+                    else if (upd.UpdateAvailable)
+                    {
+                        _state.LastMessage = MerlinUi.ShortLine("Update: " + upd.ServerVersion, 42);
+                        if (alwaysPrompt)
+                        {
+                            UpdateChecker.PromptIfUpdateAvailable(upd, _cfg.ServerUrl);
+                        }
+                    }
+                    UpdateTopStatus();
                 }), null, EventArgs.Empty);
             });
         }
@@ -268,10 +314,14 @@ namespace MerlinHandheld
             panel.Dock = DockStyle.Fill;
             _host.Controls.Add(panel);
 
-            _btnReceive.BackColor = mode == "Receive" ? Color.FromArgb(56, 189, 248) : Color.FromArgb(51, 65, 85);
-            _btnFind.BackColor = mode == "Find" ? Color.FromArgb(56, 189, 248) : Color.FromArgb(51, 65, 85);
-            _btnAdd.BackColor = mode == "Add" ? Color.FromArgb(56, 189, 248) : Color.FromArgb(51, 65, 85);
-            _btnSet.BackColor = mode == "Set" ? Color.FromArgb(56, 189, 248) : Color.FromArgb(51, 65, 85);
+            _btnReceive.BackColor = mode == "Receive" ? MerlinUi.Accent : Color.FromArgb(51, 65, 85);
+            _btnFind.BackColor = mode == "Find" ? MerlinUi.Accent : Color.FromArgb(51, 65, 85);
+            _btnAdd.BackColor = mode == "Add" ? MerlinUi.Accent : Color.FromArgb(51, 65, 85);
+            _btnSet.BackColor = mode == "Set" ? MerlinUi.Accent : Color.FromArgb(51, 65, 85);
+            _btnReceive.ForeColor = mode == "Receive" ? MerlinUi.Bg : Color.White;
+            _btnFind.ForeColor = mode == "Find" ? MerlinUi.Bg : Color.White;
+            _btnAdd.ForeColor = mode == "Add" ? MerlinUi.Bg : Color.White;
+            _btnSet.ForeColor = mode == "Set" ? MerlinUi.Bg : Color.White;
 
             if (mode == "Find")
             {
@@ -283,9 +333,9 @@ namespace MerlinHandheld
 
         private void UpdateTopStatus()
         {
-            string bin = _cfg.LastBinId != null && _cfg.LastBinId.Length > 0 ? _cfg.LastBinId : "—";
-            string hw = _hardware != null ? _hardware.StatusLine : "";
-            _topStatus.Text = _state.LastMessage + " | Bin:" + bin + " | " + hw;
+            string bin = _cfg.LastBinId != null && _cfg.LastBinId.Length > 0 ? _cfg.LastBinId : "-";
+            string line = _state.LastMessage + " | " + bin;
+            _topStatus.Text = MerlinUi.ShortLine(line, 42);
         }
     }
 }

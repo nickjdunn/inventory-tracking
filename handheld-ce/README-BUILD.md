@@ -6,15 +6,19 @@ Output assembly: `MerlinInventoryTest.exe` (CAB name unchanged for Wi‑Fi deplo
 
 ## Build (Visual Studio 2008 + Windows CE SDK)
 
+Every build stamps **git** into the app (`1.0.&lt;commit-count&gt;+&lt;short-hash&gt;`). On the gun, **Set → Check git version** compares with the server deploy API.
+
 **One command** (after `scripts\install-handheld-prereqs.ps1` as Administrator):
 
 ```powershell
 .\scripts\build-handheld.ps1
 ```
 
-This builds **Release** for **Windows Mobile 6 Professional SDK (ARMV4I)**, packages `MerlinInventoryTest.cab`, and copies it to `public/deploy/`.
+This builds **Release** for **Windows CE 6.0 / ARMV4I** (Nordic ID Merlin — *not* Windows Mobile / Pocket PC), packages `MerlinInventoryTest.cab`, and copies it to `public/deploy/`.
 
-Manual steps in VS2008: open `MerlinInventoryTest.csproj` → **Build → Build Solution** → CAB via `handheld-ce/MerlinInventoryTest/cab/` + `makecab`.
+Manual steps in VS2008: open `MerlinInventoryTest.csproj` → **Build → Build Solution** → CAB via `Cabwiz.exe MerlinInventoryTest.inf /cpu ARMV4I` in `handheld-ce/MerlinInventoryTest/cab/`.
+
+**Important:** Plain `makecab` only compresses the `.exe` — the gun will say *not a valid Windows CE setup file*. The INF + **Cabwiz** build produces a real installer CAB (~50 KB, not ~21 KB).
 
 ## Publish to server (Wi‑Fi install)
 

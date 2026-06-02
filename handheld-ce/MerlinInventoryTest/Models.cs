@@ -11,7 +11,11 @@ namespace MerlinHandheld
         {
             get
             {
-                if (Name != null && Name.Length > 0) return Name + " (" + Id + ")";
+                if (Name != null && Name.Length > 0)
+                {
+                    string n = Name.Length > 14 ? Name.Substring(0, 13) + "~" : Name;
+                    return n + " " + Id;
+                }
                 return Id;
             }
         }
@@ -31,7 +35,12 @@ namespace MerlinHandheld
             get
             {
                 string n = Name == null || Name.Length == 0 ? EpcId : Name;
-                if (Status != null && Status.Length > 0) return n + " [" + Status + "]";
+                if (n.Length > 16) n = n.Substring(0, 15) + "~";
+                if (Status != null && Status.Length > 0)
+                {
+                    string s = Status.Length > 6 ? Status.Substring(0, 5) : Status;
+                    return n + " " + s;
+                }
                 return n;
             }
         }

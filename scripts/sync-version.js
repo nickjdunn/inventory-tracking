@@ -3,7 +3,8 @@
  * Single source of truth: version.json + git commit count.
  * Produces version.generated.json and patches native app + server metadata.
  *
- * Version format: MAJOR.MINOR.COMMIT_COUNT+shortHash  (e.g. 1.0.42+a1b2c3d)
+ * Version format (git): MAJOR.MINOR.COMMIT_COUNT+shortHash  (e.g. 1.0.42+a1b2c3d)
+ * Shown in the handheld app as AppConfig.AppVersion; server uses version.generated.json.
  * .NET AssemblyVersion: MAJOR.MINOR.COMMIT_COUNT.0
  */
 const fs = require('fs');

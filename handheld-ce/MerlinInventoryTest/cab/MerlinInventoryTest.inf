@@ -1,0 +1,36 @@
+; Nordic ID Merlin: Windows Embedded CE 6.0, ARM (ARM11 class devices).
+; Built with Cabwiz.exe — not plain Makecab.
+[Version]
+Signature="$Windows NT$"
+Provider="Merlin Inventory"
+CESignature="$Windows CE$"
+MajorVersion=1
+MinorVersion=0
+
+[CEStrings]
+AppName="Merlin Inventory"
+InstallDir=%CE1%\MerlinInventory
+
+[Strings]
+
+[CEDevice]
+VersionMin=6.0
+VersionMax=6.99
+
+[CEDevice.ARMV4I]
+; Merlin ARM11 — leave ProcessorType unset so CE does not reject on CPU ID mismatch.
+
+[DefaultInstall]
+CopyFiles=Files.App
+
+[SourceDisksNames]
+1=,"Merlin Inventory",,.
+
+[SourceDisksFiles]
+MerlinInventoryTest.exe=1
+
+[DestinationDirs]
+Files.App=0,%InstallDir%
+
+[Files.App]
+MerlinInventoryTest.exe,,,0
