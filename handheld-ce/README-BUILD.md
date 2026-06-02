@@ -6,12 +6,19 @@ Output assembly: `MerlinInventoryTest.exe` (CAB name unchanged for Wi‑Fi deplo
 
 ## Build (Visual Studio 2008 + Windows CE SDK)
 
-1. Open `handheld-ce/MerlinInventoryTest/MerlinInventoryTest.csproj`
-2. Platform: **Windows CE** / **ARMV4I** (match your Merlin)
-3. **Build → Build Solution**
-4. Create a **Smart Device CAB Project** → add primary output → build CAB
+**One command** (after `scripts\install-handheld-prereqs.ps1` as Administrator):
+
+```powershell
+.\scripts\build-handheld.ps1
+```
+
+This builds **Release** for **Windows Mobile 6 Professional SDK (ARMV4I)**, packages `MerlinInventoryTest.cab`, and copies it to `public/deploy/`.
+
+Manual steps in VS2008: open `MerlinInventoryTest.csproj` → **Build → Build Solution** → CAB via `handheld-ce/MerlinInventoryTest/cab/` + `makecab`.
 
 ## Publish to server (Wi‑Fi install)
+
+`build-handheld.ps1` publishes automatically. To copy an existing CAB:
 
 ```powershell
 .\scripts\publish-to-deploy.ps1 -CabPath "path\to\MerlinInventoryTest.cab"

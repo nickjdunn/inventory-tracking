@@ -13,7 +13,7 @@ namespace MerlinHandheld
         private readonly HardwareBridge _hardware;
         private readonly Panel _host;
         private readonly Label _topStatus;
-        private readonly Timer _heartbeatTimer;
+        private readonly System.Windows.Forms.Timer _heartbeatTimer;
 
         private ReceivePanel _receive;
         private FindPanel _find;
@@ -40,10 +40,10 @@ namespace MerlinHandheld
                 Text = "Starting…",
                 Dock = DockStyle.Top,
                 Height = 22,
-                TextAlign = ContentAlignment.MiddleLeft,
+                TextAlign = ContentAlignment.TopLeft,
                 BackColor = Color.FromArgb(30, 41, 59),
                 ForeColor = Color.White,
-                Font = new Font("Tahoma", 8f)
+                Font = new Font("Tahoma", 8f, FontStyle.Regular)
             };
 
             _host = new Panel { Dock = DockStyle.Fill };
@@ -93,13 +93,13 @@ namespace MerlinHandheld
 
             KeyDown += MainForm_KeyDown;
 
-            _heartbeatTimer = new Timer();
+            _heartbeatTimer = new System.Windows.Forms.Timer();
             _heartbeatTimer.Interval = 30000;
             _heartbeatTimer.Tick += delegate { ThreadPool.QueueUserWorkItem(delegate { _api.ScannerPing(); }); };
             _heartbeatTimer.Enabled = true;
 
             Load += MainForm_Load;
-            FormClosed += delegate { if (_hardware != null) _hardware.Dispose(); };
+            Closed += delegate { if (_hardware != null) _hardware.Dispose(); };
             ShowMode(_cfg.LastMode != null && _cfg.LastMode.Length > 0 ? _cfg.LastMode : "Receive");
         }
 
@@ -217,9 +217,7 @@ namespace MerlinHandheld
                     {
                         MessageBox.Show(
                             "You are on the latest version (" + AppConfig.AppVersion + ").",
-                            "Merlin Inventory",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Information);
+                            "Merlin Inventory");
                     }
                 }), null, EventArgs.Empty);
             });

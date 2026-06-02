@@ -45,9 +45,9 @@ if (Test-Path $cfSdk) {
 }
 
 $cfTargets = @(
+    "${env:WINDIR}\Microsoft.NET\Framework\v3.5\Microsoft.CompactFramework.CSharp.targets",
     "${env:ProgramFiles(x86)}\Microsoft Visual Studio 9.0\MSBuild\Microsoft\CompactFramework\v3.5\Microsoft.CompactFramework.CSharp.targets",
-    "${env:ProgramFiles(x86)}\Microsoft.NET\SDK\CompactFramework\v3.5\Microsoft.CompactFramework.CSharp.targets",
-    "${env:ProgramFiles(x86)}\Windows\Microsoft.NET\Framework\v3.5\Microsoft.CompactFramework.CSharp.targets"
+    "${env:ProgramFiles(x86)}\Microsoft.NET\SDK\CompactFramework\v3.5\Microsoft.CompactFramework.CSharp.targets"
 )
 $hasCfTargets = $false
 foreach ($t in $cfTargets) {
@@ -64,7 +64,7 @@ if ($hasCfTargets) {
     $need++
 }
 
-$smartDll = "${env:ProgramFiles(x86)}\Microsoft Visual Studio 9.0\VC#\VCSPackages\VCSharpSmartDeviceProject.dll"
+$smartDll = "${env:ProgramFiles(x86)}\Microsoft Visual Studio 9.0\SmartDevices\Projects\SmartDeviceProject.dll"
 $null = Test-ItemReport "Smart Device project support (VS)" $smartDll "In VS2008 Setup, enable Smart Device Programmability; install WM6 SDK."
 
 $wmSdk = "${env:ProgramFiles(x86)}\Windows Mobile 6 SDK"

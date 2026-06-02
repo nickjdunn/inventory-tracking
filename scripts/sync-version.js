@@ -80,7 +80,6 @@ const assemblyPath = path.join(
 );
 patchFile(assemblyPath, [
     [/\[assembly: AssemblyVersion\("[^"]*"\)\]/, `[assembly: AssemblyVersion("${assemblyVersion}")]`],
-    [/\[assembly: AssemblyFileVersion\("[^"]*"\)\]/, `[assembly: AssemblyFileVersion("${assemblyVersion}")]`],
 ]);
 
 console.log(`Version synced: ${version} (assembly ${assemblyVersion})`);

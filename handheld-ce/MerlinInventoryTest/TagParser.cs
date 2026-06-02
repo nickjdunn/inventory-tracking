@@ -9,10 +9,10 @@ namespace MerlinHandheld
         {
             var list = new ArrayList();
             if (raw == null) return list;
-            string[] parts = raw.Split(new char[] { ',', '\n', '\r', '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] parts = raw.Split(new char[] { ',', '\n', '\r', '\t', ' ' });
             for (int i = 0; i < parts.Length; i++)
             {
-                string epc = parts[i].Trim();
+                string epc = parts[i] != null ? parts[i].Trim() : "";
                 if (epc.Length == 0) continue;
                 int pipe = epc.IndexOf('|');
                 var tag = new TagRead();
@@ -21,7 +21,7 @@ namespace MerlinHandheld
                     tag.Epc = epc.Substring(0, pipe).Trim();
                     string rssiStr = epc.Substring(pipe + 1).Trim();
                     int rssi;
-                    if (int.TryParse(rssiStr, out rssi)) tag.Rssi = rssi;
+                    if (CfCompat.TryParseInt(rssiStr, out rssi)) tag.Rssi = rssi;
                 }
                 else
                 {

@@ -18,7 +18,7 @@ namespace MerlinHandheld
             for (int i = 0; i < split.Length && i < 3; i++)
             {
                 int n;
-                if (int.TryParse(split[i], out n)) parts[i] = n;
+                if (CfCompat.TryParseInt(split[i], out n)) parts[i] = n;
             }
             return parts;
         }

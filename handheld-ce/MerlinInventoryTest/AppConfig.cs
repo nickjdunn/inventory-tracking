@@ -6,7 +6,7 @@ namespace MerlinHandheld
 {
     public sealed class AppConfig
     {
-        public const string AppVersion = "1.0.46+96c8284";
+        public const string AppVersion = "1.0.49+b858196";
         private const string FileName = "merlin-handheld.cfg";
 
         public string ServerUrl = "http://10.17.17.17:3000";
@@ -38,7 +38,7 @@ namespace MerlinHandheld
             try
             {
                 if (!File.Exists(ConfigPath)) return cfg;
-                string[] lines = File.ReadAllLines(ConfigPath);
+                string[] lines = CfCompat.ReadAllLines(ConfigPath);
                 for (int i = 0; i < lines.Length; i++)
                 {
                     string line = lines[i];
@@ -74,7 +74,7 @@ namespace MerlinHandheld
             {
                 sb.AppendLine("nur_dll=" + NurAssemblyPath);
             }
-            File.WriteAllText(ConfigPath, sb.ToString());
+            CfCompat.WriteAllText(ConfigPath, sb.ToString());
         }
     }
 }

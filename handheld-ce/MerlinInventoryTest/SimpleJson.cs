@@ -35,7 +35,7 @@ namespace MerlinHandheld
             Match m = Regex.Match(json, pattern);
             if (!m.Success) return fallback;
             int n;
-            return int.TryParse(m.Groups[1].Value, out n) ? n : fallback;
+            return CfCompat.TryParseInt(m.Groups[1].Value, out n) ? n : fallback;
         }
 
         public static int ExtractNestedInt(string json, string objectKey, string fieldKey, int fallback)

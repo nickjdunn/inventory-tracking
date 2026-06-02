@@ -18,7 +18,7 @@ namespace MerlinHandheld
             Width = 1;
             Height = 1;
             TabStop = true;
-            Font = new System.Drawing.Font("Tahoma", 1f);
+            Font = new System.Drawing.Font("Tahoma", 1f, System.Drawing.FontStyle.Regular);
             BorderStyle = BorderStyle.None;
             BackColor = System.Drawing.Color.FromArgb(30, 41, 59);
             ForeColor = System.Drawing.Color.FromArgb(30, 41, 59);

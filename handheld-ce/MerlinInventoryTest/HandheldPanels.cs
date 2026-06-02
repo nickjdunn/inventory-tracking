@@ -29,7 +29,7 @@ namespace MerlinHandheld
                 Left = 4,
                 Width = 300,
                 Height = 28,
-                Font = new Font("Tahoma", 8f)
+                Font = new Font("Tahoma", 8f, FontStyle.Regular)
             };
 
             var binLbl = new Label { Text = "Target bin", Top = 34, Left = 4, Width = 80, Height = 16 };
@@ -55,7 +55,7 @@ namespace MerlinHandheld
                 Height = 120,
                 Multiline = true,
                 ScrollBars = ScrollBars.Vertical,
-                Font = new Font("Tahoma", 8f)
+                Font = new Font("Tahoma", 8f, FontStyle.Regular)
             };
 
             _resultLabel = new Label
@@ -65,7 +65,7 @@ namespace MerlinHandheld
                 Left = 4,
                 Width = 300,
                 Height = 60,
-                Font = new Font("Tahoma", 8f)
+                Font = new Font("Tahoma", 8f, FontStyle.Regular)
             };
 
             Controls.Add(hint);
@@ -175,7 +175,7 @@ namespace MerlinHandheld
             _searchBox = new TextBox { Top = 34, Left = 4, Width = 300 };
             _searchBox.TextChanged += delegate { RefreshList(); };
 
-            _list = new ListBox { Top = 58, Left = 4, Width = 300, Height = 122, Font = new Font("Tahoma", 8f) };
+            _list = new ListBox { Top = 58, Left = 4, Width = 300, Height = 122, Font = new Font("Tahoma", 8f, FontStyle.Regular) };
 
             var huntBtn = new Button
             {
@@ -215,7 +215,7 @@ namespace MerlinHandheld
                 Left = 4,
                 Width = 300,
                 Height = 50,
-                Font = new Font("Tahoma", 8f)
+                Font = new Font("Tahoma", 8f, FontStyle.Regular)
             };
 
             Controls.Add(refreshHuntBtn);
@@ -422,7 +422,7 @@ namespace MerlinHandheld
             };
             saveBtn.Click += delegate { Register(); };
 
-            _status = new Label { Top = 230, Left = 4, Width = 296, Height = 70, Font = new Font("Tahoma", 8f) };
+            _status = new Label { Top = 230, Left = 4, Width = 296, Height = 70, Font = new Font("Tahoma", 8f, FontStyle.Regular) };
 
             Controls.Add(_upcBox);
             Controls.Add(lookupBtn);
@@ -617,7 +617,7 @@ namespace MerlinHandheld
                 Left = 4,
                 Width = 296,
                 Height = 80,
-                Font = new Font("Tahoma", 8f)
+                Font = new Font("Tahoma", 8f, FontStyle.Regular)
             };
 
             Controls.Add(_serverBox);

@@ -49,11 +49,8 @@ namespace MerlinHandheld
                 msg += "Ask your admin to publish a new .cab to the server.";
             }
 
-            DialogResult dr = MessageBox.Show(
-                msg,
-                "Merlin Inventory update",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+            MessageBox.Show(msg, "Merlin Inventory update");
+            DialogResult dr = DialogResult.OK;
 
             if (dr == DialogResult.OK && result.CabAvailable)
             {

@@ -1,0 +1,5 @@
+c:\Users\nickj\Documents\Coding Projects\inventory-tracking\inventory-tracking\handheld-ce\MerlinInventoryTest\obj\Release\ResolveAssemblyReference.cache
+c:\Users\nickj\Documents\Coding Projects\inventory-tracking\inventory-tracking\handheld-ce\MerlinInventoryTest\bin\Release\MerlinInventoryTest.exe
+c:\Users\nickj\Documents\Coding Projects\inventory-tracking\inventory-tracking\handheld-ce\MerlinInventoryTest\bin\Release\MerlinInventoryTest.pdb
+c:\Users\nickj\Documents\Coding Projects\inventory-tracking\inventory-tracking\handheld-ce\MerlinInventoryTest\obj\Release\MerlinInventoryTest.exe
+c:\Users\nickj\Documents\Coding Projects\inventory-tracking\inventory-tracking\handheld-ce\MerlinInventoryTest\obj\Release\MerlinInventoryTest.pdb
