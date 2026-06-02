@@ -558,6 +558,7 @@ app.get('/api/deploy/info', (req, res) => {
         server_time: Date.now(),
         deploy_page: '/deploy/',
         wifi_test_page: '/deploy/ce-wifi-test.html',
+        scanner_live_page: '/deploy/scanner-live.html',
         update_available: clientVersion ? isNewerVersion(serverVersion, clientVersion) : false,
         client_version: clientVersion || null,
         ...getDeployCabInfo(),
@@ -618,6 +619,29 @@ app.get('/deploy/' + DEPLOY_CAB_NAME, (req, res) => {
 
 app.get('/deploy/' + DEPLOY_UNINSTALL_CAB_NAME, (req, res) => {
     sendDeployCab(res, DEPLOY_UNINSTALL_CAB_NAME);
+});
+
+function sendDeployStaticPage(res, filename) {
+    const pagePath = path.join(DEPLOY_DIR, filename);
+    if (!fs.existsSync(pagePath)) {
+        return res
+            .status(404)
+            .type('text/html')
+            .send(
+                '<h1>Not on server yet</h1>' +
+                    '<p><code>' +
+                    filename +
+                    '</code> is missing under <code>public/deploy/</code>.</p>' +
+                    '<p>On the server run <code>git pull</code> (or checkout) in the app work-tree, then <code>pm2 restart rfid-brain</code>.</p>' +
+                    '<p>Or copy the file from your PC with <code>scp</code>.</p>' +
+                    '<p><a href="/deploy/">Deploy hub</a></p>'
+            );
+    }
+    return res.sendFile(pagePath);
+}
+
+app.get('/deploy/scanner-live.html', (req, res) => {
+    sendDeployStaticPage(res, 'scanner-live.html');
 });
 
 // Serves index.html, mobile.html, emulator.html, and /public assets — no route conflict with /api/*
