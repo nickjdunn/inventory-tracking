@@ -323,26 +323,96 @@ function sendJsonOrJsonp(req, res, payload, statusCode = 200) {
     return res.status(statusCode).json(payload);
 }
 
+function getClientIp(req) {
+    const fwd = req.get('x-forwarded-for');
+    if (fwd) return String(fwd).split(',')[0].trim();
+    let ip = req.ip || (req.socket && req.socket.remoteAddress) || '';
+    if (ip.startsWith('::ffff:')) ip = ip.slice(7);
+    return ip;
+}
+
 function recordScannerHeartbeat(scannerId, req, extra = {}) {
     const id = scannerId == null ? '' : String(scannerId).trim();
     if (!id) return null;
+    const prev = scannerHeartbeats.get(id) || {};
     const record = {
         scanner_id: id,
         last_seen: Date.now(),
-        ip: req.ip,
-        user_agent: req.get('user-agent') || null,
-        battery: extra.battery ?? null,
-        mode: extra.mode ?? null,
+        ip: getClientIp(req) || prev.ip || null,
+        user_agent: req.get('user-agent') || prev.user_agent || null,
+        battery: extra.battery != null ? extra.battery : prev.battery,
+        mode: extra.mode != null ? extra.mode : prev.mode,
+        app_version:
+            extra.app_version != null ? extra.app_version : prev.app_version,
+        live_raw:
+            extra.live_raw != null ? !!extra.live_raw : prev.live_raw,
+        live_scan:
+            extra.live_scan != null ? !!extra.live_scan : prev.live_scan,
     };
     scannerHeartbeats.set(id, record);
     return record;
 }
 
+function listScannerPresence(now = Date.now()) {
+    return [...scannerHeartbeats.entries()].map(([id, data]) => {
+        const feed = getScannerLiveFeed(id);
+        return {
+            scanner_id: id,
+            online: now - data.last_seen < SCANNER_ONLINE_THRESHOLD_MS,
+            last_seen: data.last_seen,
+            last_seen_ago_ms: now - data.last_seen,
+            ip: data.ip,
+            mode: data.mode,
+            app_version: data.app_version,
+            live_raw: data.live_raw,
+            live_scan: data.live_scan,
+            live_line_count: feed ? feed.lines.length : 0,
+        };
+    });
+}
+
+function getScannerPresence(scannerId, now = Date.now()) {
+    const id = String(scannerId || '').trim();
+    const data = scannerHeartbeats.get(id);
+    const feed = getScannerLiveFeed(id);
+    return {
+        scanner_id: id,
+        online: !!(data && now - data.last_seen < SCANNER_ONLINE_THRESHOLD_MS),
+        last_seen: data ? data.last_seen : null,
+        last_seen_ago_ms: data ? now - data.last_seen : null,
+        ip: data ? data.ip : null,
+        mode: data ? data.mode : null,
+        app_version: data ? data.app_version : null,
+        live_raw: data ? data.live_raw : null,
+        live_scan: data ? data.live_scan : null,
+        live_line_count: feed ? feed.lines.length : 0,
+    };
+}
+
 const { isNewerVersion } = require('./lib/version');
 
-const DEPLOY_DIR = path.join(__dirname, 'public', 'deploy');
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const DEPLOY_DIR = path.join(PUBLIC_DIR, 'deploy');
 const DEPLOY_CAB_NAME = 'MerlinInventoryTest.cab';
 const DEPLOY_UNINSTALL_CAB_NAME = 'MerlinInventoryUninstall.cab';
+const DEPLOY_STATIC_PAGES = ['index.html', 'ce-wifi-test.html', 'scanner-live.html'];
+const { discoverLanHosts } = require('./lib/scanner-discovery');
+
+function deployFilesStatus() {
+    const pages = {};
+    for (const name of DEPLOY_STATIC_PAGES) {
+        const p = path.join(DEPLOY_DIR, name);
+        pages[name] = { path: p, exists: fs.existsSync(p) };
+    }
+    return {
+        cwd: process.cwd(),
+        dirname: __dirname,
+        public_dir: PUBLIC_DIR,
+        deploy_dir: DEPLOY_DIR,
+        pages,
+        cab: fs.existsSync(path.join(DEPLOY_DIR, DEPLOY_CAB_NAME)),
+    };
+}
 
 let handheldVersionMeta = { version: '0.0.0+dev', assemblyVersion: '0.0.0.0' };
 try {
@@ -408,6 +478,9 @@ app.post('/api/scanner/live', async (req, res) => {
     recordScannerHeartbeat(scannerId, req, {
         mode: body.mode || 'live',
         battery: body.battery ?? null,
+        app_version: body.app_version,
+        live_raw: true,
+        live_scan: body.apply_scan === true || body.apply_scan === 'true',
     });
 
     let tagEntries = [];
@@ -462,6 +535,8 @@ app.get('/api/scanner/live', (req, res) => {
     const feed = getScannerLiveFeed(scannerId);
     const lines = feed ? feed.lines.filter((line) => line.id > since) : [];
     const latestId = feed && feed.lines.length ? feed.lines[feed.lines.length - 1].id : 0;
+    const presence = getScannerPresence(scannerId);
+    const allScanners = listScannerPresence();
     sendJsonOrJsonp(req, res, {
         ok: true,
         scanner_id: scannerId,
@@ -469,6 +544,42 @@ app.get('/api/scanner/live', (req, res) => {
         latest_id: latestId,
         lines,
         server_time: Date.now(),
+        presence,
+        online_threshold_ms: SCANNER_ONLINE_THRESHOLD_MS,
+        known_scanners: allScanners,
+    });
+});
+
+app.get('/api/scanner/discover', async (req, res) => {
+    const now = Date.now();
+    const scanners = listScannerPresence(now);
+    const online = scanners.filter((s) => s.online);
+    let suggested =
+        req.query.scanner_id != null ? String(req.query.scanner_id).trim() : '';
+    if (!suggested && online.length === 1) suggested = online[0].scanner_id;
+    if (!suggested && online.length > 0) suggested = online[0].scanner_id;
+
+    let lan = { subnet: null, hosts: [], cached: false, note: null };
+    if (req.query.scan === '1') {
+        try {
+            const serverIp = getClientIp(req) || '127.0.0.1';
+            lan = await discoverLanHosts(serverIp, req.query.force === '1');
+            for (const host of lan.hosts) {
+                const match = scanners.find((s) => s.ip === host && s.online);
+                if (match) match.lan_reachable = true;
+            }
+        } catch (err) {
+            lan.note = err.message;
+        }
+    }
+
+    sendJsonOrJsonp(req, res, {
+        ok: true,
+        server_time: now,
+        scanners,
+        suggested_scanner_id: suggested || null,
+        any_online: online.length > 0,
+        lan,
     });
 });
 
@@ -571,8 +682,18 @@ app.get('/api/scanner/ping', (req, res) => {
     if (!scannerId) {
         return sendJsonOrJsonp(req, res, { error: 'scanner_id query required' }, 400);
     }
-    recordScannerHeartbeat(scannerId, req, { mode: req.query.mode || 'ping' });
-    sendJsonOrJsonp(req, res, { status: 'ok', scanner_id: scannerId, online: true });
+    recordScannerHeartbeat(scannerId, req, {
+        mode: req.query.mode || 'ping',
+        app_version: req.query.app_version,
+        live_raw: req.query.live_raw === '1' || req.query.live_raw === 'true',
+        live_scan: req.query.live_scan === '1' || req.query.live_scan === 'true',
+    });
+    sendJsonOrJsonp(req, res, {
+        status: 'ok',
+        scanner_id: scannerId,
+        online: true,
+        presence: getScannerPresence(scannerId),
+    });
 });
 
 // 📱 Lightweight sync check (small JSON for CE)
@@ -621,8 +742,8 @@ app.get('/deploy/' + DEPLOY_UNINSTALL_CAB_NAME, (req, res) => {
     sendDeployCab(res, DEPLOY_UNINSTALL_CAB_NAME);
 });
 
-function sendDeployStaticPage(res, filename) {
-    const pagePath = path.join(DEPLOY_DIR, filename);
+function sendDeployStaticPage(res, filename, req) {
+    const pagePath = path.resolve(path.join(DEPLOY_DIR, filename));
     if (!fs.existsSync(pagePath)) {
         return res
             .status(404)
@@ -631,21 +752,32 @@ function sendDeployStaticPage(res, filename) {
                 '<h1>Not on server yet</h1>' +
                     '<p><code>' +
                     filename +
-                    '</code> is missing under <code>public/deploy/</code>.</p>' +
-                    '<p>On the server run <code>git pull</code> (or checkout) in the app work-tree, then <code>pm2 restart rfid-brain</code>.</p>' +
-                    '<p>Or copy the file from your PC with <code>scp</code>.</p>' +
-                    '<p><a href="/deploy/">Deploy hub</a></p>'
+                    '</code> is missing at:</p><p><code>' +
+                    pagePath +
+                    '</code></p>' +
+                    '<p>Run <code>git pull</code> in the app work-tree and <code>pm2 restart rfid-brain</code>, or <code>scp</code> the file to <code>public/deploy/</code>.</p>' +
+                    '<p><a href="/deploy/">Deploy hub</a> · <a href="/api/deploy/health">Deploy health JSON</a></p>'
             );
     }
     return res.sendFile(pagePath);
 }
 
-app.get('/deploy/scanner-live.html', (req, res) => {
-    sendDeployStaticPage(res, 'scanner-live.html');
+for (const pageName of DEPLOY_STATIC_PAGES) {
+    const route = '/deploy/' + pageName;
+    app.get(route, (req, res) => {
+        sendDeployStaticPage(res, pageName, req);
+    });
+}
+
+app.get('/api/deploy/health', (req, res) => {
+    const status = deployFilesStatus();
+    status.server_version = handheldVersionMeta.version;
+    status.scanner_live_url = '/deploy/scanner-live.html';
+    sendJsonOrJsonp(req, res, status);
 });
 
 // Serves index.html, mobile.html, emulator.html, and /public assets — no route conflict with /api/*
-app.use(express.static('public'));
+app.use(express.static(PUBLIC_DIR));
 
 function normalizeScanTag(epc) {
     return epc == null ? '' : String(epc).trim();
@@ -1333,17 +1465,45 @@ app.get('/api/scan/unassigned', async (req, res) => {
 
 // 📡 Scanner connectivity heartbeat (Merlin handheld / hardware client)
 app.post('/api/scanner/heartbeat', (req, res) => {
-    const scannerId =
-        req.body.scanner_id == null ? '' : String(req.body.scanner_id).trim();
+    const body = req.body || {};
+    const scannerId = body.scanner_id == null ? '' : String(body.scanner_id).trim();
     if (!scannerId) {
         return res.status(400).json({ error: 'scanner_id is required' });
     }
 
-    recordScannerHeartbeat(scannerId, req, {
-        battery: req.body.battery ?? null,
-        mode: req.body.mode ?? null,
+    const record = recordScannerHeartbeat(scannerId, req, {
+        battery: body.battery ?? null,
+        mode: body.mode ?? null,
+        app_version: body.app_version,
+        live_raw:
+            body.live_raw != null
+                ? body.live_raw === true || body.live_raw === 'true'
+                : undefined,
+        live_scan:
+            body.live_scan != null
+                ? body.live_scan === true || body.live_scan === 'true'
+                : undefined,
     });
-    res.json({ status: 'ok', scanner_id: scannerId, online: true });
+
+    if (body.announce === true || body.announce === 'true') {
+        appendScannerLiveLine(scannerId, {
+            mode: 'session',
+            ui_mode: body.mode || 'heartbeat',
+            app_version: body.app_version || '',
+            raw: 'Scanner connected — live stream ' +
+                (body.live_raw ? 'ON' : 'OFF'),
+            tag_count: 0,
+            tags: [],
+        });
+    }
+
+    res.json({
+        status: 'ok',
+        scanner_id: scannerId,
+        online: true,
+        last_seen: record.last_seen,
+        ip: record.ip,
+    });
 });
 
 app.get('/api/scanner/status', (req, res) => {
@@ -2469,6 +2629,11 @@ huntWss.on('connection', (ws) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
+    const deployHealth = deployFilesStatus();
     console.log(`🚀 RFID Backend Server with DB active on http://0.0.0.0:${PORT}`);
     console.log(`📡 Hunt push: WebSocket ws://0.0.0.0:${PORT}/api/hunt/ws | SSE /api/hunt/stream | long-poll GET /api/search/target?wait=1&rev=N`);
+    console.log(`📂 Public root: ${PUBLIC_DIR} (cwd=${process.cwd()})`);
+    console.log(
+        `📡 Deploy scanner-live: ${deployHealth.pages['scanner-live.html'].exists ? 'OK' : 'MISSING — copy public/deploy/scanner-live.html'}`
+    );
 });

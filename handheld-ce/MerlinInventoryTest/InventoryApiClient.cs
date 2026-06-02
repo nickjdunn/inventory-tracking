@@ -26,9 +26,31 @@ namespace MerlinHandheld
 
         public HttpResult ScannerPing()
         {
-            string url = Base + "/api/scanner/ping?scanner_id=" +
-                         UrlCodec.Encode(_cfg.ScannerId) + "&mode=native";
-            return HttpHelper.Get(url, TimeoutMs);
+            return PostScannerHeartbeat("native", false);
+        }
+
+        public HttpResult RegisterScannerSession()
+        {
+            return PostScannerHeartbeat("app_open", true);
+        }
+
+        public HttpResult PostScannerHeartbeat(string mode, bool announce)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"scanner_id\":\"");
+            sb.Append(SimpleJson.Escape(_cfg.ScannerId));
+            sb.Append("\",\"mode\":\"");
+            sb.Append(SimpleJson.Escape(mode ?? "native"));
+            sb.Append("\",\"app_version\":\"");
+            sb.Append(SimpleJson.Escape(AppConfig.AppVersion));
+            sb.Append("\",\"live_raw\":");
+            sb.Append(_cfg.LiveRawStream ? "true" : "false");
+            sb.Append(",\"live_scan\":");
+            sb.Append(_cfg.LiveScanStream ? "true" : "false");
+            sb.Append(",\"announce\":");
+            sb.Append(announce ? "true" : "false");
+            sb.Append("}");
+            return HttpHelper.PostJson(Base + "/api/scanner/heartbeat", sb.ToString(), TimeoutMs);
         }
 
         public HttpResult GetDeployInfo()

@@ -29,6 +29,7 @@ namespace MerlinHandheld
         private readonly Button _btnAdd;
         private readonly Button _btnSet;
         private readonly Button _btnDiag;
+        private readonly Label _versionFooter;
 
         public MainForm()
         {
@@ -64,8 +65,20 @@ namespace MerlinHandheld
             nav.Controls.Add(_btnSet);
             nav.Controls.Add(_btnDiag);
 
+            _versionFooter = new Label
+            {
+                Text = AppConfig.AppVersion,
+                Dock = DockStyle.Bottom,
+                Height = MerlinUi.FooterH,
+                TextAlign = ContentAlignment.TopCenter,
+                BackColor = MerlinUi.Card,
+                ForeColor = Color.FromArgb(148, 163, 184),
+                Font = MerlinUi.FontSm,
+            };
+
             Controls.Add(_host);
             Controls.Add(nav);
+            Controls.Add(_versionFooter);
             Controls.Add(_topStatus);
 
             _receive = new ReceivePanel(_cfg, _state, _api);
@@ -107,8 +120,8 @@ namespace MerlinHandheld
             KeyDown += MainForm_KeyDown;
 
             _heartbeatTimer = new System.Windows.Forms.Timer();
-            _heartbeatTimer.Interval = 30000;
-            _heartbeatTimer.Tick += delegate { ThreadPool.QueueUserWorkItem(delegate { _api.ScannerPing(); }); };
+            _heartbeatTimer.Interval = _cfg.LiveRawStream ? 10000 : 30000;
+            _heartbeatTimer.Tick += HeartbeatTimer_Tick;
             _heartbeatTimer.Enabled = true;
 
             Load += MainForm_Load;
@@ -152,7 +165,17 @@ namespace MerlinHandheld
             ApplyHardwareModeForView();
             ThreadPool.QueueUserWorkItem(delegate
             {
-                _api.ScannerPing();
+                _api.RegisterScannerSession();
+                if (_cfg.LiveRawStream)
+                {
+                    _api.PostScannerLive(
+                        "session",
+                        "App started — live stream enabled",
+                        null,
+                        null,
+                        false,
+                        "startup");
+                }
                 HttpResult res = _api.FullSync();
                 string err = "";
                 bool ok = res.Ok && _api.TryApplyFullSync(res.Body, _state, out err);
@@ -193,6 +216,15 @@ namespace MerlinHandheld
                     }
                     UpdateTopStatus();
                 }), null, EventArgs.Empty);
+            });
+        }
+
+        private void HeartbeatTimer_Tick(object sender, EventArgs e)
+        {
+            _heartbeatTimer.Interval = _cfg.LiveRawStream ? 10000 : 30000;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                _api.PostScannerHeartbeat("native", false);
             });
         }
 

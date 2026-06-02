@@ -9,10 +9,13 @@ namespace MerlinHandheld
         public const int ScreenW = 240;
         public const int ScreenH = 320;
         public const int StatusH = 18;
-        public const int NavH = 38;
+        public const int NavH = 36;
+        public const int FooterH = 14;
         public const int Margin = 4;
-        public const int BtnH = 26;
+        public const int BtnH = 24;
         public const int FieldH = 20;
+        public const int ContentTop = StatusH;
+        public const int ContentBottom = NavH + FooterH;
 
         public static readonly Color Bg = Color.FromArgb(15, 23, 42);
         public static readonly Color Card = Color.FromArgb(30, 41, 59);
@@ -50,6 +53,11 @@ namespace MerlinHandheld
             c.BackColor = Bg;
             c.ForeColor = Color.White;
             c.Font = FontSm;
+        }
+
+        public static void EnablePanelScroll(UserControl panel)
+        {
+            panel.AutoScroll = true;
         }
 
         public static Label MakeCaption(string text)

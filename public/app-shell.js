@@ -24,6 +24,7 @@
     var NAV_FOOTER = [
         { href: '/mobile.html', label: '📱 Handheld mobile UI' },
         { href: '/deploy/', label: '📡 Scanner deploy hub' },
+        { href: '/deploy/scanner-live.html', label: '📡 Live scanner feed' },
         { href: '/deploy/ce-wifi-test.html', label: '📶 Wi‑Fi API test' },
     ];
 
@@ -56,7 +57,8 @@
             '</nav>' +
             '<div class="sidebar-footer">' +
             footerLinks +
-            '</div>';
+            '</div>' +
+            '<p class="sidebar-version" data-site-version>Loading version…</p>';
     }
 
     function init() {

@@ -96,6 +96,14 @@ body {
     padding-top: 16px;
 }
 
+.sidebar-version {
+    border-top: 1px solid #334155;
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-top: 12px;
+    padding: 12px 14px 0;
+}
+
 .sidebar-footer-link {
     color: var(--accent);
     font-size: 13px;
@@ -180,6 +188,36 @@ body.terminal-page {
 .terminal-back {
     font-size: 13px;
     margin-top: 20px;
+}
+
+.terminal-chrome-nav {
+    border-top: 1px solid #334155;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 24px;
+    padding-top: 16px;
+}
+
+.terminal-chrome-nav a {
+    color: var(--accent);
+    font-size: 14px;
+    text-decoration: none;
+}
+
+.terminal-chrome-nav a.active {
+    color: var(--success);
+    font-weight: bold;
+}
+
+.terminal-chrome-nav a:hover {
+    text-decoration: underline;
+}
+
+.site-version-line {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin: 16px 0 0;
 }
 
 .terminal-back a {

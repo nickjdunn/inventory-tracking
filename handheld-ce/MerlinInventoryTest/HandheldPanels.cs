@@ -594,9 +594,10 @@ namespace MerlinHandheld
             _state = state;
             _api = api;
             MerlinUi.StylePanel(this);
+            MerlinUi.EnablePanelScroll(this);
 
             _status = MerlinUi.MakeStatusLabel();
-            _status.Height = 48;
+            _status.Height = 40;
             _status.Text = _state.LastMessage;
 
             var syncBtn = MerlinUi.MakePrimaryButton("Sync inventory");

@@ -22,6 +22,7 @@ namespace MerlinHandheld
             _cfg = cfg;
             _api = api;
             MerlinUi.StylePanel(this);
+            MerlinUi.EnablePanelScroll(this);
 
             _status = MerlinUi.MakeStatusLabel();
             _status.Height = 36;
@@ -136,7 +137,19 @@ namespace MerlinHandheld
             {
                 DiagnosticLog.Info("Stream opts saved live_raw=" + _cfg.LiveRawStream + " live_scan=" + _cfg.LiveScanStream);
             }
-            _status.Text = "Stream opts saved";
+            _status.Text = "Saving + register…";
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                HttpResult hb = _api.RegisterScannerSession();
+                if (_cfg.LiveRawStream)
+                {
+                    _api.PostScannerLive("session", "Stream opts saved", null, null, false, "Diag");
+                }
+                BeginInvoke(new EventHandler(delegate
+                {
+                    _status.Text = hb.Ok ? "Saved — live ON" : MerlinUi.ShortLine("Save err: " + hb.Error, 80);
+                }), null, EventArgs.Empty);
+            });
         }
 
         private void RunPing()
