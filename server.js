@@ -394,6 +394,17 @@ app.get('/api/handheld/sync-summary', async (req, res) => {
     }
 });
 
+// Explicit CAB download (some Windows CE browsers need octet-stream)
+app.get('/deploy/' + DEPLOY_CAB_NAME, (req, res) => {
+    const cabPath = path.join(DEPLOY_DIR, DEPLOY_CAB_NAME);
+    if (!fs.existsSync(cabPath)) {
+        return res.status(404).type('text/plain').send('CAB not found on server');
+    }
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + DEPLOY_CAB_NAME + '"');
+    res.sendFile(cabPath);
+});
+
 // Serves index.html, mobile.html, emulator.html, and /public assets — no route conflict with /api/*
 app.use(express.static('public'));
 

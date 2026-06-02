@@ -23,63 +23,73 @@
     <a class="big secondary" href="/mobile.html">📱 Inventory mobile UI</a>
     <p>Full scan / find / add in the browser.</p>
 
-    <a class="big secondary" href="#" id="cab-link" style="display:none;">⬇ Install native app (.cab)</a>
-    <p id="cab-hint" class="warn">Native .cab not on server yet — build on PC, copy to <code>public/deploy/</code>.</p>
+    <a class="big" href="/deploy/MerlinInventoryTest.cab" id="cab-link">⬇ Install native app (.cab)</a>
+    <p id="cab-hint" class="warn">Tap the link above to download. Checking server…</p>
+    <p style="font-size:12px;color:#94a3b8;">Merlin CE: use this direct link if the page looks empty — no JavaScript required.</p>
 
     <p class="terminal-back"><a href="/index.html?desktop=1">← Desktop dashboard</a></p>
 
     <script src="/handheld-update.js"></script>
-    <script>
-        document.getElementById('host').textContent = location.host;
+    <script type="text/javascript">
+        document.getElementById('host').appendChild(document.createTextNode(location.host));
 
-        function xhr(method, url, body, cb) {
-            try {
-                var x = new XMLHttpRequest();
-                x.open(method, url, true);
-                if (body) x.setRequestHeader('Content-Type', 'application/json');
-                x.onreadystatechange = function () {
-                    if (x.readyState !== 4) return;
-                    cb(x.status >= 200 && x.status < 300, x.responseText || '');
-                };
-                x.send(body ? JSON.stringify(body) : null);
-            } catch (e) { cb(false, ''); }
-        }
+        var clientVer = '0.0.0';
 
-        function applyDeployInfo(d, clientVer) {
-            var verLine = 'Client <code>' + clientVer + '</code>';
-            if (d.version) verLine += ' · Server <code>' + d.version + '</code>';
-            document.getElementById('client-version').innerHTML = verLine;
-            if (d.cab_available) {
-                var a = document.getElementById('cab-link');
-                a.style.display = 'block';
-                a.href = d.cab_url;
-                document.getElementById('cab-hint').innerHTML =
-                    '<span class="ok">CAB: ' + d.cab_filename + ' (' + d.cab_size_kb + ' KB)</span>';
+        function applyDeployInfo(d) {
+            if (!d) return;
+            var verLine = 'Client ' + clientVer;
+            if (d.version) verLine += ' · Server ' + d.version;
+            document.getElementById('client-version').appendChild(document.createTextNode(verLine));
+            var hint = document.getElementById('cab-hint');
+            var link = document.getElementById('cab-link');
+            if (d.cab_available && d.cab_url) {
+                link.href = d.cab_url;
+                hint.className = 'ok';
+                hint.innerHTML = '';
+                hint.appendChild(document.createTextNode(
+                    'CAB on server: ' + d.cab_filename + ' (' + d.cab_size_kb + ' KB) — tap link above.'
+                ));
+            } else {
+                hint.className = 'warn';
+                hint.innerHTML = '';
+                hint.appendChild(document.createTextNode(
+                    'CAB not found on server — copy MerlinInventoryTest.cab to public/deploy/ on the server.'
+                ));
             }
-            if (window.MerlinHandheldUpdate && MerlinHandheldUpdate.compareVersion(d.version, clientVer) > 0) {
+            if (window.MerlinHandheldUpdate && d.version && MerlinHandheldUpdate.compareVersion(d.version, clientVer) > 0) {
                 document.getElementById('update-banner').style.display = 'block';
-                document.getElementById('update-banner-text').textContent =
-                    clientVer + ' → ' + d.version + (d.cab_available ? ' — install CAB below.' : '');
-            } else if (d.version) {
+                document.getElementById('update-banner-text').appendChild(document.createTextNode(
+                    clientVer + ' → ' + d.version + (d.cab_available ? ' — install CAB above.' : '')
+                ));
+            } else if (window.MerlinHandheldUpdate && d.version) {
                 MerlinHandheldUpdate.setStoredClientVersion(d.version);
             }
         }
 
-        xhr('GET', '/version.generated.json', null, function (ok, text) {
-            var clientVer = '0.0.0';
-            if (ok) {
-                try { clientVer = JSON.parse(text).version || clientVer; } catch (e) {}
-            }
-            xhr('GET', '/api/deploy/info?client_version=' + encodeURIComponent(clientVer), null, function (ok2, text2) {
-                if (!ok2) return;
-                try { applyDeployInfo(JSON.parse(text2), clientVer); } catch (e) {}
-            });
-        });
+        function jsonp(url, cbName, onData) {
+            window[cbName] = function (data) {
+                try { window[cbName] = null; } catch (e1) {}
+                onData(data);
+            };
+            var s = document.createElement('script');
+            s.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + cbName + '&_=' + new Date().getTime();
+            s.onerror = function () {
+                var hint = document.getElementById('cab-hint');
+                hint.className = 'warn';
+                hint.innerHTML = '';
+                hint.appendChild(document.createTextNode(
+                    'Could not reach server API — you can still tap the .cab link above.'
+                ));
+            };
+            document.getElementsByTagName('head')[0].appendChild(s);
+        }
+
+        jsonp('/api/deploy/info?client_version=' + clientVer, 'deployInfoCb', applyDeployInfo);
 
         (function () {
             var s = document.createElement('script');
             s.src = '/api/scanner/ping?scanner_id=merlin-handheld-hub&callback=hbCb&_=' + new Date().getTime();
-            window.hbCb = function () { window.hbCb = null; };
+            window.hbCb = function () { try { window.hbCb = null; } catch (e) {} };
             document.getElementsByTagName('head')[0].appendChild(s);
         })();
     </script>
