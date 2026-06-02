@@ -121,6 +121,32 @@ namespace MerlinHandheld
                         _find.RefreshList();
                     }
                     _topStatus.Text = ok ? _state.LastMessage : ("Sync failed: " + err);
+                    CheckForAppUpdate(false);
+                }), null, EventArgs.Empty);
+            });
+        }
+
+        private void CheckForAppUpdate(bool alwaysPromptOnError)
+        {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                UpdateCheckResult upd = UpdateChecker.Check(_api, AppConfig.AppVersion);
+                if (!upd.UpdateAvailable && !alwaysPromptOnError) return;
+                BeginInvoke(new EventHandler(delegate
+                {
+                    if (upd.UpdateAvailable)
+                    {
+                        UpdateChecker.PromptIfUpdateAvailable(upd, _cfg.ServerUrl);
+                        _topStatus.Text = "Update " + upd.ServerVersion + " available (you have " + AppConfig.AppVersion + ")";
+                    }
+                    else if (alwaysPromptOnError)
+                    {
+                        MessageBox.Show(
+                            "You are on the latest version (" + AppConfig.AppVersion + ").",
+                            "Merlin Inventory",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information);
+                    }
                 }), null, EventArgs.Empty);
             });
         }

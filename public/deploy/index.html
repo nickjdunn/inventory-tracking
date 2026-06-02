@@ -13,11 +13,28 @@
         .ok { color: #4ade80; }
         .warn { color: #fbbf24; }
         code { background: #1e293b; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+        .update-banner {
+            background: #422006;
+            border: 1px solid #fbbf24;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 12px 0;
+        }
+        .version-line { font-size: 13px; color: #94a3b8; }
     </style>
 </head>
 <body>
     <h1>📡 Merlin handheld</h1>
     <p>Server: <strong id="host"></strong></p>
+    <p class="version-line" id="client-version">Checking version…</p>
+
+    <div id="update-banner" class="update-banner" style="display:none;">
+        <strong class="warn">⬆ Update available</strong>
+        <p id="update-banner-text"></p>
+        <a class="big" href="#" id="update-cab-link" style="display:none;">⬇ Install newer native app (.cab)</a>
+        <a class="big secondary" href="/mobile.html">📱 Refresh browser UI</a>
+    </div>
+
     <p class="ok">Opened from scanner — bookmark this page.</p>
 
     <a class="big" href="/deploy/ce-wifi-test.html">📶 Wi‑Fi + API test</a>
@@ -27,13 +44,15 @@
     <p>Full scan / find / add in the browser (fallback).</p>
     <p class="ok"><strong>Native app (recommended):</strong> install <code>MerlinInventoryTest.cab</code> below — Receive / Find / Add / Settings.</p>
 
-    <a class="big secondary" href="#" id="cab-link" style="display:none;">⬇ Install native test app (.cab)</a>
+    <a class="big secondary" href="#" id="cab-link" style="display:none;">⬇ Install native app (.cab)</a>
     <p id="cab-hint" class="warn">Native .cab not on server yet — build on PC, copy to <code>public/deploy/</code>.</p>
 
     <p style="font-size:12px;"><a href="/index.html?desktop=1">Desktop dashboard</a></p>
 
+    <script src="/handheld-update.js"></script>
     <script>
         document.getElementById('host').textContent = location.host;
+
         function xhr(method, url, body, cb) {
             try {
                 var x = new XMLHttpRequest();
@@ -46,22 +65,50 @@
                 x.send(body ? JSON.stringify(body) : null);
             } catch (e) { cb(false, 0, String(e.message || e)); }
         }
-        xhr('GET', '/api/deploy/info', null, function (ok, st, text) {
-            if (!ok) return;
-            try {
-                var d = JSON.parse(text);
-                var ver = d.version ? 'Server app version: <code>' + d.version + '</code>. ' : '';
+
+        function applyDeployInfo(d, clientVer) {
+            var verLine = 'Web client <code>' + clientVer + '</code>';
+            if (d.version) verLine += ' · Server <code>' + d.version + '</code>';
+            document.getElementById('client-version').innerHTML = verLine;
+
+            if (d.cab_available) {
+                var a = document.getElementById('cab-link');
+                a.style.display = 'block';
+                a.href = d.cab_url;
+                document.getElementById('cab-hint').innerHTML =
+                    '<span class="ok">CAB on server: ' + d.cab_filename + ' (' + d.cab_size_kb + ' KB)</span>';
+            }
+
+            if (window.MerlinHandheldUpdate && MerlinHandheldUpdate.compareVersion(d.version, clientVer) > 0) {
+                var banner = document.getElementById('update-banner');
+                banner.style.display = 'block';
+                document.getElementById('update-banner-text').textContent =
+                    'Installed: ' + clientVer + ' → available: ' + d.version;
                 if (d.cab_available) {
-                    var a = document.getElementById('cab-link');
-                    a.style.display = 'block';
-                    a.href = d.cab_url;
-                    document.getElementById('cab-hint').innerHTML =
-                        ver + '<span class="ok">CAB ready: ' + d.cab_filename + ' (' + d.cab_size_kb + ' KB)</span>';
-                } else if (ver) {
-                    document.getElementById('cab-hint').innerHTML = ver + document.getElementById('cab-hint').innerHTML;
+                    var cab = document.getElementById('update-cab-link');
+                    cab.style.display = 'block';
+                    cab.href = d.cab_url;
                 }
-            } catch (e) {}
+            } else if (d.version) {
+                MerlinHandheldUpdate.setStoredClientVersion(d.version);
+            }
+        }
+
+        xhr('GET', '/version.generated.json', null, function (ok, st, text) {
+            var clientVer = '0.0.0';
+            if (ok) {
+                try {
+                    clientVer = JSON.parse(text).version || clientVer;
+                } catch (e) {}
+            }
+            xhr('GET', '/api/deploy/info?client_version=' + encodeURIComponent(clientVer), null, function (ok2, st2, text2) {
+                if (!ok2) return;
+                try {
+                    applyDeployInfo(JSON.parse(text2), clientVer);
+                } catch (e) {}
+            });
         });
+
         (function () {
             var s = document.createElement('script');
             s.src = '/api/scanner/ping?scanner_id=merlin-handheld-hub&callback=hbCb&_=' + new Date().getTime();

@@ -31,6 +31,11 @@ namespace MerlinHandheld
             return HttpHelper.Get(url, TimeoutMs);
         }
 
+        public HttpResult GetDeployInfo()
+        {
+            return HttpHelper.Get(Base + "/api/deploy/info", TimeoutMs);
+        }
+
         public HttpResult SyncSummary()
         {
             return HttpHelper.Get(Base + "/api/handheld/sync-summary", TimeoutMs);

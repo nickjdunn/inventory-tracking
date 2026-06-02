@@ -300,8 +300,17 @@ function recordScannerHeartbeat(scannerId, req, extra = {}) {
     return record;
 }
 
+const { isNewerVersion } = require('./lib/version');
+
 const DEPLOY_DIR = path.join(__dirname, 'public', 'deploy');
 const DEPLOY_CAB_NAME = 'MerlinInventoryTest.cab';
+
+let handheldVersionMeta = { version: '0.0.0+dev', assemblyVersion: '0.0.0.0' };
+try {
+    handheldVersionMeta = require('./version.generated.json');
+} catch {
+    console.warn('⚠ version.generated.json missing — run: node scripts/sync-version.js');
+}
 
 function getDeployCabInfo() {
     const cabPath = path.join(DEPLOY_DIR, DEPLOY_CAB_NAME);
@@ -323,18 +332,27 @@ app.get('/api/ping', (req, res) => {
     sendJsonOrJsonp(req, res, {
         ok: true,
         server_time: Date.now(),
+        version: handheldVersionMeta.version,
         message: 'inventory server reachable',
     });
 });
 
 // 📦 Handheld / deploy hub — Wi‑Fi CAB update metadata
 app.get('/api/deploy/info', (req, res) => {
+    const clientVersion =
+        req.query.client_version == null ? '' : String(req.query.client_version).trim();
+    const serverVersion = handheldVersionMeta.version;
     sendJsonOrJsonp(req, res, {
         app: 'MerlinInventoryTest',
-        version: '1.0.0-native',
+        version: serverVersion,
+        assembly_version: handheldVersionMeta.assemblyVersion,
+        git_commit: handheldVersionMeta.gitCommit,
+        built_at: handheldVersionMeta.builtAt,
         server_time: Date.now(),
         deploy_page: '/deploy/',
         wifi_test_page: '/deploy/ce-wifi-test.html',
+        update_available: clientVersion ? isNewerVersion(serverVersion, clientVersion) : false,
+        client_version: clientVersion || null,
         ...getDeployCabInfo(),
     });
 });

@@ -6,7 +6,7 @@ namespace MerlinHandheld
 {
     public sealed class AppConfig
     {
-        public const string AppVersion = "1.0.0";
+        public const string AppVersion = "1.0.46+96c8284";
         private const string FileName = "merlin-handheld.cfg";
 
         public string ServerUrl = "http://10.17.17.17:3000";

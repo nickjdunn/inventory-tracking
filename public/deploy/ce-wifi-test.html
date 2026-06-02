@@ -18,6 +18,7 @@
 </head>
 <body>
     <h1>Wi-Fi + API test</h1>
+    <p id="version-line" style="font-size:12px;color:#94a3b8;">Version…</p>
     <p style="font-size:12px;color:#94a3b8;">Windows CE mode: JSONP (no XMLHttpRequest required)</p>
     <label>Server (blank = this page host)</label>
     <input type="text" id="server" value="">
@@ -194,7 +195,33 @@
                     apiGet('/api/ping', 'Ping', next);
                 },
                 function (next) {
-                    apiGet('/api/deploy/info', 'Deploy info', next);
+                    var clientVer = '0.0.0';
+                    try {
+                        if (window.__lastApiJson && window.__lastApiJson.version) {
+                            clientVer = window.__lastApiJson.version;
+                        }
+                    } catch (e) {}
+                    if (clientVer === '0.0.0' && window.__handheldClientVersion) {
+                        clientVer = window.__handheldClientVersion;
+                    }
+                    apiGet(
+                        '/api/deploy/info?client_version=' + encodeURIComponent(clientVer),
+                        'Deploy info + update check',
+                        function (ok) {
+                            if (ok && window.__lastApiJson) {
+                                var d = window.__lastApiJson;
+                                if (d.update_available) {
+                                    log('UPDATE: server ' + d.version + ' > client ' + clientVer, 'fail');
+                                } else {
+                                    log('Version OK: ' + d.version, 'pass');
+                                }
+                            }
+                            next();
+                        }
+                    );
+                },
+                function (next) {
+                    apiGet('/api/handheld/sync-summary', 'Inventory sync summary', next);
                 },
                 function (next) {
                     apiGet(
@@ -202,9 +229,6 @@
                         'Scanner ping',
                         next
                     );
-                },
-                function (next) {
-                    apiGet('/api/handheld/sync-summary', 'Inventory sync summary', next);
                 },
                 function (next) {
                     apiGet('/api/handheld/sync', 'Handheld full sync', function (ok) {
@@ -257,6 +281,32 @@
         }
 
         document.getElementById('run').onclick = runAll;
+
+        (function loadVersionLine() {
+            var url = baseUrl() + '/version.generated.json?_=' + new Date().getTime();
+            jsonpGet(url, function (ok, st, text, data) {
+                if (!ok) {
+                    httpRequest('GET', url, null, function (xhrOk, xhrSt, xhrText) {
+                        if (xhrOk) {
+                            try {
+                                data = JSON.parse(xhrText);
+                            } catch (e) {}
+                        }
+                        if (data && data.version) {
+                            window.__handheldClientVersion = data.version;
+                            document.getElementById('version-line').innerHTML =
+                                'Web client <b>' + data.version + '</b>';
+                        }
+                    });
+                    return;
+                }
+                if (data && data.version) {
+                    window.__handheldClientVersion = data.version;
+                    document.getElementById('version-line').innerHTML =
+                        'Web client <b>' + data.version + '</b>';
+                }
+            });
+        })();
 
         (function init() {
             var loc = window.location;

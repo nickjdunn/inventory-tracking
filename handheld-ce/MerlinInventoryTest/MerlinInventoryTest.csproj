@@ -56,7 +56,9 @@
     <Compile Include="Program.cs" />
     <Compile Include="SimpleJson.cs" />
     <Compile Include="TagParser.cs" />
+    <Compile Include="UpdateChecker.cs" />
     <Compile Include="UrlCodec.cs" />
+    <Compile Include="VersionCompare.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CompactFramework.CSharp.targets" />

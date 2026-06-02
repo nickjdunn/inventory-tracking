@@ -498,6 +498,7 @@ namespace MerlinHandheld
         private readonly TextBox _serverBox;
         private readonly TextBox _scannerBox;
         private readonly Label _status;
+        private readonly Label _versionLabel;
 
         public SettingsPanel(AppConfig cfg, HandheldState state, InventoryApiClient api)
         {
@@ -505,22 +506,37 @@ namespace MerlinHandheld
             _state = state;
             _api = api;
 
-            Controls.Add(new Label { Text = "Server URL", Top = 4, Left = 4, Width = 120, Height = 16 });
-            _serverBox = new TextBox { Top = 22, Left = 4, Width = 296, Text = _cfg.ServerUrl };
+            _versionLabel = new Label
+            {
+                Text = "App v" + AppConfig.AppVersion,
+                Top = 4,
+                Left = 4,
+                Width = 296,
+                Height = 16,
+                Font = new Font("Tahoma", 8f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(56, 189, 248)
+            };
+            Controls.Add(_versionLabel);
 
-            Controls.Add(new Label { Text = "Scanner ID", Top = 48, Left = 4, Width = 120, Height = 16 });
-            _scannerBox = new TextBox { Top = 66, Left = 4, Width = 296, Text = _cfg.ScannerId };
+            Controls.Add(new Label { Text = "Server URL", Top = 22, Left = 4, Width = 120, Height = 16 });
+            _serverBox = new TextBox { Top = 40, Left = 4, Width = 296, Text = _cfg.ServerUrl };
 
-            var saveBtn = new Button { Text = "Save", Top = 94, Left = 4, Width = 90, Height = 28 };
+            Controls.Add(new Label { Text = "Scanner ID", Top = 66, Left = 4, Width = 120, Height = 16 });
+            _scannerBox = new TextBox { Top = 84, Left = 4, Width = 296, Text = _cfg.ScannerId };
+
+            var saveBtn = new Button { Text = "Save", Top = 112, Left = 4, Width = 90, Height = 28 };
             saveBtn.Click += delegate { SaveSettings(); };
 
-            var pingBtn = new Button { Text = "Test ping", Top = 94, Left = 100, Width = 90, Height = 28 };
+            var pingBtn = new Button { Text = "Test ping", Top = 112, Left = 100, Width = 90, Height = 28 };
             pingBtn.Click += delegate { Ping(); };
+
+            var updateBtn = new Button { Text = "Check updates", Top = 112, Left = 196, Width = 104, Height = 28 };
+            updateBtn.Click += delegate { CheckUpdates(); };
 
             var syncBtn = new Button
             {
                 Text = "Sync inventory",
-                Top = 128,
+                Top = 146,
                 Left = 4,
                 Width = 296,
                 Height = 32,
@@ -532,10 +548,10 @@ namespace MerlinHandheld
             _status = new Label
             {
                 Text = _state.LastMessage,
-                Top = 168,
+                Top = 184,
                 Left = 4,
                 Width = 296,
-                Height = 120,
+                Height = 100,
                 Font = new Font("Tahoma", 8f)
             };
 
@@ -543,8 +559,34 @@ namespace MerlinHandheld
             Controls.Add(_scannerBox);
             Controls.Add(saveBtn);
             Controls.Add(pingBtn);
+            Controls.Add(updateBtn);
             Controls.Add(syncBtn);
             Controls.Add(_status);
+        }
+
+        private void CheckUpdates()
+        {
+            _status.Text = "Checking for updates…";
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                UpdateCheckResult upd = UpdateChecker.Check(_api, AppConfig.AppVersion);
+                BeginInvoke(new EventHandler(delegate
+                {
+                    if (upd.UpdateAvailable)
+                    {
+                        _status.Text = "Update " + upd.ServerVersion + " ready";
+                        UpdateChecker.PromptIfUpdateAvailable(upd, _cfg.ServerUrl);
+                    }
+                    else if (upd.ServerVersion.Length > 0)
+                    {
+                        _status.Text = "Up to date (" + AppConfig.AppVersion + ")";
+                    }
+                    else
+                    {
+                        _status.Text = "Could not reach deploy info";
+                    }
+                }), null, EventArgs.Empty);
+            });
         }
 
         private void SaveSettings()
