@@ -1,11 +1,12 @@
-{
-  "name": "MerlinInventory",
-  "version": "1.0.55+a2f3c37",
-  "assemblyVersion": "1.0.55.0",
-  "major": 1,
-  "minor": 0,
-  "patch": 55,
-  "gitCommit": "a2f3c37",
-  "gitCommitCount": 55,
-  "builtAt": "2026-06-02T04:16:10.253Z"
+﻿{
+    "assemblyVersion":  "1.0.57.0",
+    "major":  1,
+    "version":  "1.0.57+3730b56",
+    "gitCommit":  "3730b56",
+    "name":  "MerlinInventory",
+    "builtAt":  "2026-06-02T04:21:33.0370421Z",
+    "minor":  0,
+    "patch":  57,
+    "gitCommitCount":  57
 }
+
