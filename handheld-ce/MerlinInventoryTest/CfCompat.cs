@@ -64,7 +64,23 @@ namespace MerlinHandheld
         {
             using (var writer = new StreamWriter(path, false, Encoding.UTF8))
             {
-                writer.Write(contents);
+                writer.Write(contents ?? "");
+            }
+        }
+
+        public static string ReadAllText(string path)
+        {
+            using (var reader = new StreamReader(path, Encoding.UTF8))
+            {
+                return reader.ReadToEnd();
+            }
+        }
+
+        public static void AppendAllText(string path, string contents)
+        {
+            using (var writer = new StreamWriter(path, true, Encoding.UTF8))
+            {
+                writer.Write(contents ?? "");
             }
         }
     }

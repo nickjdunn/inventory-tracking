@@ -14,6 +14,8 @@ namespace MerlinHandheld
         private readonly ComboBox _binCombo;
         private readonly TextBox _tagsBox;
         private readonly Label _resultLabel;
+        private ArrayList _pendingTags = new ArrayList();
+        private int _lastRawTagCount;
         public event EventHandler StatusChanged;
 
         public ReceivePanel(AppConfig cfg, HandheldState state, InventoryApiClient api)
@@ -85,7 +87,11 @@ namespace MerlinHandheld
 
         public void SetWedgeText(string text)
         {
-            if (text != null) _tagsBox.Text = text;
+            ArrayList parsed = ScanLimits.ParseTags(text);
+            _lastRawTagCount = parsed.Count;
+            _pendingTags = parsed;
+            _tagsBox.Text = ScanLimits.FormatSummary(_pendingTags);
+            _resultLabel.Text = _pendingTags.Count + " tag(s) ready";
         }
 
         private void SendTags()
@@ -99,14 +105,20 @@ namespace MerlinHandheld
             _cfg.LastBinId = bin.Id;
             _cfg.Save();
 
-            ArrayList tags = TagParser.ParseText(_tagsBox.Text);
+            ArrayList tags = _pendingTags;
+            if (tags == null || tags.Count == 0)
+            {
+                tags = ScanLimits.ParseTags(_tagsBox.Text);
+                _pendingTags = tags;
+            }
             if (tags.Count == 0)
             {
                 _resultLabel.Text = "No tags";
                 return;
             }
 
-            _resultLabel.Text = "Sending " + tags.Count + "…";
+            int sentCount = tags.Count;
+            _resultLabel.Text = "Sending " + sentCount + "…";
             string binId = bin.Id;
             ThreadPool.QueueUserWorkItem(delegate
             {
@@ -258,7 +270,7 @@ namespace MerlinHandheld
         public void OnTriggerRead(string wedgeText)
         {
             if (wedgeText == null || wedgeText.Length == 0) return;
-            ArrayList tags = TagParser.ParseText(wedgeText);
+            ArrayList tags = ScanLimits.ParseTags(wedgeText);
             if (tags.Count == 0) return;
             string epc = ((TagRead)tags[0]).Epc;
 

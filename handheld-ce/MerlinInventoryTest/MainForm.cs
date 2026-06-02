@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
@@ -19,16 +20,20 @@ namespace MerlinHandheld
         private FindPanel _find;
         private AddPanel _add;
         private SettingsPanel _settings;
+        private DiagnosticsPanel _diagnostics;
+        private readonly ScannerStreamService _stream;
         private string _mode = "Receive";
 
         private readonly Button _btnReceive;
         private readonly Button _btnFind;
         private readonly Button _btnAdd;
         private readonly Button _btnSet;
+        private readonly Button _btnDiag;
 
         public MainForm()
         {
             _api = new InventoryApiClient(_cfg);
+            _stream = new ScannerStreamService(_cfg, _api);
             MerlinUi.StyleForm(this);
             Text = "Merlin " + AppConfig.AppVersion;
             KeyPreview = true;
@@ -47,15 +52,17 @@ namespace MerlinHandheld
             _host = new Panel { Dock = DockStyle.Fill, BackColor = MerlinUi.Bg };
 
             var nav = new Panel { Dock = DockStyle.Bottom, Height = MerlinUi.NavH, BackColor = MerlinUi.Card };
-            int navW = MerlinUi.ScreenW / 4;
+            int navW = MerlinUi.ScreenW / 5;
             _btnReceive = MakeNavButton("Recv", 0, navW);
             _btnFind = MakeNavButton("Find", 1, navW);
             _btnAdd = MakeNavButton("Add", 2, navW);
             _btnSet = MakeNavButton("Set", 3, navW);
+            _btnDiag = MakeNavButton("Diag", 4, navW);
             nav.Controls.Add(_btnReceive);
             nav.Controls.Add(_btnFind);
             nav.Controls.Add(_btnAdd);
             nav.Controls.Add(_btnSet);
+            nav.Controls.Add(_btnDiag);
 
             Controls.Add(_host);
             Controls.Add(nav);
@@ -65,6 +72,7 @@ namespace MerlinHandheld
             _find = new FindPanel(_cfg, _state, _api);
             _add = new AddPanel(_cfg, _state, _api);
             _settings = new SettingsPanel(_cfg, _state, _api);
+            _diagnostics = new DiagnosticsPanel(_cfg, _api);
 
             _hardware = new HardwareBridge(this, _cfg);
             _hardware.RfidDataReceived += HardwareOnRfid;
@@ -94,6 +102,7 @@ namespace MerlinHandheld
             _btnFind.Click += delegate { ShowMode("Find"); };
             _btnAdd.Click += delegate { ShowMode("Add"); };
             _btnSet.Click += delegate { ShowMode("Set"); };
+            _btnDiag.Click += delegate { ShowMode("Diag"); };
 
             KeyDown += MainForm_KeyDown;
 
@@ -206,6 +215,11 @@ namespace MerlinHandheld
                 BeginInvoke(new EventHandler(delegate { HardwareOnRfid(sender, e); }), null, EventArgs.Empty);
                 return;
             }
+            _stream.OnRfid(e.WedgeText, _mode);
+            if (_mode == "Diag")
+            {
+                _diagnostics.ShowLastRead(e.WedgeText);
+            }
             if (_mode == "Receive")
             {
                 _receive.SetWedgeText(e.WedgeText);
@@ -227,6 +241,11 @@ namespace MerlinHandheld
                 BeginInvoke(new EventHandler(delegate { HardwareOnBarcode(sender, e); }), null, EventArgs.Empty);
                 return;
             }
+            _stream.OnBarcode(e.Code, _mode);
+            if (_mode == "Diag")
+            {
+                _diagnostics.ShowLastRead("UPC:" + e.Code);
+            }
             if (_mode == "Add")
             {
                 _add.SetUpc(e.Code);
@@ -235,16 +254,9 @@ namespace MerlinHandheld
 
         private static string FirstEpcFromWedge(string wedgeText)
         {
-            if (wedgeText == null) return "";
-            string[] parts = wedgeText.Split(new char[] { ',', '\n', '\r', '\t', ' ' });
-            for (int i = 0; i < parts.Length; i++)
-            {
-                if (parts[i] != null && parts[i].Trim().Length > 0)
-                {
-                    return parts[i].Trim();
-                }
-            }
-            return wedgeText.Trim();
+            ArrayList tags = ScanLimits.ParseTags(wedgeText);
+            if (tags.Count == 0) return "";
+            return ((TagRead)tags[0]).Epc;
         }
 
         private void CheckForAppUpdate(bool alwaysPromptOnError)
@@ -309,6 +321,7 @@ namespace MerlinHandheld
             if (mode == "Find") panel = _find;
             else if (mode == "Add") panel = _add;
             else if (mode == "Set") panel = _settings;
+            else if (mode == "Diag") panel = _diagnostics;
             else panel = _receive;
 
             panel.Dock = DockStyle.Fill;
@@ -318,10 +331,12 @@ namespace MerlinHandheld
             _btnFind.BackColor = mode == "Find" ? MerlinUi.Accent : Color.FromArgb(51, 65, 85);
             _btnAdd.BackColor = mode == "Add" ? MerlinUi.Accent : Color.FromArgb(51, 65, 85);
             _btnSet.BackColor = mode == "Set" ? MerlinUi.Accent : Color.FromArgb(51, 65, 85);
+            _btnDiag.BackColor = mode == "Diag" ? MerlinUi.Accent : Color.FromArgb(51, 65, 85);
             _btnReceive.ForeColor = mode == "Receive" ? MerlinUi.Bg : Color.White;
             _btnFind.ForeColor = mode == "Find" ? MerlinUi.Bg : Color.White;
             _btnAdd.ForeColor = mode == "Add" ? MerlinUi.Bg : Color.White;
             _btnSet.ForeColor = mode == "Set" ? MerlinUi.Bg : Color.White;
+            _btnDiag.ForeColor = mode == "Diag" ? MerlinUi.Bg : Color.White;
 
             if (mode == "Find")
             {

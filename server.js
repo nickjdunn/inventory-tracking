@@ -72,6 +72,44 @@ const huntLongPollWaiters = [];
 
 /** Handheld scanner heartbeats (scanner_id → { lastSeen, ...meta }). */
 const scannerHeartbeats = new Map();
+
+/** Live RFID/raw feed + uploaded diagnostic logs (per scanner_id). */
+const scannerLiveFeeds = new Map();
+const SCANNER_LIVE_MAX_LINES = 800;
+const SCANNER_DIAG_LOG_MAX = 512000;
+
+function getScannerLiveFeed(scannerId) {
+    const id = scannerId == null ? '' : String(scannerId).trim();
+    if (!id) return null;
+    if (!scannerLiveFeeds.has(id)) {
+        scannerLiveFeeds.set(id, {
+            nextId: 1,
+            lines: [],
+            diagLog: '',
+            diagUpdated: 0,
+        });
+    }
+    return scannerLiveFeeds.get(id);
+}
+
+function appendScannerLiveLine(scannerId, entry) {
+    const feed = getScannerLiveFeed(scannerId);
+    if (!feed) return null;
+    entry.id = feed.nextId++;
+    entry.t = entry.t || Date.now();
+    feed.lines.push(entry);
+    while (feed.lines.length > SCANNER_LIVE_MAX_LINES) {
+        feed.lines.shift();
+    }
+    return entry;
+}
+
+function tagsPreview(tagEntries, max = 12) {
+    return tagEntries.slice(0, max).map((t) => ({
+        epc: t.epc,
+        rssi: t.rssi,
+    }));
+}
 const SCANNER_ONLINE_THRESHOLD_MS = 45_000;
 
 function normalizeContainerId(value) {
@@ -356,6 +394,153 @@ app.get('/api/ping', (req, res) => {
         server_time: Date.now(),
         version: handheldVersionMeta.version,
         message: 'inventory server reachable',
+    });
+});
+
+// 📡 Live scanner stream (raw wedge + optional real-time inventory scan)
+app.post('/api/scanner/live', async (req, res) => {
+    const body = req.body || {};
+    const scannerId = body.scanner_id == null ? '' : String(body.scanner_id).trim();
+    if (!scannerId) {
+        return res.status(400).json({ error: 'scanner_id is required' });
+    }
+
+    recordScannerHeartbeat(scannerId, req, {
+        mode: body.mode || 'live',
+        battery: body.battery ?? null,
+    });
+
+    let tagEntries = [];
+    if (Array.isArray(body.scanned_tags)) {
+        tagEntries = normalizeScannedTags(body.scanned_tags);
+    } else if (typeof body.raw === 'string' && body.raw.trim()) {
+        tagEntries = parseMerlinWedgeText(body.raw);
+    }
+
+    const entry = {
+        mode: body.mode == null ? 'raw' : String(body.mode),
+        ui_mode: body.ui_mode == null ? '' : String(body.ui_mode),
+        app_version: body.app_version == null ? '' : String(body.app_version),
+        raw: typeof body.raw === 'string' ? body.raw.slice(0, 12000) : '',
+        tag_count: tagEntries.length,
+        tags: tagsPreview(tagEntries),
+    };
+
+    const applyScan = body.apply_scan === true || body.apply_scan === 'true';
+    const targetBin = normalizeContainerId(
+        body.target_container_epc || body.targetContainerEpc || null
+    );
+
+    if (applyScan && tagEntries.length > 0) {
+        try {
+            const settings = await getSystemSettingsCached();
+            recordNearFieldReads(tagEntries, settings);
+            entry.scan_result = await runInventoryScan(targetBin, tagEntries, {
+                source: 'scanner-live',
+                scanner_id: scannerId,
+            });
+        } catch (err) {
+            entry.scan_error = err.message;
+        }
+    }
+
+    const saved = appendScannerLiveLine(scannerId, entry);
+    res.json({
+        ok: true,
+        scanner_id: scannerId,
+        line_id: saved ? saved.id : null,
+        tag_count: tagEntries.length,
+    });
+});
+
+app.get('/api/scanner/live', (req, res) => {
+    const scannerId = req.query.scanner_id == null ? '' : String(req.query.scanner_id).trim();
+    if (!scannerId) {
+        return sendJsonOrJsonp(req, res, { error: 'scanner_id query required' }, 400);
+    }
+    const since = parseInt(req.query.since_id, 10) || 0;
+    const feed = getScannerLiveFeed(scannerId);
+    const lines = feed ? feed.lines.filter((line) => line.id > since) : [];
+    const latestId = feed && feed.lines.length ? feed.lines[feed.lines.length - 1].id : 0;
+    sendJsonOrJsonp(req, res, {
+        ok: true,
+        scanner_id: scannerId,
+        since_id: since,
+        latest_id: latestId,
+        lines,
+        server_time: Date.now(),
+    });
+});
+
+app.post('/api/scanner/live/clear', (req, res) => {
+    const scannerId =
+        (req.body && req.body.scanner_id) || req.query.scanner_id || '';
+    const id = String(scannerId).trim();
+    if (!id) return res.status(400).json({ error: 'scanner_id required' });
+    const feed = getScannerLiveFeed(id);
+    if (feed) {
+        feed.lines = [];
+        feed.nextId = 1;
+    }
+    res.json({ ok: true, scanner_id: id });
+});
+
+// 📝 Handheld diagnostic log upload (download in browser before new CAB)
+app.post('/api/handheld/diagnostic-log', (req, res) => {
+    const body = req.body || {};
+    const scannerId = body.scanner_id == null ? '' : String(body.scanner_id).trim();
+    if (!scannerId) {
+        return res.status(400).json({ error: 'scanner_id is required' });
+    }
+    const feed = getScannerLiveFeed(scannerId);
+    if (!feed) return res.status(400).json({ error: 'invalid scanner_id' });
+
+    if (body.reset === true || body.reset === 'true') {
+        feed.diagLog = '';
+        feed.diagUpdated = Date.now();
+        return res.json({ ok: true, scanner_id: scannerId, bytes: 0 });
+    }
+
+    const chunk = body.append == null ? '' : String(body.append);
+    if (chunk) {
+        feed.diagLog = (feed.diagLog + chunk).slice(-SCANNER_DIAG_LOG_MAX);
+        feed.diagUpdated = Date.now();
+    }
+    res.json({
+        ok: true,
+        scanner_id: scannerId,
+        bytes: feed.diagLog.length,
+        updated: feed.diagUpdated,
+    });
+});
+
+app.get('/api/handheld/diagnostic-log', (req, res) => {
+    const scannerId = req.query.scanner_id == null ? '' : String(req.query.scanner_id).trim();
+    if (!scannerId) {
+        return sendJsonOrJsonp(req, res, { error: 'scanner_id query required' }, 400);
+    }
+    const feed = getScannerLiveFeed(scannerId);
+    const logText = feed ? feed.diagLog : '';
+
+    if (req.query.download === '1' || req.query.download === 'true') {
+        res.type('text/plain; charset=utf-8');
+        res.setHeader(
+            'Content-Disposition',
+            'attachment; filename="merlin-' + scannerId + '-debug.log"'
+        );
+        return res.send(logText || '(empty log)\n');
+    }
+
+    sendJsonOrJsonp(req, res, {
+        ok: true,
+        scanner_id: scannerId,
+        bytes: logText.length,
+        updated: feed ? feed.diagUpdated : 0,
+        log: logText,
+        download_url:
+            '/api/handheld/diagnostic-log?scanner_id=' +
+            encodeURIComponent(scannerId) +
+            '&download=1',
     });
 });
 

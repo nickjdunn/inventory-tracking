@@ -72,6 +72,10 @@
     <Compile Include="Program.cs" />
     <Compile Include="SimpleJson.cs" />
     <Compile Include="TagParser.cs" />
+    <Compile Include="ScanLimits.cs" />
+    <Compile Include="DiagnosticLog.cs" />
+    <Compile Include="DiagnosticsPanel.cs" />
+    <Compile Include="ScannerStreamService.cs" />
     <Compile Include="UpdateChecker.cs" />
     <Compile Include="UrlCodec.cs" />
     <Compile Include="WedgeInputCapture.cs" />

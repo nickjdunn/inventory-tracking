@@ -6,7 +6,7 @@ namespace MerlinHandheld
 {
     public sealed class AppConfig
     {
-        public const string AppVersion = "1.0.52+cff3ead";
+        public const string AppVersion = "1.0.53+b897e15";
         private const string FileName = "merlin-handheld.cfg";
 
         public string ServerUrl = "http://10.17.17.17:3000";
@@ -16,6 +16,10 @@ namespace MerlinHandheld
         public bool HardwareNurEnabled = true;
         public bool HardwareWedgeEnabled = true;
         public string NurAssemblyPath = "";
+        public bool LiveRawStream = true;
+        public bool LiveScanStream = false;
+        public string LiveScanBinId = "";
+        public bool DiagnosticLogFile = false;
 
         public static string ConfigDirectory
         {
@@ -54,6 +58,10 @@ namespace MerlinHandheld
                     else if (key == "nur") cfg.HardwareNurEnabled = val == "1" || val.ToLower() == "true";
                     else if (key == "wedge") cfg.HardwareWedgeEnabled = val == "1" || val.ToLower() == "true";
                     else if (key == "nur_dll") cfg.NurAssemblyPath = val;
+                    else if (key == "live_raw") cfg.LiveRawStream = val == "1" || val.ToLower() == "true";
+                    else if (key == "live_scan") cfg.LiveScanStream = val == "1" || val.ToLower() == "true";
+                    else if (key == "live_bin") cfg.LiveScanBinId = val;
+                    else if (key == "diag_log") cfg.DiagnosticLogFile = val == "1" || val.ToLower() == "true";
                 }
             }
             catch { }
@@ -74,6 +82,10 @@ namespace MerlinHandheld
             {
                 sb.AppendLine("nur_dll=" + NurAssemblyPath);
             }
+            sb.AppendLine("live_raw=" + (LiveRawStream ? "1" : "0"));
+            sb.AppendLine("live_scan=" + (LiveScanStream ? "1" : "0"));
+            sb.AppendLine("live_bin=" + (LiveScanBinId ?? ""));
+            sb.AppendLine("diag_log=" + (DiagnosticLogFile ? "1" : "0"));
             CfCompat.WriteAllText(ConfigPath, sb.ToString());
         }
     }

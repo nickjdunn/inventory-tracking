@@ -57,7 +57,10 @@ namespace MerlinHandheld
 
             if (e.KeyChar >= 32)
             {
-                _buffer.Append(e.KeyChar);
+                if (_buffer.Length < ScanLimits.MaxWedgeBufferChars)
+                {
+                    _buffer.Append(e.KeyChar);
+                }
             }
 
             e.Handled = true;

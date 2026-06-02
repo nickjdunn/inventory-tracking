@@ -20,6 +20,7 @@ namespace MerlinHandheld
         private bool _inventoryRunning;
         private System.Windows.Forms.Timer _statusTimer;
         private string _status = "NUR: not loaded";
+        private long _lastEmitTicks;
 
         public NurApiBridge(AppConfig cfg)
         {
@@ -95,9 +96,12 @@ namespace MerlinHandheld
             if (_inventoryRunning)
             {
                 StopInventory();
+                EmitInventoryTags(true);
+                return;
             }
             TryInvoke(_api, "StartInventory", null);
             _inventoryRunning = true;
+            SetPollTimer(true);
         }
 
         public void StopInventory()
@@ -105,6 +109,13 @@ namespace MerlinHandheld
             if (_api == null || !_inventoryRunning) return;
             TryInvoke(_api, "StopInventory", null);
             _inventoryRunning = false;
+            SetPollTimer(false);
+        }
+
+        private void SetPollTimer(bool enabled)
+        {
+            if (_statusTimer == null) return;
+            _statusTimer.Enabled = enabled;
         }
 
         private void HookInventoryCallback(Type apiType)
@@ -128,22 +139,31 @@ namespace MerlinHandheld
                 if (_statusTimer == null)
                 {
                     _statusTimer = new System.Windows.Forms.Timer();
-                    _statusTimer.Interval = 400;
-                    _statusTimer.Tick += delegate { PollInventoryStream(); };
+                    _statusTimer.Interval = 600;
+                    _statusTimer.Tick += delegate
+                    {
+                        if (_inventoryRunning) EmitInventoryTags(false);
+                    };
                 }
-                _statusTimer.Enabled = true;
             }
         }
 
         private void OnNurTagEvent(object sender, EventArgs e)
         {
-            // Placeholder — real SDK passes tag args; polling handles typical CE builds.
-            PollInventoryStream();
+            if (_inventoryRunning) EmitInventoryTags(false);
         }
 
-        private void PollInventoryStream()
+        private void EmitInventoryTags(bool force)
         {
             if (_api == null) return;
+            long now = DateTime.UtcNow.Ticks;
+            if (!force)
+            {
+                long minTicks = 800 * 10000L;
+                if (now - _lastEmitTicks < minTicks) return;
+            }
+            _lastEmitTicks = now;
+
             object tags = TryInvokeReturn(_api, "GetTagStorage", null);
             if (tags == null) return;
             string text = FormatTagsFromStorage(tags);

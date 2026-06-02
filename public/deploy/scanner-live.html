@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Merlin — live scanner feed</title>
+    <link rel="stylesheet" href="/app.css">
+    <style>
+        body { padding: 12px; max-width: 960px; margin: 0 auto; }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+        .toolbar input { flex: 1; min-width: 160px; padding: 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #e2e8f0; }
+        .toolbar label { font-size: 13px; color: #94a3b8; }
+        #feed {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px;
+            height: 70vh;
+            overflow-y: auto;
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .line { border-bottom: 1px solid #1e293b; padding: 6px 0; margin: 0; }
+        .line .meta { color: #64748b; font-size: 11px; }
+        .line .raw { color: #e2e8f0; }
+        .line .tags { color: #7dd3fc; }
+        .line .scan { color: #86efac; }
+        .line .err { color: #fca5a5; }
+        #status { font-size: 13px; color: #94a3b8; margin-bottom: 8px; }
+        .paused { color: #fbbf24; }
+    </style>
+</head>
+<body>
+    <h1>📡 Live scanner feed</h1>
+    <p id="status">Connecting…</p>
+    <div class="toolbar">
+        <label for="scanner-id">Scanner ID</label>
+        <input type="text" id="scanner-id" value="merlin-handheld-01" autocomplete="off">
+        <button type="button" class="btn" id="btn-pause">Pause</button>
+        <button type="button" class="btn" id="btn-clear">Clear server buffer</button>
+        <a class="btn" id="btn-log" href="#">Download diag log</a>
+    </div>
+    <div id="feed"></div>
+    <p class="terminal-back"><a href="/deploy/">← Deploy hub</a></p>
+
+    <script>
+        var sinceId = 0;
+        var paused = false;
+        var pollMs = 450;
+        var feedEl = document.getElementById('feed');
+        var statusEl = document.getElementById('status');
+        var scannerInput = document.getElementById('scanner-id');
+
+        function qsScanner() {
+            var p = new URLSearchParams(location.search);
+            return (p.get('scanner_id') || scannerInput.value || 'merlin-handheld-01').trim();
+        }
+
+        function updateLogLink() {
+            var id = encodeURIComponent(qsScanner());
+            document.getElementById('btn-log').href =
+                '/api/handheld/diagnostic-log?scanner_id=' + id + '&download=1';
+        }
+
+        function esc(s) {
+            return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function renderLine(line) {
+            var div = document.createElement('div');
+            div.className = 'line';
+            var t = new Date(line.t || Date.now()).toLocaleTimeString();
+            var meta = '#' + line.id + ' ' + t + ' [' + (line.mode || '?') + ']';
+            if (line.ui_mode) meta += ' ui=' + line.ui_mode;
+            if (line.app_version) meta += ' app=' + line.app_version;
+            var html = '<div class="meta">' + esc(meta) + '</div>';
+            if (line.raw) {
+                html += '<div class="raw">' + esc(line.raw) + '</div>';
+            }
+            if (line.tag_count != null) {
+                html += '<div class="tags">' + line.tag_count + ' tag(s)';
+                if (line.tags && line.tags.length) {
+                    html += ': ' + line.tags.map(function (x) {
+                        return x.epc + (x.rssi != null ? '|' + x.rssi : '');
+                    }).join(', ');
+                }
+                html += '</div>';
+            }
+            if (line.scan_result) {
+                html += '<div class="scan">scan OK — processed ' +
+                    (line.scan_result.tags_processed != null ? line.scan_result.tags_processed : '?') +
+                    '</div>';
+            }
+            if (line.scan_error) {
+                html += '<div class="err">scan error: ' + esc(line.scan_error) + '</div>';
+            }
+            div.innerHTML = html;
+            return div;
+        }
+
+        function poll() {
+            if (paused) return;
+            var scannerId = qsScanner();
+            updateLogLink();
+            var url = '/api/scanner/live?scanner_id=' + encodeURIComponent(scannerId) +
+                '&since_id=' + sinceId + '&_=' + Date.now();
+            fetch(url)
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok) {
+                        statusEl.textContent = data.error || 'Error';
+                        return;
+                    }
+                    statusEl.textContent = 'Watching ' + scannerId + ' — latest #' + data.latest_id +
+                        ' (poll ' + pollMs + 'ms)';
+                    if (data.lines && data.lines.length) {
+                        for (var i = 0; i < data.lines.length; i++) {
+                            feedEl.appendChild(renderLine(data.lines[i]));
+                            sinceId = data.lines[i].id;
+                        }
+                        feedEl.scrollTop = feedEl.scrollHeight;
+                        while (feedEl.childNodes.length > 400) {
+                            feedEl.removeChild(feedEl.firstChild);
+                        }
+                    }
+                })
+                .catch(function (err) {
+                    statusEl.textContent = 'Poll failed: ' + err.message;
+                });
+        }
+
+        document.getElementById('btn-pause').addEventListener('click', function () {
+            paused = !paused;
+            this.textContent = paused ? 'Resume' : 'Pause';
+            statusEl.className = paused ? 'paused' : '';
+            statusEl.textContent = paused ? 'Paused' : statusEl.textContent;
+        });
+
+        document.getElementById('btn-clear').addEventListener('click', function () {
+            var scannerId = qsScanner();
+            fetch('/api/scanner/live/clear', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scanner_id: scannerId }),
+            }).then(function () {
+                feedEl.innerHTML = '';
+                sinceId = 0;
+            });
+        });
+
+        scannerInput.addEventListener('change', function () {
+            feedEl.innerHTML = '';
+            sinceId = 0;
+            updateLogLink();
+        });
+
+        (function init() {
+            var p = new URLSearchParams(location.search);
+            if (p.get('scanner_id')) scannerInput.value = p.get('scanner_id');
+            updateLogLink();
+            setInterval(poll, pollMs);
+            poll();
+        })();
+    </script>
+</body>
+</html>

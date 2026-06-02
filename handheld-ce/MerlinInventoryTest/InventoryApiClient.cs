@@ -206,6 +206,68 @@ namespace MerlinHandheld
             return HttpHelper.PostJson(Base + "/api/items", sb.ToString(), TimeoutMs);
         }
 
+        public HttpResult PostScannerLive(
+            string mode,
+            string raw,
+            ArrayList tags,
+            string binId,
+            bool applyScan,
+            string uiMode)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"scanner_id\":\"");
+            sb.Append(SimpleJson.Escape(_cfg.ScannerId));
+            sb.Append("\",\"mode\":\"");
+            sb.Append(SimpleJson.Escape(mode ?? "raw"));
+            sb.Append("\",\"ui_mode\":\"");
+            sb.Append(SimpleJson.Escape(uiMode ?? ""));
+            sb.Append("\",\"app_version\":\"");
+            sb.Append(SimpleJson.Escape(AppConfig.AppVersion));
+            sb.Append("\",\"apply_scan\":");
+            sb.Append(applyScan ? "true" : "false");
+            if (raw != null && raw.Length > 0)
+            {
+                sb.Append(",\"raw\":\"");
+                sb.Append(SimpleJson.Escape(ScanLimits.TrimWedge(raw)));
+                sb.Append("\"");
+            }
+            if (binId != null && binId.Length > 0)
+            {
+                sb.Append(",\"target_container_epc\":\"");
+                sb.Append(SimpleJson.Escape(binId));
+                sb.Append("\"");
+            }
+            if (tags != null && tags.Count > 0)
+            {
+                sb.Append(",\"scanned_tags\":[");
+                for (int i = 0; i < tags.Count; i++)
+                {
+                    if (i > 0) sb.Append(",");
+                    sb.Append(((TagRead)tags[i]).ToJsonFragment());
+                }
+                sb.Append("]");
+            }
+            sb.Append("}");
+            return HttpHelper.PostJson(Base + "/api/scanner/live", sb.ToString(), 20000);
+        }
+
+        public HttpResult UploadDiagnosticLog(string text, bool resetServer)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"scanner_id\":\"");
+            sb.Append(SimpleJson.Escape(_cfg.ScannerId));
+            sb.Append("\",\"reset\":");
+            sb.Append(resetServer ? "true" : "false");
+            if (!resetServer && text != null)
+            {
+                sb.Append(",\"append\":\"");
+                sb.Append(SimpleJson.Escape(text));
+                sb.Append("\"");
+            }
+            sb.Append("}");
+            return HttpHelper.PostJson(Base + "/api/handheld/diagnostic-log", sb.ToString(), 30000);
+        }
+
         public HttpResult ReplaceItemEpc(string oldEpc, string newEpc)
         {
             var sb = new StringBuilder();
