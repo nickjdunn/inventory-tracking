@@ -8,6 +8,31 @@ Your Proxmox box uses a **bare git repo** and a separate **app folder**. A norma
 | `/opt/inventory-app/app` | Running code (`pm2` / `rfid-brain`) |
 | `/opt/inventory-app/app/public/deploy/` | CAB downloads for the gun |
 
+## Fix: checkout says "Already on main" but nothing changed
+
+`checkout -f main` only copies what is **already in repo.git**. It does not download from GitHub.
+
+Run this on the server (copy-paste as root):
+
+```bash
+git --git-dir=/opt/inventory-app/repo.git fetch https://github.com/nickjdunn/inventory-tracking.git main:main
+git --git-dir=/opt/inventory-app/repo.git --work-tree=/opt/inventory-app/app checkout -f main
+pm2 restart rfid-brain
+```
+
+Confirm you got new code:
+
+```bash
+git --git-dir=/opt/inventory-app/repo.git log -1 --oneline main
+grep MerlinDeviceAudit /opt/inventory-app/app/public/deploy/index.html
+```
+
+After that, future updates can use the script (once it is on the server):
+
+```bash
+bash /opt/inventory-app/app/scripts/server/pull-from-github.sh
+```
+
 ## One-time setup on server
 
 SSH in as root, then install the post-receive hook (auto-deploy on push):
