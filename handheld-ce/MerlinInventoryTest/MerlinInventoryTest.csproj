@@ -59,7 +59,6 @@
     <Compile Include="AppVersionInfo.cs" />
     <Compile Include="CfCompat.cs" />
     <Compile Include="MerlinUi.cs" />
-    <Compile Include="GlobalScanCapture.cs" />
     <Compile Include="HardwareBridge.cs" />
     <Compile Include="HandheldPanels.cs" />
     <Compile Include="HandheldState.cs" />

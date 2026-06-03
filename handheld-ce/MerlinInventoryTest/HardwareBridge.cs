@@ -6,35 +6,34 @@ namespace MerlinHandheld
 {
     /// <summary>
     /// Routes Merlin hardware input: Nordic NUR trigger inventory, keyboard wedge, and F-keys.
-    /// Wedge input is captured globally so scans work without focusing a text field.
+    /// Wedge input uses a hidden capture field kept focused so scans work without tapping a text box.
     /// </summary>
     public sealed class HardwareBridge : IDisposable
     {
         private readonly Form _form;
         private readonly AppConfig _cfg;
         private readonly WedgeInputCapture _wedge;
-        private readonly GlobalScanCapture _global;
         private readonly NurApiBridge _nur;
         private string _inputMode = "rfid";
+        private bool _typingMode;
 
         public HardwareBridge(Form form, AppConfig cfg)
         {
             _form = form;
             _cfg = cfg;
             _wedge = new WedgeInputCapture();
-            _global = new GlobalScanCapture();
             _nur = new NurApiBridge(cfg);
 
             _form.Controls.Add(_wedge);
             _wedge.BringToFront();
 
             _wedge.LineReceived += WedgeOnLineReceived;
-            _global.LineReceived += WedgeOnLineReceived;
             _nur.TagsInventoryReady += NurOnTagsReady;
+
+            _form.Activated += Form_Activated;
 
             if (_cfg.HardwareWedgeEnabled)
             {
-                _global.Install();
                 ArmWedgeCapture();
             }
 
@@ -46,7 +45,7 @@ namespace MerlinHandheld
         {
             get
             {
-                string w = _cfg.HardwareWedgeEnabled ? "Wedge: global" : "Wedge: off";
+                string w = _cfg.HardwareWedgeEnabled ? "Wedge: on" : "Wedge: off";
                 return _nur.Status + " | " + w;
             }
         }
@@ -72,7 +71,7 @@ namespace MerlinHandheld
                 return;
             }
             if (!_cfg.HardwareWedgeEnabled) return;
-            _global.Armed = !typing;
+            _typingMode = typing;
             if (!typing) ArmWedgeCapture();
         }
 
@@ -83,7 +82,7 @@ namespace MerlinHandheld
                 _form.BeginInvoke(new EventHandler(delegate { ArmWedgeCapture(); }), null, EventArgs.Empty);
                 return;
             }
-            if (!_cfg.HardwareWedgeEnabled) return;
+            if (!_cfg.HardwareWedgeEnabled || _typingMode) return;
             _wedge.ArmCapture();
         }
 
@@ -109,6 +108,11 @@ namespace MerlinHandheld
 
         public event EventHandler<HardwareRfidEventArgs> RfidDataReceived;
         public event EventHandler<HardwareBarcodeEventArgs> BarcodeReceived;
+
+        private void Form_Activated(object sender, EventArgs e)
+        {
+            ArmWedgeCapture();
+        }
 
         private void WedgeOnLineReceived(object sender, WedgeLineEventArgs e)
         {
@@ -257,30 +261,36 @@ namespace MerlinHandheld
                 _form.BeginInvoke(new EventHandler(delegate { TypingField_LostFocus(sender, e); }), null, EventArgs.Empty);
                 return;
             }
-            if (!IsTypingFieldFocused(_form))
+            if (!IsTypingFieldFocused())
             {
                 SetTypingMode(false);
             }
         }
 
-        private static bool IsTypingFieldFocused(Control root)
+        private bool IsTypingFieldFocused()
         {
-            Control active = root.ActiveControl;
-            while (active != null)
+            return HasFocusedTypingField(_form);
+        }
+
+        private static bool HasFocusedTypingField(Control root)
+        {
+            if (root == null) return false;
+            if (root is WedgeInputCapture) return false;
+
+            TextBox tb = root as TextBox;
+            if (tb != null && !tb.ReadOnly && tb.Focused) return true;
+
+            foreach (Control child in root.Controls)
             {
-                if (active is WedgeInputCapture) return false;
-                TextBox tb = active as TextBox;
-                if (tb != null && !tb.ReadOnly) return true;
-                active = active.ActiveControl;
+                if (HasFocusedTypingField(child)) return true;
             }
             return false;
         }
 
         public void Dispose()
         {
+            _form.Activated -= Form_Activated;
             _wedge.LineReceived -= WedgeOnLineReceived;
-            _global.LineReceived -= WedgeOnLineReceived;
-            _global.Uninstall();
             _nur.TagsInventoryReady -= NurOnTagsReady;
             _nur.Dispose();
         }

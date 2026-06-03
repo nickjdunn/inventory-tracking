@@ -7,22 +7,20 @@ namespace MerlinStream
     {
         private readonly Form _form;
         private readonly WedgeInputCapture _wedge;
-        private readonly GlobalScanCapture _global;
         private readonly NurApiBridge _nur;
         private string _inputMode = "rfid";
+        private bool _typingMode;
 
         public HardwareBridge(Form form, StreamConfig cfg)
         {
             _form = form;
             _wedge = new WedgeInputCapture();
-            _global = new GlobalScanCapture();
             _nur = new NurApiBridge(cfg);
             _form.Controls.Add(_wedge);
             _wedge.BringToFront();
             _wedge.LineReceived += WedgeOnLineReceived;
-            _global.LineReceived += WedgeOnLineReceived;
             _nur.TagsInventoryReady += NurOnTagsReady;
-            _global.Install();
+            _form.Activated += Form_Activated;
             ArmWedgeCapture();
             WireTypingFields(_form);
             _nur.Start();
@@ -45,7 +43,7 @@ namespace MerlinStream
                 _form.BeginInvoke(new EventHandler(delegate { SetTypingMode(typing); }), null, EventArgs.Empty);
                 return;
             }
-            _global.Armed = !typing;
+            _typingMode = typing;
             if (!typing) ArmWedgeCapture();
         }
 
@@ -56,6 +54,7 @@ namespace MerlinStream
                 _form.BeginInvoke(new EventHandler(delegate { ArmWedgeCapture(); }), null, EventArgs.Empty);
                 return;
             }
+            if (_typingMode) return;
             _wedge.ArmCapture();
         }
 
@@ -80,6 +79,11 @@ namespace MerlinStream
         }
 
         public event EventHandler<HardwareRfidEventArgs> RfidDataReceived;
+
+        private void Form_Activated(object sender, EventArgs e)
+        {
+            ArmWedgeCapture();
+        }
 
         private void WedgeOnLineReceived(object sender, WedgeLineEventArgs e)
         {
@@ -137,30 +141,36 @@ namespace MerlinStream
                 _form.BeginInvoke(new EventHandler(delegate { TypingField_LostFocus(sender, e); }), null, EventArgs.Empty);
                 return;
             }
-            if (!IsTypingFieldFocused(_form))
+            if (!IsTypingFieldFocused())
             {
                 SetTypingMode(false);
             }
         }
 
-        private static bool IsTypingFieldFocused(Control root)
+        private bool IsTypingFieldFocused()
         {
-            Control active = root.ActiveControl;
-            while (active != null)
+            return HasFocusedTypingField(_form);
+        }
+
+        private static bool HasFocusedTypingField(Control root)
+        {
+            if (root == null) return false;
+            if (root is WedgeInputCapture) return false;
+
+            TextBox tb = root as TextBox;
+            if (tb != null && !tb.ReadOnly && tb.Focused) return true;
+
+            foreach (Control child in root.Controls)
             {
-                if (active is WedgeInputCapture) return false;
-                TextBox tb = active as TextBox;
-                if (tb != null && !tb.ReadOnly) return true;
-                active = active.ActiveControl;
+                if (HasFocusedTypingField(child)) return true;
             }
             return false;
         }
 
         public void Dispose()
         {
+            _form.Activated -= Form_Activated;
             _wedge.LineReceived -= WedgeOnLineReceived;
-            _global.LineReceived -= WedgeOnLineReceived;
-            _global.Uninstall();
             _nur.TagsInventoryReady -= NurOnTagsReady;
             _nur.Dispose();
         }
