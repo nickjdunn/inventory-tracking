@@ -73,6 +73,22 @@ Or:
 bash /opt/inventory-app/app/scripts/server/update-server-app.sh
 ```
 
+## Pull from GitHub on server (no PC push)
+
+If `git push prod main` fails from your PC, run on the server:
+
+```bash
+bash /opt/inventory-app/app/scripts/server/pull-from-github.sh
+```
+
+First time only (install hook + pull latest docs):
+
+```bash
+# After pull-from-github once, install auto-deploy hook:
+cp /opt/inventory-app/app/scripts/server/post-receive /opt/inventory-app/repo.git/hooks/post-receive
+chmod +x /opt/inventory-app/repo.git/hooks/post-receive
+```
+
 ## Verify
 
 ```bash
