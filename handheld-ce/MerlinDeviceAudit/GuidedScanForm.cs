@@ -229,14 +229,7 @@ namespace MerlinAudit
             if (expected == "rfid" && _nur.IsAvailable)
             {
                 _lastRead.Text = "Pull trigger (NUR API)…";
-                try
-                {
-                    _nur.TriggerInventory();
-                }
-                catch (Exception ex)
-                {
-                    ReportStepError("scan_guide_trigger", ex);
-                }
+                _nur.EnsureInventoryStream();
             }
             else if (expected == "rfid")
             {
@@ -327,9 +320,21 @@ namespace MerlinAudit
             if (rawLine != null)
             {
                 string expected = Steps[_stepIndex][0];
+                if (expected == "rfid"
+                    && string.Compare(source, "wedge_focus", StringComparison.OrdinalIgnoreCase) == 0)
+                {
+                    return;
+                }
+
                 string classified = ScanInputClassifier.Classify(rawLine);
                 bool match = expected == "any"
                     || string.Compare(expected, classified, StringComparison.OrdinalIgnoreCase) == 0;
+
+                if (!match)
+                {
+                    _lastRead.Text = "Wrong type (" + classified + ") — try again";
+                    return;
+                }
 
                 var entry = new ScanCaptureEntry();
                 entry.StepIndex = _stepIndex + 1;
@@ -354,11 +359,19 @@ namespace MerlinAudit
                 _lastRead.Text = "(step skipped)";
             }
 
+            string leavingType = Steps[_stepIndex][0];
             _stepIndex++;
             if (_stepIndex >= Steps.Length)
             {
+                if (leavingType == "rfid") _nur.StopInventoryStreamSafe();
                 Finish(true);
                 return;
+            }
+
+            string nextType = Steps[_stepIndex][0];
+            if (leavingType == "rfid" && nextType != "rfid")
+            {
+                _nur.StopInventoryStreamSafe();
             }
             ShowStep();
         }
@@ -366,13 +379,29 @@ namespace MerlinAudit
         private void Finish(bool completed)
         {
             if (_closed) return;
+            try
+            {
+                _nur.StopInventoryStreamSafe();
+            }
+            catch (Exception ex)
+            {
+                AuditErrorReporter.ReportSync(_cfg, "scan_guide_finish", ex, _nur.Status);
+            }
+
             _closed = true;
             _finished = completed;
             _focusTimer.Enabled = false;
             _capture.LineReceived -= CaptureOnLineReceived;
             _nur.TagsInventoryReady -= NurOnTagsReady;
             DialogResult = completed ? DialogResult.OK : DialogResult.Cancel;
-            Close();
+            try
+            {
+                Close();
+            }
+            catch (Exception ex)
+            {
+                AuditErrorReporter.ReportSync(_cfg, "scan_guide_close", ex, _nur.Status);
+            }
         }
     }
 }

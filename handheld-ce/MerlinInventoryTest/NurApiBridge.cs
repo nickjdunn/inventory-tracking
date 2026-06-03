@@ -239,7 +239,7 @@ namespace MerlinHandheld
         {
             if (tag == null) return "";
             Type t = tag.GetType();
-            MethodInfo gm = t.GetMethod("GetEpcString");
+            MethodInfo gm = NurApiReflection.ResolveInstanceMethod(t, "GetEpcString", null);
             if (gm != null)
             {
                 object v = gm.Invoke(tag, null);
@@ -383,14 +383,14 @@ namespace MerlinHandheld
         private static void TryInvoke(object target, string method, object[] args)
         {
             if (target == null) return;
-            MethodInfo m = target.GetType().GetMethod(method);
+            MethodInfo m = NurApiReflection.ResolveInstanceMethod(target.GetType(), method, args);
             if (m != null) m.Invoke(target, args);
         }
 
         private static object TryInvokeReturn(object target, string method, object[] args)
         {
             if (target == null) return null;
-            MethodInfo m = target.GetType().GetMethod(method);
+            MethodInfo m = NurApiReflection.ResolveInstanceMethod(target.GetType(), method, args);
             if (m == null) return null;
             return m.Invoke(target, args);
         }

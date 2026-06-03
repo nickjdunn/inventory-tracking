@@ -56,5 +56,24 @@ namespace MerlinHandheld
             }
             return false;
         }
+
+        public static MethodInfo ResolveInstanceMethod(Type t, string name, object[] args)
+        {
+            if (t == null || name == null) return null;
+            int want = args == null ? 0 : args.Length;
+            MethodInfo[] methods = t.GetMethods(BindingFlags.Public | BindingFlags.Instance);
+            MethodInfo fallback = null;
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo m = methods[i];
+                if (m.Name != name) continue;
+                ParameterInfo[] ps = m.GetParameters();
+                int n = ps == null ? 0 : ps.Length;
+                if (n != want) continue;
+                if (fallback == null) fallback = m;
+                if (n == 0) return m;
+            }
+            return fallback;
+        }
     }
 }

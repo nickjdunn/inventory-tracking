@@ -93,6 +93,31 @@
         <pre id="error-detail-body" style="user-select:text"></pre>
     </div>
 
+    <h2 style="margin-top:24px">Lab tests (RSSI / wedge / trigger)</h2>
+    <p class="hint">Uploaded from the audit app lab screens. Full audit reports also embed <code>scanner_lab</code>.</p>
+    <table>
+        <thead>
+            <tr>
+                <th>When</th>
+                <th>Scanner</th>
+                <th>Events</th>
+                <th>App</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody id="lab-rows">
+            <tr><td colspan="5">Loading…</td></tr>
+        </tbody>
+    </table>
+
+    <div class="detail" id="lab-detail">
+        <h2 id="lab-detail-title">Lab session</h2>
+        <p class="hint">
+            <a class="btn" id="lab-download" href="#">Download JSON</a>
+        </p>
+        <pre id="lab-detail-body" style="user-select:text"></pre>
+    </div>
+
     <div data-terminal-chrome></div>
 
     <script src="/site-version.js"></script>
@@ -109,6 +134,11 @@
         var errorDetailTitle = document.getElementById('error-detail-title');
         var errorDownload = document.getElementById('error-download');
         var lastErrorText = '';
+        var labRowsEl = document.getElementById('lab-rows');
+        var labDetailEl = document.getElementById('lab-detail');
+        var labDetailBody = document.getElementById('lab-detail-body');
+        var labDetailTitle = document.getElementById('lab-detail-title');
+        var labDownload = document.getElementById('lab-download');
 
         function qsParam(name) {
             return new URLSearchParams(location.search).get(name) || '';
@@ -240,6 +270,7 @@
             history.replaceState(null, '', u.pathname + u.search);
             loadList();
             loadErrors();
+            loadLabs();
         });
 
         function loadErrors() {
@@ -320,8 +351,59 @@
             }
         });
 
+        function loadLabs() {
+            var sid = qsScanner();
+            var url = '/api/handheld/audit-lab?limit=50';
+            if (sid) url += '&scanner_id=' + encodeURIComponent(sid);
+            fetch(url)
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok) throw new Error(data.error || 'load failed');
+                    var labs = data.labs || [];
+                    if (!labs.length) {
+                        labRowsEl.innerHTML = '<tr><td colspan="5">No lab sessions yet.</td></tr>';
+                        return;
+                    }
+                    labRowsEl.innerHTML = labs.map(function (row) {
+                        return '<tr>'
+                            + '<td>' + esc(fmtTime(row.captured_at)) + '</td>'
+                            + '<td>' + esc(row.scanner_id) + '</td>'
+                            + '<td>' + esc(row.event_count) + '</td>'
+                            + '<td>' + esc(row.app_version) + '</td>'
+                            + '<td><button type="button" class="btn btn-view-lab" data-id="'
+                            + esc(row.id) + '">View</button></td>'
+                            + '</tr>';
+                    }).join('');
+                    labRowsEl.querySelectorAll('.btn-view-lab').forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            viewLab(btn.getAttribute('data-id'));
+                        });
+                    });
+                    var openId = qsParam('lab_id');
+                    if (openId) viewLab(openId);
+                })
+                .catch(function (err) {
+                    labRowsEl.innerHTML = '<tr><td colspan="5">' + esc(err.message) + '</td></tr>';
+                });
+        }
+
+        function viewLab(id) {
+            fetch('/api/handheld/audit-lab/' + encodeURIComponent(id))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok || !data.lab) throw new Error(data.error || 'not found');
+                    labDetailTitle.textContent = 'Lab ' + id;
+                    labDetailBody.textContent = JSON.stringify(data.lab, null, 2);
+                    labDownload.href = '/api/handheld/audit-lab/' + encodeURIComponent(id) + '?download=1';
+                    labDetailEl.style.display = 'block';
+                    labDetailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                })
+                .catch(function (err) { alert(err.message); });
+        }
+
         loadList();
         loadErrors();
+        loadLabs();
     </script>
 </body>
 </html>

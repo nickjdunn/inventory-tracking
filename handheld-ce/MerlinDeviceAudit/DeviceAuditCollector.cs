@@ -83,6 +83,15 @@ namespace MerlinAudit
                 sb.Append("\"scan_session\":{\"format\":\"merlin-scan-guide-v1\",\"completed\":false,\"steps_total\":7,\"captures\":0,\"events\":[]}");
             }
             sb.Append(",");
+            sb.Append("\"scanner_lab\":");
+            sb.Append(TestSessionLog.ToJson());
+            sb.Append(",");
+            string pending = AuditLocalErrorStore.PeekSummary();
+            if (pending.Length > 0)
+            {
+                AuditJson.AppendString(sb, "pending_error", pending);
+                sb.Append(",");
+            }
             AuditJson.AppendObject(sb, "network", networkJson);
             sb.Append("}");
             return sb.ToString();

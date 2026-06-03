@@ -37,15 +37,23 @@
   <ItemGroup>
     <Compile Include="AuditClient.cs" />
     <Compile Include="AuditErrorReporter.cs" />
+    <Compile Include="AuditLocalErrorStore.cs" />
     <Compile Include="AuditConfig.cs" />
     <Compile Include="AuditJson.cs" />
     <Compile Include="CeSystemInfo.cs" />
     <Compile Include="CfCompat.cs" />
+    <Compile Include="CfLayout.cs" />
     <Compile Include="DeviceAuditCollector.cs" />
     <Compile Include="GuidedScanForm.cs" />
     <Compile Include="HttpHelper.cs" />
     <Compile Include="KnownAppsCatalog.cs" />
     <Compile Include="MainForm.cs" />
+    <Compile Include="UiTheme.cs" />
+    <Compile Include="TestSessionLog.cs" />
+    <Compile Include="NurTagReading.cs" />
+    <Compile Include="RssiMonitorForm.cs" />
+    <Compile Include="WedgeProbeForm.cs" />
+    <Compile Include="TriggerProbeForm.cs" />
     <Compile Include="NurDllDiscovery.cs" />
     <Compile Include="NurApiReflection.cs" />
     <Compile Include="NurApiBridge.cs" />

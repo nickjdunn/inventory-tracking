@@ -419,6 +419,7 @@ const {
     getAuditError,
     listScannerIds: listErrorScannerIds,
 } = require('./lib/audit-error-store');
+const { saveAuditLab, listAuditLab, getAuditLab } = require('./lib/audit-lab-store');
 
 function deployFilesStatus() {
     const pages = {};
@@ -951,6 +952,62 @@ app.get('/api/handheld/audit-error/:id', (req, res) => {
         return res.send(text);
     }
     sendJsonOrJsonp(req, res, { ok: true, error: record });
+});
+
+// Merlin audit lab sessions (RSSI, wedge, trigger tests)
+app.post('/api/handheld/audit-lab', (req, res) => {
+    const body = req.body || {};
+    const scannerId = body.scanner_id == null ? '' : String(body.scanner_id).trim();
+    if (!scannerId) {
+        return res.status(400).json({ error: 'scanner_id is required' });
+    }
+    try {
+        const record = saveAuditLab(body);
+        recordScannerHeartbeat(scannerId, req, {
+            mode: 'device-audit-lab',
+            app_version: body.app_version,
+        });
+        res.json({
+            ok: true,
+            id: record.id,
+            scanner_id: record.scanner_id,
+            captured_at: record.captured_at,
+            event_count: record.event_count,
+            view_url:
+                '/deploy/device-audit.html?scanner_id=' +
+                encodeURIComponent(scannerId) +
+                '&lab_id=' +
+                encodeURIComponent(record.id),
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message || 'failed to save lab session' });
+    }
+});
+
+app.get('/api/handheld/audit-lab', (req, res) => {
+    const scannerId = req.query.scanner_id == null ? '' : String(req.query.scanner_id).trim();
+    const limit = req.query.limit;
+    sendJsonOrJsonp(req, res, {
+        ok: true,
+        labs: listAuditLab({ scanner_id: scannerId || undefined, limit }),
+    });
+});
+
+app.get('/api/handheld/audit-lab/:id', (req, res) => {
+    const id = req.params.id == null ? '' : String(req.params.id).trim();
+    const record = getAuditLab(id);
+    if (!record) {
+        return sendJsonOrJsonp(req, res, { error: 'lab record not found' }, 404);
+    }
+    if (req.query.download === '1' || req.query.download === 'true') {
+        res.type('application/json; charset=utf-8');
+        res.setHeader(
+            'Content-Disposition',
+            'attachment; filename="merlin-audit-lab-' + record.id + '.json"'
+        );
+        return res.send(JSON.stringify(record, null, 2));
+    }
+    sendJsonOrJsonp(req, res, { ok: true, lab: record });
 });
 
 // 📦 Nordic NUR .NET DLL for Merlin handheld apps (upload from PC after copying off gun)

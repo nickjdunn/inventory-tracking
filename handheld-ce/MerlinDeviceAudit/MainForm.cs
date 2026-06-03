@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
@@ -10,135 +9,349 @@ namespace MerlinAudit
     {
         private readonly AuditConfig _cfg = AuditConfig.Load();
         private readonly AuditClient _client;
-        private readonly TextBox _serverBox;
-        private readonly TextBox _scannerBox;
-        private readonly TextBox _summaryBox;
         private readonly Label _status;
+        private readonly Label _pageTitle;
+        private TextBox _logBox;
+        private TextBox _serverBox;
+        private TextBox _scannerBox;
+
+        private Panel[] _pages;
+        private Button[][] _hotkeys;
+        private EventHandler[][] _keyHandlers;
+        private int _pageIndex;
         private string _lastReportJson = "";
         private string _lastScanSessionJson = "";
+
+        private static readonly string[] PageNames = new string[]
+        {
+            "Tests",
+            "More",
+            "Settings",
+            "Log",
+        };
 
         public MainForm()
         {
             _client = new AuditClient(_cfg);
-            Text = "Merlin Audit " + AuditConfig.AppVersion;
+            UiTheme.ApplyForm(this);
+            Text = "Merlin Lab " + AuditConfig.AppVersion;
             Width = 240;
             Height = 320;
-            BackColor = Color.FromArgb(15, 23, 42);
-            ForeColor = Color.White;
-            Font = new Font("Tahoma", 8f, FontStyle.Regular);
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            MaximizeBox = false;
 
             _status = new Label
             {
                 Dock = DockStyle.Top,
-                Height = 36,
-                ForeColor = Color.White,
+                Height = 26,
+                TextAlign = ContentAlignment.TopLeft,
+                Left = 6,
+                ForeColor = UiTheme.Text,
+                BackColor = UiTheme.Card,
                 Font = new Font("Tahoma", 8f, FontStyle.Bold),
-                Text = "Device audit tool",
+                Text = "Ready",
             };
 
-            _summaryBox = new TextBox
+            _pageTitle = new Label
             {
-                Multiline = true,
-                ReadOnly = true,
-                ScrollBars = ScrollBars.Vertical,
-                Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(30, 41, 59),
-                ForeColor = Color.FromArgb(203, 213, 225),
-                Font = new Font("Tahoma", 7f, FontStyle.Regular),
-                Text = "1) Scan guide — test trigger + barcode\r\n2) Full audit — apps + upload\r\nPC: /deploy/device-audit.html",
+                Dock = DockStyle.Top,
+                Height = 20,
+                TextAlign = ContentAlignment.TopLeft,
+                Left = 6,
+                ForeColor = UiTheme.Accent,
+                Font = new Font("Tahoma", 8f, FontStyle.Bold),
             };
 
-            var btnPanel = new Panel { Dock = DockStyle.Bottom, Height = 104, BackColor = Color.FromArgb(30, 41, 59) };
+            var contentHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = UiTheme.Bg,
+            };
 
-            var guideBtn = MakeButton("Scan guide", 0, true);
-            guideBtn.Click += delegate { RunScanGuide(); };
+            var nav = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 30,
+                BackColor = UiTheme.Card,
+            };
 
-            var fullBtn = MakeButton("Full audit + upload", 26, true);
-            fullBtn.Click += delegate { RunFullAudit(true); };
+            var btnPrev = UiTheme.MakeNavButton("<");
+            btnPrev.Left = 4;
+            btnPrev.Top = 2;
+            btnPrev.Click += delegate { ShowPage(_pageIndex - 1); };
 
-            var runLocalBtn = MakeButton("Inventory only", 52);
-            runLocalBtn.Click += delegate { RunFullAudit(false); };
+            var btnNext = UiTheme.MakeNavButton(">");
+            btnNext.Left = 200;
+            btnNext.Top = 2;
+            btnNext.Click += delegate { ShowPage(_pageIndex + 1); };
 
-            var uploadBtn = MakeButton("Re-upload last", 78);
-            uploadBtn.Click += delegate { ReuploadLast(); };
+            _pageTitle.Dock = DockStyle.None;
+            var pageIndicator = UiTheme.MakeHint("Keys 1-9 on this page");
+            pageIndicator.Dock = DockStyle.None;
+            CfLayout.Place(pageIndicator, 44, 8, 152, 14);
+            pageIndicator.TextAlign = ContentAlignment.TopCenter;
 
-            btnPanel.Controls.Add(uploadBtn);
-            btnPanel.Controls.Add(runLocalBtn);
-            btnPanel.Controls.Add(fullBtn);
-            btnPanel.Controls.Add(guideBtn);
+            nav.Controls.Add(pageIndicator);
+            nav.Controls.Add(btnNext);
+            nav.Controls.Add(btnPrev);
 
-            var settings = new Panel { Dock = DockStyle.Bottom, Height = 72 };
-            _serverBox = MakeField(_cfg.ServerUrl);
-            _scannerBox = MakeField(_cfg.ScannerId);
-            var pingBtn = new Button { Text = "Ping", Width = 48, Height = 22, Left = 0, Top = 50 };
-            pingBtn.Click += delegate { RunPing(); };
-            var saveBtn = new Button { Text = "Save", Width = 48, Height = 22, Left = 54, Top = 50 };
-            saveBtn.Click += delegate { SaveSettings(); };
-            settings.Controls.Add(saveBtn);
-            settings.Controls.Add(pingBtn);
-            settings.Controls.Add(_scannerBox);
-            settings.Controls.Add(Lbl("Scanner ID"));
-            settings.Controls.Add(_serverBox);
-            settings.Controls.Add(Lbl("Server"));
+            BuildPages(contentHost);
+            contentHost.Controls.Add(_pages[0]);
 
-            Controls.Add(_summaryBox);
-            Controls.Add(btnPanel);
-            Controls.Add(settings);
+            Controls.Add(contentHost);
+            Controls.Add(nav);
+            Controls.Add(_pageTitle);
             Controls.Add(_status);
 
-            Load += delegate { RunPing(); };
-        }
-
-        private static Label Lbl(string t)
-        {
-            return new Label
+            KeyDown += MainForm_KeyDown;
+            Load += delegate
             {
-                Text = t,
-                Height = 14,
-                Dock = DockStyle.Top,
-                ForeColor = Color.FromArgb(148, 163, 184),
-                Font = new Font("Tahoma", 7f, FontStyle.Regular),
+                ShowPage(0);
+                RunPing();
+                FlushPendingErrorFromDisk();
+                RefreshLogPreview();
             };
         }
 
-        private static TextBox MakeField(string text)
+        private void BuildPages(Panel host)
         {
-            return new TextBox
+            _pages = new Panel[4];
+            _hotkeys = new Button[4][];
+            _keyHandlers = new EventHandler[4][];
+
+            _pages[0] = BuildTestsPage1();
+            _pages[1] = BuildTestsPage2();
+            _pages[2] = BuildSettingsPage();
+            _pages[3] = BuildLogPage();
+
+            for (int i = 0; i < _pages.Length; i++)
             {
-                Text = text ?? "",
-                Height = 20,
-                Dock = DockStyle.Top,
-                BackColor = Color.FromArgb(15, 23, 42),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Tahoma", 8f, FontStyle.Regular),
-            };
+                _pages[i].Dock = DockStyle.Fill;
+                _pages[i].Visible = false;
+            }
         }
 
-        private Button MakeButton(string text, int top, bool primary)
+        private Panel BuildTestsPage1()
         {
-            return new Button
+            var p = NewPage();
+            var hint = UiTheme.MakeHint("Scanner tests — press number");
+            CfLayout.Place(hint, 6, 2, 228, 14);
+            p.Controls.Add(hint);
+
+            _hotkeys[0] = new Button[4];
+            string[] labels0 = new string[] { "Scan guide", "RSSI signal", "Wedge probe", "Trigger / NUR" };
+            _keyHandlers[0] = new EventHandler[4];
+            _keyHandlers[0][0] = delegate { RunScanGuide(); };
+            _keyHandlers[0][1] = delegate { OpenLab(new RssiMonitorForm(_cfg)); };
+            _keyHandlers[0][2] = delegate { OpenLab(new WedgeProbeForm(_cfg)); };
+            _keyHandlers[0][3] = delegate { OpenLab(new TriggerProbeForm(_cfg)); };
+            for (int i = 0; i < 4; i++)
             {
-                Text = text,
-                Left = 4,
-                Top = top,
-                Width = 228,
-                Height = 22,
-                Font = new Font("Tahoma", 8f, FontStyle.Bold),
-                ForeColor = Color.White,
-                BackColor = primary ? Color.FromArgb(3, 105, 161) : Color.FromArgb(51, 65, 85),
-            };
+                _hotkeys[0][i] = AddHotkey(p, i + 1, labels0[i], 20 + i * 36, i < 2, _keyHandlers[0][i]);
+            }
+            return p;
         }
 
-        private Button MakeButton(string text, int top)
+        private Panel BuildTestsPage2()
         {
-            return MakeButton(text, top, false);
+            var p = NewPage();
+            var hint = UiTheme.MakeHint("Audit & upload");
+            CfLayout.Place(hint, 6, 2, 228, 14);
+            p.Controls.Add(hint);
+
+            _hotkeys[1] = new Button[4];
+            _keyHandlers[1] = new EventHandler[4];
+            _keyHandlers[1][0] = delegate { RunFullAudit(true); };
+            _keyHandlers[1][1] = delegate { RunFullAudit(false); };
+            _keyHandlers[1][2] = delegate { ReuploadLast(); };
+            _keyHandlers[1][3] = delegate { UploadLabLog(); };
+            string[] labels1 = new string[]
+            {
+                "Full audit + upload", "Inventory only", "Re-upload audit", "Upload lab log",
+            };
+            for (int i = 0; i < 4; i++)
+            {
+                _hotkeys[1][i] = AddHotkey(p, i + 1, labels1[i], 20 + i * 36, i == 0 || i == 3, _keyHandlers[1][i]);
+            }
+            return p;
+        }
+
+        private Panel BuildSettingsPage()
+        {
+            var p = NewPage();
+            _hotkeys[2] = new Button[2];
+
+            var hdr = UiTheme.MakeHeader("Server settings");
+            CfLayout.Place(hdr, 6, 4, 228, 18);
+            p.Controls.Add(hdr);
+
+            var lblSrv = UiTheme.MakeHint("Server URL");
+            CfLayout.Place(lblSrv, 6, 26, 228, 12);
+            p.Controls.Add(lblSrv);
+
+            _serverBox = UiTheme.MakeField(_cfg.ServerUrl);
+            CfLayout.Place(_serverBox, 6, 40, 228, 22);
+            p.Controls.Add(_serverBox);
+
+            var lblId = UiTheme.MakeHint("Scanner ID");
+            CfLayout.Place(lblId, 6, 66, 228, 12);
+            p.Controls.Add(lblId);
+
+            _scannerBox = UiTheme.MakeField(_cfg.ScannerId);
+            CfLayout.Place(_scannerBox, 6, 80, 228, 22);
+            p.Controls.Add(_scannerBox);
+
+            var info = UiTheme.MakeHint("PC: /deploy/device-audit.html");
+            CfLayout.Place(info, 6, 108, 228, 12);
+            p.Controls.Add(info);
+
+            _keyHandlers[2] = new EventHandler[2];
+            _keyHandlers[2][0] = delegate { RunPing(); };
+            _keyHandlers[2][1] = delegate { SaveSettings(); };
+            _hotkeys[2][0] = AddHotkey(p, 1, "Ping server", 236, true, _keyHandlers[2][0]);
+            _hotkeys[2][1] = AddHotkey(p, 2, "Save settings", 236, false, _keyHandlers[2][1]);
+            CfLayout.Place(_hotkeys[2][0], 6, 236, 110, 34);
+            CfLayout.Place(_hotkeys[2][1], 124, 236, 110, 34);
+
+            return p;
+        }
+
+        private Panel BuildLogPage()
+        {
+            var p = NewPage();
+
+            var hdr = UiTheme.MakeHeader("Session log");
+            CfLayout.Place(hdr, 6, 2, 228, 16);
+            p.Controls.Add(hdr);
+
+            _logBox = UiTheme.MakeLogBox();
+            CfLayout.Place(_logBox, 6, 20, 228, 168);
+            p.Controls.Add(_logBox);
+
+            _hotkeys[3] = new Button[2];
+            _keyHandlers[3] = new EventHandler[2];
+            _keyHandlers[3][0] = delegate { UploadLabLog(); };
+            _keyHandlers[3][1] = delegate { ClearLabLog(); };
+            _hotkeys[3][0] = AddHotkey(p, 1, "Upload lab log", 194, true, _keyHandlers[3][0]);
+            _hotkeys[3][1] = AddHotkey(p, 2, "Clear lab log", 194, false, _keyHandlers[3][1]);
+            CfLayout.Place(_hotkeys[3][0], 6, 194, 110, 32);
+            CfLayout.Place(_hotkeys[3][1], 124, 194, 110, 32);
+
+            return p;
+        }
+
+        private static Panel NewPage()
+        {
+            return new Panel { BackColor = UiTheme.Bg };
+        }
+
+        private static Button AddHotkey(Panel p, int num, string label, int top, bool primary, EventHandler click)
+        {
+            var b = UiTheme.MakeHotkeyButton(num, label, primary);
+            CfLayout.Place(b, 6, top, 228, 34);
+            if (click != null) b.Click += click;
+            p.Controls.Add(b);
+            return b;
+        }
+
+        private void ShowPage(int index)
+        {
+            if (index < 0) index = _pages.Length - 1;
+            if (index >= _pages.Length) index = 0;
+            _pageIndex = index;
+
+            Panel host = (Panel)_pages[0].Parent;
+            host.Controls.Clear();
+            host.Controls.Add(_pages[_pageIndex]);
+
+            _pageTitle.Text = PageNames[_pageIndex] + "  (" + (_pageIndex + 1) + "/" + _pages.Length + ")";
+        }
+
+        private void MainForm_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Left) { ShowPage(_pageIndex - 1); e.Handled = true; return; }
+            if (e.KeyCode == Keys.Right) { ShowPage(_pageIndex + 1); e.Handled = true; return; }
+
+            int digit = KeyToDigit(e.KeyCode);
+            if (digit < 1) return;
+            EventHandler[] handlers = _keyHandlers[_pageIndex];
+            if (handlers == null || digit > handlers.Length) return;
+            EventHandler h = handlers[digit - 1];
+            if (h != null) h(this, EventArgs.Empty);
+            e.Handled = true;
+        }
+
+        private static int KeyToDigit(Keys key)
+        {
+            if (key >= Keys.D1 && key <= Keys.D9) return (int)key - (int)Keys.D0;
+            if (key >= Keys.NumPad1 && key <= Keys.NumPad9) return (int)key - (int)Keys.NumPad0;
+            return 0;
+        }
+
+        private void OpenLab(Form f)
+        {
+            SaveSettings();
+            f.ShowDialog();
+            RefreshLogPreview();
+        }
+
+        private void RefreshLogPreview()
+        {
+            if (_logBox == null) return;
+            string lab = TestSessionLog.SummaryText;
+            _logBox.Text = lab.Length > 0
+                ? lab
+                : "Lab events appear here.\r\nRun RSSI, wedge, or trigger tests.";
+        }
+
+        private void ClearLabLog()
+        {
+            TestSessionLog.Clear();
+            RefreshLogPreview();
+            _status.Text = "Lab log cleared";
+        }
+
+        private void UploadLabLog()
+        {
+            SaveSettings();
+            string json = TestSessionLog.ToJson();
+            if (json.IndexOf("\"events\":[]") >= 0)
+            {
+                _status.Text = "No lab events";
+                return;
+            }
+            _status.Text = "Uploading lab…";
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                HttpResult res = _client.UploadLabSession(json);
+                BeginInvoke(new EventHandler(delegate
+                {
+                    _status.Text = res.Ok ? "Lab log on server" : Short(res.Error, 50);
+                    if (res.Ok)
+                    {
+                        RefreshLogPreview();
+                    }
+                }), null, EventArgs.Empty);
+            });
+        }
+
+        private void FlushPendingErrorFromDisk()
+        {
+            if (!AuditLocalErrorStore.HasPending) return;
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                HttpResult res = AuditErrorReporter.FlushPending(_cfg);
+                BeginInvoke(new EventHandler(delegate
+                {
+                    if (res.Ok) _status.Text = "Prior error sent";
+                }), null, EventArgs.Empty);
+            });
         }
 
         private void SaveSettings()
         {
-            _cfg.ServerUrl = HttpHelper.NormalizeBaseUrl(_serverBox.Text);
-            _cfg.ScannerId = _scannerBox.Text.Trim();
+            if (_serverBox != null) _cfg.ServerUrl = HttpHelper.NormalizeBaseUrl(_serverBox.Text);
+            if (_scannerBox != null) _cfg.ScannerId = _scannerBox.Text.Trim();
             _cfg.Save();
             _status.Text = "Settings saved";
         }
@@ -165,27 +378,14 @@ namespace MerlinAudit
                 var guide = new GuidedScanForm(_cfg);
                 guide.ShowDialog();
                 _lastScanSessionJson = guide.SessionJson;
-                _summaryBox.Text = BuildScanSummary(_lastScanSessionJson);
+                TestSessionLog.Add("scan_guide", guide.Completed ? "complete" : "partial", _lastScanSessionJson);
+                RefreshLogPreview();
                 _status.Text = guide.Completed ? "Guide done" : "Guide partial";
-                if (guide.LastError.Length > 0)
-                {
-                    _summaryBox.Text = guide.LastError + "\r\n\r\n" + _summaryBox.Text;
-                }
             }
             catch (Exception ex)
             {
-                HttpResult res = AuditErrorReporter.ReportSync(_cfg, "scan_guide", ex, "");
-                string pc = "http://10.17.17.17:3000/deploy/device-audit.html";
-                _summaryBox.Text = (res.Ok ? "Error uploaded.\r\n" : "Upload failed.\r\n")
-                    + "PC: device-audit page, Errors section.\r\n\r\n"
-                    + AuditErrorReporter.FormatDetail(ex, "");
-                _status.Text = res.Ok ? "Error on server" : "Error (upload fail)";
-                MessageBox.Show(
-                    res.Ok ? ("Logged to server.\r\n" + pc) : ("Log failed: " + res.Error),
-                    "Scan guide",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Exclamation,
-                    MessageBoxDefaultButton.Button1);
+                AuditErrorReporter.ReportSync(_cfg, "scan_guide", ex, "");
+                _status.Text = "Guide error (logged)";
             }
         }
 
@@ -194,27 +394,18 @@ namespace MerlinAudit
             SaveSettings();
             _status.Text = "Scan guide…";
             var guide = new GuidedScanForm(_cfg);
-            if (guide.ShowDialog() == DialogResult.OK)
-            {
-                _lastScanSessionJson = guide.SessionJson;
-            }
-            else
-            {
-                _lastScanSessionJson = guide.SessionJson;
-            }
+            guide.ShowDialog();
+            _lastScanSessionJson = guide.SessionJson;
 
             _status.Text = "Collecting…";
-            _summaryBox.Text = "Walking storage…";
             ThreadPool.QueueUserWorkItem(delegate
             {
                 string reportJson = "";
-                string summary = "";
                 string err = "";
                 try
                 {
                     var collector = new DeviceAuditCollector(_cfg);
                     reportJson = collector.CollectReportJson(_lastScanSessionJson);
-                    summary = BuildSummary(reportJson);
                 }
                 catch (Exception ex)
                 {
@@ -225,10 +416,7 @@ namespace MerlinAudit
                 if (err.Length == 0 && upload)
                 {
                     uploadRes = _client.UploadReport(reportJson);
-                    if (!uploadRes.Ok)
-                    {
-                        err = uploadRes.Error ?? "upload failed";
-                    }
+                    if (!uploadRes.Ok) err = uploadRes.Error ?? "upload failed";
                 }
 
                 BeginInvoke(new EventHandler(delegate
@@ -236,24 +424,19 @@ namespace MerlinAudit
                     if (err.Length > 0)
                     {
                         _status.Text = Short(err, 60);
-                        _summaryBox.Text = summary.Length > 0
-                            ? summary + "\r\n\r\nERROR: " + err
-                            : ("ERROR: " + err);
                         return;
                     }
-
                     _lastReportJson = reportJson;
-                    _summaryBox.Text = summary;
                     if (upload && uploadRes != null)
                     {
                         string id = SimpleJson.ExtractString(uploadRes.Body, "id");
                         _status.Text = id.Length > 0 ? ("Uploaded " + id) : "Uploaded OK";
-                        _summaryBox.Text = summary + "\r\n\r\nPC: /deploy/device-audit.html";
                     }
                     else
                     {
                         _status.Text = "Audit done (local)";
                     }
+                    RefreshLogPreview();
                 }), null, EventArgs.Empty);
             });
         }
@@ -262,7 +445,7 @@ namespace MerlinAudit
         {
             if (_lastReportJson == null || _lastReportJson.Length == 0)
             {
-                _status.Text = "Run audit first";
+                _status.Text = "Run full audit first";
                 return;
             }
             SaveSettings();
@@ -272,170 +455,9 @@ namespace MerlinAudit
                 HttpResult res = _client.UploadReport(_lastReportJson);
                 BeginInvoke(new EventHandler(delegate
                 {
-                    if (!res.Ok)
-                    {
-                        _status.Text = Short(res.Error, 60);
-                        return;
-                    }
-                    string id = SimpleJson.ExtractString(res.Body, "id");
-                    _status.Text = id.Length > 0 ? ("Uploaded " + id) : "Uploaded OK";
+                    _status.Text = res.Ok ? "Re-upload OK" : Short(res.Error, 50);
                 }), null, EventArgs.Empty);
             });
-        }
-
-        private static string BuildScanSummary(string sessionJson)
-        {
-            if (sessionJson == null || sessionJson.Length == 0) return "(no scan data)";
-            bool completed = SimpleJson.ExtractBool(sessionJson, "completed", false);
-            int captures = CountObjectsInArray(sessionJson, "events");
-            var sb = new System.Text.StringBuilder();
-            sb.Append("Scan guide: ").Append(completed ? "complete" : "partial").Append("\r\n");
-            sb.Append("Captures: ").Append(captures).Append(" / 7\r\n\r\n");
-            AppendScanEvents(sessionJson, sb);
-            return sb.ToString();
-        }
-
-        private static void AppendScanEvents(string json, System.Text.StringBuilder sb)
-        {
-            int idx = json.IndexOf("\"events\"");
-            if (idx < 0) return;
-            string tail = json.Substring(idx);
-            int start = 0;
-            while (true)
-            {
-                int stepKey = tail.IndexOf("\"step_label\":\"", start);
-                if (stepKey < 0) break;
-                int labelStart = stepKey + 14;
-                int labelEnd = tail.IndexOf('"', labelStart);
-                if (labelEnd < 0) break;
-                string label = tail.Substring(labelStart, labelEnd - labelStart);
-
-                int typeKey = tail.IndexOf("\"classified_type\":\"", labelEnd);
-                string ctype = "";
-                if (typeKey >= 0 && typeKey < labelEnd + 120)
-                {
-                    int ts = typeKey + 19;
-                    int te = tail.IndexOf('"', ts);
-                    if (te > ts) ctype = tail.Substring(ts, te - ts);
-                }
-
-                int matchKey = tail.IndexOf("\"matches_expected\":", labelEnd);
-                bool match = false;
-                if (matchKey >= 0 && matchKey < labelEnd + 120)
-                {
-                    match = tail.IndexOf("true", matchKey) == matchKey + 19;
-                }
-
-                sb.Append(match ? "OK " : "?? ");
-                sb.Append(ctype).Append(" — ").Append(label).Append("\r\n");
-                start = labelEnd + 1;
-            }
-        }
-
-        private static string BuildSummary(string reportJson)
-        {
-            if (reportJson == null || reportJson.Length == 0) return "(empty report)";
-
-            string scanPart = BuildScanSummary(ExtractScanSession(reportJson));
-
-            bool pingOk = false;
-            int networkIdx = reportJson.IndexOf("\"network\"");
-            if (networkIdx >= 0)
-            {
-                pingOk = SimpleJson.ExtractBool(reportJson.Substring(networkIdx), "ping_ok", false);
-            }
-            int knownCount = CountObjectsInArray(reportJson, "known_apps");
-            int fileCount = CountObjectsInArray(reportJson, "installed_files");
-            string machine = "";
-            string os = "";
-            int systemIdx = reportJson.IndexOf("\"system\"");
-            if (systemIdx >= 0)
-            {
-                string sys = reportJson.Substring(systemIdx);
-                machine = SimpleJson.ExtractString(sys, "machine_name");
-                os = SimpleJson.ExtractString(sys, "os_version");
-            }
-            var sb = new System.Text.StringBuilder();
-            sb.Append(scanPart).Append("\r\n");
-            sb.Append("Machine: ").Append(machine).Append("\r\n");
-            sb.Append("OS: ").Append(Short(os, 50)).Append("\r\n");
-            sb.Append("Files indexed: ").Append(fileCount).Append("\r\n");
-            sb.Append("Known apps: ").Append(knownCount).Append("\r\n");
-            sb.Append("Server ping: ").Append(pingOk ? "OK" : "FAIL").Append("\r\n\r\n");
-            AppendNurDiscovery(reportJson, sb);
-            AppendKnownAppNames(reportJson, sb);
-            return sb.ToString();
-        }
-
-        private static void AppendNurDiscovery(string reportJson, System.Text.StringBuilder sb)
-        {
-            int idx = reportJson.IndexOf("\"nur_discovery\"");
-            if (idx < 0) return;
-            string tail = reportJson.Substring(idx);
-            bool dotnetReady = SimpleJson.ExtractBool(tail, "dotnet_ready", false);
-            string best = SimpleJson.ExtractString(tail, "best_path");
-            string installed = SimpleJson.ExtractString(tail, "installed_beside_app");
-            string fetchErr = SimpleJson.ExtractString(tail, "server_fetch_error");
-            sb.Append("NUR .NET: ").Append(dotnetReady ? "ready" : "not found").Append("\r\n");
-            if (best.Length > 0) sb.Append("NUR path: ").Append(Short(best, 55)).Append("\r\n");
-            if (installed.Length > 0) sb.Append("Copied: ").Append(Short(installed, 55)).Append("\r\n");
-            if (fetchErr.Length > 0) sb.Append("Server DLL: ").Append(Short(fetchErr, 50)).Append("\r\n");
-            sb.Append("\r\n");
-        }
-
-        private static string ExtractScanSession(string reportJson)
-        {
-            int idx = reportJson.IndexOf("\"scan_session\"");
-            if (idx < 0) return "";
-            int brace = reportJson.IndexOf('{', idx);
-            if (brace < 0) return "";
-            int depth = 0;
-            for (int i = brace; i < reportJson.Length; i++)
-            {
-                if (reportJson[i] == '{') depth++;
-                else if (reportJson[i] == '}')
-                {
-                    depth--;
-                    if (depth == 0) return reportJson.Substring(brace, i - brace + 1);
-                }
-            }
-            return "";
-        }
-
-        private static void AppendKnownAppNames(string json, System.Text.StringBuilder sb)
-        {
-            int idx = json.IndexOf("\"known_apps\"");
-            if (idx < 0) return;
-            string tail = json.Substring(idx);
-            int start = 0;
-            sb.Append("Nordic / Merlin:\r\n");
-            while (true)
-            {
-                int nameKey = tail.IndexOf("\"name\":\"", start);
-                if (nameKey < 0) break;
-                int valStart = nameKey + 8;
-                int valEnd = tail.IndexOf('"', valStart);
-                if (valEnd < 0) break;
-                sb.Append("- ").Append(tail.Substring(valStart, valEnd - valStart)).Append("\r\n");
-                start = valEnd + 1;
-                if (start > tail.Length - 10) break;
-            }
-        }
-
-        private static int CountObjectsInArray(string json, string arrayKey)
-        {
-            int idx = json.IndexOf("\"" + arrayKey + "\"");
-            if (idx < 0) return 0;
-            int startBracket = json.IndexOf('[', idx);
-            int endBracket = json.IndexOf(']', startBracket);
-            if (startBracket < 0 || endBracket < 0) return 0;
-            string section = json.Substring(startBracket, endBracket - startBracket);
-            int count = 0;
-            for (int i = 0; i < section.Length; i++)
-            {
-                if (section[i] == '{') count++;
-            }
-            return count;
         }
 
         private static string Short(string text, int max)
