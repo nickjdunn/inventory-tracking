@@ -15,12 +15,33 @@ namespace MerlinAudit
         private TextBox _serverBox;
         private TextBox _scannerBox;
 
+        private Panel _contentHost;
         private Panel[] _pages;
         private Button[][] _hotkeys;
         private EventHandler[][] _keyHandlers;
         private int _pageIndex;
         private string _lastReportJson = "";
         private string _lastScanSessionJson = "";
+
+        public int ContentWidth
+        {
+            get
+            {
+                if (_contentHost == null) return 228;
+                int w = _contentHost.ClientSize.Width;
+                return w > 0 ? w : 228;
+            }
+        }
+
+        public int ContentHeight
+        {
+            get
+            {
+                if (_contentHost == null) return 200;
+                int h = _contentHost.ClientSize.Height;
+                return h > 0 ? h : 200;
+            }
+        }
 
         private static readonly string[] PageNames = new string[]
         {
@@ -62,7 +83,7 @@ namespace MerlinAudit
                 Font = new Font("Tahoma", 8f, FontStyle.Bold),
             };
 
-            var contentHost = new Panel
+            _contentHost = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = UiTheme.Bg,
@@ -85,7 +106,6 @@ namespace MerlinAudit
             btnNext.Top = 2;
             btnNext.Click += delegate { ShowPage(_pageIndex + 1); };
 
-            _pageTitle.Dock = DockStyle.None;
             var pageIndicator = UiTheme.MakeHint("Keys 1-9 on this page");
             pageIndicator.Dock = DockStyle.None;
             CfLayout.Place(pageIndicator, 44, 8, 152, 14);
@@ -95,13 +115,21 @@ namespace MerlinAudit
             nav.Controls.Add(btnNext);
             nav.Controls.Add(btnPrev);
 
-            BuildPages(contentHost);
-            contentHost.Controls.Add(_pages[0]);
+            BuildPages(_contentHost);
 
-            Controls.Add(contentHost);
             Controls.Add(nav);
+            Controls.Add(_contentHost);
             Controls.Add(_pageTitle);
             Controls.Add(_status);
+
+            _contentHost.Resize += delegate
+            {
+                LayoutVisiblePage();
+                if (_pages != null && _pageIndex >= 0 && _pageIndex < _pages.Length)
+                {
+                    PageLayout.Apply(this, _pageIndex, _pages[_pageIndex], _hotkeys[_pageIndex], _logBox);
+                }
+            };
 
             KeyDown += MainForm_KeyDown;
             Load += delegate
@@ -126,8 +154,22 @@ namespace MerlinAudit
 
             for (int i = 0; i < _pages.Length; i++)
             {
-                _pages[i].Dock = DockStyle.Fill;
                 _pages[i].Visible = false;
+                host.Controls.Add(_pages[i]);
+            }
+        }
+
+        private void LayoutVisiblePage()
+        {
+            if (_pages == null || _contentHost == null) return;
+            int w = _contentHost.ClientSize.Width;
+            int h = _contentHost.ClientSize.Height;
+            if (w < 50) w = 228;
+            if (h < 50) h = 200;
+
+            for (int i = 0; i < _pages.Length; i++)
+            {
+                CfLayout.Place(_pages[i], 0, 0, w, h);
             }
         }
 
@@ -139,10 +181,10 @@ namespace MerlinAudit
             p.Controls.Add(hint);
 
             _hotkeys[0] = new Button[4];
-            string[] labels0 = new string[] { "Scan guide", "RSSI signal", "Wedge probe", "Trigger / NUR" };
+            string[] labels0 = new string[] { "Scan guide", "RSSI track", "Wedge probe", "Trigger / NUR" };
             _keyHandlers[0] = new EventHandler[4];
             _keyHandlers[0][0] = delegate { RunScanGuide(); };
-            _keyHandlers[0][1] = delegate { OpenLab(new RssiMonitorForm(_cfg)); };
+            _keyHandlers[0][1] = delegate { OpenLab(new RssiTrackForm(_cfg)); };
             _keyHandlers[0][2] = delegate { OpenLab(new WedgeProbeForm(_cfg)); };
             _keyHandlers[0][3] = delegate { OpenLab(new TriggerProbeForm(_cfg)); };
             for (int i = 0; i < 4; i++)
@@ -208,10 +250,10 @@ namespace MerlinAudit
             _keyHandlers[2] = new EventHandler[2];
             _keyHandlers[2][0] = delegate { RunPing(); };
             _keyHandlers[2][1] = delegate { SaveSettings(); };
-            _hotkeys[2][0] = AddHotkey(p, 1, "Ping server", 236, true, _keyHandlers[2][0]);
-            _hotkeys[2][1] = AddHotkey(p, 2, "Save settings", 236, false, _keyHandlers[2][1]);
-            CfLayout.Place(_hotkeys[2][0], 6, 236, 110, 34);
-            CfLayout.Place(_hotkeys[2][1], 124, 236, 110, 34);
+            _hotkeys[2][0] = AddHotkey(p, 1, "Ping server", 196, true, _keyHandlers[2][0]);
+            _hotkeys[2][1] = AddHotkey(p, 2, "Save settings", 196, false, _keyHandlers[2][1]);
+            CfLayout.Place(_hotkeys[2][0], 6, 196, 110, 34);
+            CfLayout.Place(_hotkeys[2][1], 124, 196, 110, 34);
 
             return p;
         }
@@ -248,21 +290,31 @@ namespace MerlinAudit
         private static Button AddHotkey(Panel p, int num, string label, int top, bool primary, EventHandler click)
         {
             var b = UiTheme.MakeHotkeyButton(num, label, primary);
-            CfLayout.Place(b, 6, top, 228, 34);
+            b.Left = 6;
+            b.Top = top;
+            b.Width = 228;
+            b.Height = 34;
+            b.Visible = true;
             if (click != null) b.Click += click;
             p.Controls.Add(b);
+            b.BringToFront();
             return b;
         }
 
         private void ShowPage(int index)
         {
+            if (_pages == null || _contentHost == null || _pageTitle == null) return;
             if (index < 0) index = _pages.Length - 1;
             if (index >= _pages.Length) index = 0;
             _pageIndex = index;
 
-            Panel host = (Panel)_pages[0].Parent;
-            host.Controls.Clear();
-            host.Controls.Add(_pages[_pageIndex]);
+            for (int i = 0; i < _pages.Length; i++)
+            {
+                _pages[i].Visible = (i == _pageIndex);
+            }
+            _pages[_pageIndex].BringToFront();
+            LayoutVisiblePage();
+            PageLayout.Apply(this, _pageIndex, _pages[_pageIndex], _hotkeys[_pageIndex], _logBox);
 
             _pageTitle.Text = PageNames[_pageIndex] + "  (" + (_pageIndex + 1) + "/" + _pages.Length + ")";
         }
@@ -274,6 +326,7 @@ namespace MerlinAudit
 
             int digit = KeyToDigit(e.KeyCode);
             if (digit < 1) return;
+            if (_keyHandlers == null || _pageIndex < 0 || _pageIndex >= _keyHandlers.Length) return;
             EventHandler[] handlers = _keyHandlers[_pageIndex];
             if (handlers == null || digit > handlers.Length) return;
             EventHandler h = handlers[digit - 1];
@@ -320,16 +373,23 @@ namespace MerlinAudit
                 _status.Text = "No lab events";
                 return;
             }
+            AuditLocalLabStore.SaveSnapshot(json);
             _status.Text = "Uploading lab…";
             ThreadPool.QueueUserWorkItem(delegate
             {
                 HttpResult res = _client.UploadLabSession(json);
                 BeginInvoke(new EventHandler(delegate
                 {
-                    _status.Text = res.Ok ? "Lab log on server" : Short(res.Error, 50);
                     if (res.Ok)
                     {
+                        AuditLocalLabStore.Clear();
+                        _status.Text = "Lab log on server";
                         RefreshLogPreview();
+                    }
+                    else
+                    {
+                        AuditPendingQueue.MarkLabSnapshot();
+                        _status.Text = Short(res.Error, 50);
                     }
                 }), null, EventArgs.Empty);
             });
@@ -337,15 +397,15 @@ namespace MerlinAudit
 
         private void FlushPendingErrorFromDisk()
         {
-            if (!AuditLocalErrorStore.HasPending) return;
-            ThreadPool.QueueUserWorkItem(delegate
+            string note = PendingRecovery.FlushAll(_cfg, _client);
+            if (note.Length > 0)
             {
-                HttpResult res = AuditErrorReporter.FlushPending(_cfg);
-                BeginInvoke(new EventHandler(delegate
+                _status.Text = Short(note.Replace("\r\n", " "), 58);
+                if (note.IndexOf("pending") >= 0 || note.IndexOf("uploaded") >= 0)
                 {
-                    if (res.Ok) _status.Text = "Prior error sent";
-                }), null, EventArgs.Empty);
-            });
+                    PendingRecovery.NotifyUser(note + "\r\n\r\nPC: device-audit.html");
+                }
+            }
         }
 
         private void SaveSettings()

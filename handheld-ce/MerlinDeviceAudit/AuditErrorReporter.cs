@@ -12,8 +12,13 @@ namespace MerlinAudit
             string detail = FormatDetail(ex, extra);
             string message = ex != null ? (ex.Message ?? "error") : "error";
             AuditLocalErrorStore.Save(context, message, detail);
+            AuditPendingQueue.MarkError();
             HttpResult res = new AuditClient(cfg).UploadError(context, message, detail);
-            if (res.Ok) AuditLocalErrorStore.Clear();
+            if (res.Ok)
+            {
+                AuditLocalErrorStore.Clear();
+                AuditPendingQueue.ClearEntry("error");
+            }
             return res;
         }
 
@@ -38,7 +43,11 @@ namespace MerlinAudit
                 context.Length > 0 ? context : "pending",
                 message.Length > 0 ? message : "prior error",
                 detail);
-            if (res.Ok) AuditLocalErrorStore.Clear();
+            if (res.Ok)
+            {
+                AuditLocalErrorStore.Clear();
+                AuditPendingQueue.ClearEntry("error");
+            }
             return res;
         }
 
@@ -50,12 +59,17 @@ namespace MerlinAudit
             string ctx = context ?? "";
             AuditConfig cfgCopy = cfg;
             AuditLocalErrorStore.Save(ctx, message, detail);
+            AuditPendingQueue.MarkError();
             ThreadPool.QueueUserWorkItem(delegate
             {
                 try
                 {
                     HttpResult res = new AuditClient(cfgCopy).UploadError(ctx, message, detail);
-                    if (res.Ok) AuditLocalErrorStore.Clear();
+                    if (res.Ok)
+                    {
+                        AuditLocalErrorStore.Clear();
+                        AuditPendingQueue.ClearEntry("error");
+                    }
                 }
                 catch { }
             });

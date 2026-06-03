@@ -36,6 +36,11 @@ namespace MerlinAudit
         private static void HandleFatal(string context, Exception ex)
         {
             AuditConfig cfg = AuditConfig.Load();
+            try
+            {
+                if (RssiTraceRecorder.IsRecording) RssiTraceRecorder.StopRecording();
+            }
+            catch { }
             HttpResult res = AuditErrorReporter.ReportSync(cfg, context, ex, "");
             string hint = res.Ok
                 ? "Error saved on server.\r\nPC: /deploy/device-audit.html\r\n(Errors section)"

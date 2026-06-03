@@ -70,5 +70,20 @@ namespace MerlinAudit
             sb.Append("}");
             return HttpHelper.PostJson(Base + "/api/handheld/audit-lab", sb.ToString(), 45000);
         }
+
+        public HttpResult UploadRssiTrace(string sessionJson)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"scanner_id\":\"");
+            sb.Append(SimpleJson.Escape(_cfg.ScannerId));
+            sb.Append("\",\"app_version\":\"");
+            sb.Append(SimpleJson.Escape(AuditConfig.AppVersion));
+            sb.Append("\",\"captured_at\":");
+            sb.Append(DateTime.UtcNow.Ticks / 10000L);
+            sb.Append(",\"session\":");
+            sb.Append(sessionJson != null && sessionJson.Length > 0 ? sessionJson : "{}");
+            sb.Append("}");
+            return HttpHelper.PostJson(Base + "/api/handheld/audit-rssi-trace", sb.ToString(), 60000);
+        }
     }
 }

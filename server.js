@@ -420,6 +420,11 @@ const {
     listScannerIds: listErrorScannerIds,
 } = require('./lib/audit-error-store');
 const { saveAuditLab, listAuditLab, getAuditLab } = require('./lib/audit-lab-store');
+const {
+    saveAuditRssiTrace,
+    listAuditRssiTraces,
+    getAuditRssiTrace,
+} = require('./lib/audit-rssi-store');
 
 function deployFilesStatus() {
     const pages = {};
@@ -1008,6 +1013,63 @@ app.get('/api/handheld/audit-lab/:id', (req, res) => {
         return res.send(JSON.stringify(record, null, 2));
     }
     sendJsonOrJsonp(req, res, { ok: true, lab: record });
+});
+
+// Merlin audit RSSI walk traces (tag tracking + recording)
+app.post('/api/handheld/audit-rssi-trace', (req, res) => {
+    const body = req.body || {};
+    const scannerId = body.scanner_id == null ? '' : String(body.scanner_id).trim();
+    if (!scannerId) {
+        return res.status(400).json({ error: 'scanner_id is required' });
+    }
+    try {
+        const record = saveAuditRssiTrace(body);
+        recordScannerHeartbeat(scannerId, req, {
+            mode: 'device-audit-rssi',
+            app_version: body.app_version,
+        });
+        res.json({
+            ok: true,
+            id: record.id,
+            scanner_id: record.scanner_id,
+            captured_at: record.captured_at,
+            sample_count: record.sample_count,
+            target_epc: record.target_epc,
+            view_url:
+                '/deploy/device-audit.html?scanner_id=' +
+                encodeURIComponent(scannerId) +
+                '&rssi_id=' +
+                encodeURIComponent(record.id),
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message || 'failed to save RSSI trace' });
+    }
+});
+
+app.get('/api/handheld/audit-rssi-trace', (req, res) => {
+    const scannerId = req.query.scanner_id == null ? '' : String(req.query.scanner_id).trim();
+    const limit = req.query.limit;
+    sendJsonOrJsonp(req, res, {
+        ok: true,
+        traces: listAuditRssiTraces({ scanner_id: scannerId || undefined, limit }),
+    });
+});
+
+app.get('/api/handheld/audit-rssi-trace/:id', (req, res) => {
+    const id = req.params.id == null ? '' : String(req.params.id).trim();
+    const record = getAuditRssiTrace(id);
+    if (!record) {
+        return sendJsonOrJsonp(req, res, { error: 'rssi trace not found' }, 404);
+    }
+    if (req.query.download === '1' || req.query.download === 'true') {
+        res.type('application/json; charset=utf-8');
+        res.setHeader(
+            'Content-Disposition',
+            'attachment; filename="merlin-audit-rssi-' + record.id + '.json"'
+        );
+        return res.send(JSON.stringify(record, null, 2));
+    }
+    sendJsonOrJsonp(req, res, { ok: true, trace: record });
 });
 
 // 📦 Nordic NUR .NET DLL for Merlin handheld apps (upload from PC after copying off gun)

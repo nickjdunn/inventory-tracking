@@ -272,17 +272,37 @@ namespace MerlinAudit
             try
             {
                 Type t = tag.GetType();
-                string[] names = new string[] { "Rssi", "RSSI", "rssi", "SignalStrength" };
+                string[] names = new string[]
+                {
+                    "Rssi", "RSSI", "rssi", "m_Rssi", "m_RSSI",
+                    "SignalStrength", "ReadStrength", "Strength",
+                };
                 for (int n = 0; n < names.Length; n++)
                 {
                     object v = GetProp(t, tag, names[n]);
                     int r;
                     if (TryParseRssi(v, out hasRssi, out r)) return r;
                 }
-                MethodInfo m = NurApiReflection.ResolveInstanceMethod(t, "GetRssi", null);
-                if (m != null)
+
+                PropertyInfo[] props = t.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+                for (int i = 0; i < props.Length; i++)
                 {
-                    object v = m.Invoke(tag, null);
+                    string pn = props[i].Name.ToLower();
+                    if (pn.IndexOf("rssi") < 0 && pn.IndexOf("signal") < 0 && pn.IndexOf("strength") < 0)
+                    {
+                        continue;
+                    }
+                    object v = props[i].GetValue(tag, null);
+                    int r;
+                    if (TryParseRssi(v, out hasRssi, out r)) return r;
+                }
+
+                string[] methods = new string[] { "GetRssi", "GetRSS", "GetSignalStrength" };
+                for (int m = 0; m < methods.Length; m++)
+                {
+                    MethodInfo mi = NurApiReflection.ResolveInstanceMethod(t, methods[m], null);
+                    if (mi == null) continue;
+                    object v = mi.Invoke(tag, null);
                     int r;
                     if (TryParseRssi(v, out hasRssi, out r)) return r;
                 }

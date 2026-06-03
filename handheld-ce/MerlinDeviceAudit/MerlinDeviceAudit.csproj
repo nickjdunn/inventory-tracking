@@ -38,6 +38,12 @@
     <Compile Include="AuditClient.cs" />
     <Compile Include="AuditErrorReporter.cs" />
     <Compile Include="AuditLocalErrorStore.cs" />
+    <Compile Include="AuditLocalLabStore.cs" />
+    <Compile Include="AuditPendingQueue.cs" />
+    <Compile Include="PendingRecovery.cs" />
+    <Compile Include="PageLayout.cs" />
+    <Compile Include="RssiTraceRecorder.cs" />
+    <Compile Include="RssiTrackForm.cs" />
     <Compile Include="AuditConfig.cs" />
     <Compile Include="AuditJson.cs" />
     <Compile Include="CeSystemInfo.cs" />
