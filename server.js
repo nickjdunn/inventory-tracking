@@ -424,6 +424,9 @@ const {
     saveAuditRssiTrace,
     listAuditRssiTraces,
     getAuditRssiTrace,
+    deleteAuditRssiTrace,
+    deleteAuditRssiTraces,
+    getAuditRssiTracesBulk,
 } = require('./lib/audit-rssi-store');
 
 function deployFilesStatus() {
@@ -1053,6 +1056,34 @@ app.get('/api/handheld/audit-rssi-trace', (req, res) => {
         ok: true,
         traces: listAuditRssiTraces({ scanner_id: scannerId || undefined, limit }),
     });
+});
+
+app.post('/api/handheld/audit-rssi-trace/delete', (req, res) => {
+    const body = req.body || {};
+    const ids = Array.isArray(body.ids) ? body.ids : body.id != null ? [body.id] : [];
+    if (!ids.length) {
+        return res.status(400).json({ error: 'ids array required' });
+    }
+    try {
+        const result = deleteAuditRssiTraces(ids);
+        res.json({ ok: true, ...result });
+    } catch (err) {
+        res.status(500).json({ error: err.message || 'delete failed' });
+    }
+});
+
+app.post('/api/handheld/audit-rssi-trace/bulk', (req, res) => {
+    const body = req.body || {};
+    const ids = Array.isArray(body.ids) ? body.ids : [];
+    if (!ids.length) {
+        return res.status(400).json({ error: 'ids array required' });
+    }
+    try {
+        const result = getAuditRssiTracesBulk(ids);
+        res.json({ ok: true, count: result.traces.length, missing: result.missing, traces: result.traces });
+    } catch (err) {
+        res.status(500).json({ error: err.message || 'bulk load failed' });
+    }
 });
 
 app.get('/api/handheld/audit-rssi-trace/:id', (req, res) => {

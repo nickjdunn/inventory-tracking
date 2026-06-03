@@ -192,8 +192,8 @@ namespace MerlinHandheld
             }
             _lastEmitTicks = now;
 
+            TryFetchTagsWithMeta(_api);
             object tags = TryInvokeReturn(_api, "GetTagStorage", null);
-            if (tags == null) tags = TryInvokeReturn(_api, "FetchTags", null);
             if (tags == null)
             {
                 DiagnosticLog.LogNur("GetTagStorage returned null");
@@ -251,26 +251,59 @@ namespace MerlinHandheld
             return val == null ? "" : val.ToString().Trim();
         }
 
+        private static void TryFetchTagsWithMeta(object api)
+        {
+            if (api == null) return;
+            if (TryInvoke(api, "FetchTags", new object[] { true })) return;
+            Type t = api.GetType();
+            MethodInfo[] methods = t.GetMethods(BindingFlags.Public | BindingFlags.Instance);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo m = methods[i];
+                if (m.Name != "FetchTags") continue;
+                ParameterInfo[] ps = m.GetParameters();
+                if (ps == null || ps.Length == 0 || ps[0].ParameterType != typeof(bool)) continue;
+                if (ps.Length == 1)
+                {
+                    TryInvoke(api, m, new object[] { true });
+                    return;
+                }
+            }
+        }
+
         private static int ExtractRssiFromTag(object tag)
         {
             if (tag == null) return -999;
             Type t = tag.GetType();
-            object v = GetProp(t, tag, "RSSI");
-            if (v == null) v = GetProp(t, tag, "Rssi");
-            if (v == null) return -999;
-            try
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            string[] names = new string[] { "RSSI", "Rssi", "rssi", "IrRssi", "ScaledRssi", "scaledRssi" };
+            for (int n = 0; n < names.Length; n++)
             {
-                return Convert.ToInt32(v);
+                object v = GetProp(t, tag, names[n], flags);
+                if (v == null) continue;
+                try
+                {
+                    int r = Convert.ToInt32(v);
+                    if (names[n].IndexOf("Scaled") >= 0 || names[n].IndexOf("scaled") >= 0)
+                    {
+                        if (r >= 0 && r <= 100) return -90 + (r * 55) / 100;
+                        continue;
+                    }
+                    return r;
+                }
+                catch { }
             }
-            catch
-            {
-                return -999;
-            }
+            return -999;
         }
 
         private static object GetProp(Type t, object o, string name)
         {
-            PropertyInfo p = t.GetProperty(name);
+            return GetProp(t, o, name, BindingFlags.Public | BindingFlags.Instance);
+        }
+
+        private static object GetProp(Type t, object o, string name, BindingFlags flags)
+        {
+            PropertyInfo p = t.GetProperty(name, flags);
             if (p == null) return null;
             return p.GetValue(o, null);
         }

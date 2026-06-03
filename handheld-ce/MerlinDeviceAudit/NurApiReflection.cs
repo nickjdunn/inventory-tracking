@@ -3,6 +3,22 @@ using System.Reflection;
 
 namespace MerlinAudit
 {
+    /// <summary>Safe assembly type scan (CE NurApiDotNetWCE often fails bare GetTypes).</summary>
+    internal static class NurAssemblyTypes
+    {
+        public static Type[] SafeGetTypes(Assembly asm)
+        {
+            if (asm == null) return new Type[0];
+            try
+            {
+                Type[] types = asm.GetTypes();
+                if (types != null) return types;
+            }
+            catch { }
+            return new Type[0];
+        }
+    }
+
     /// <summary>Resolves NurApiDotNet.NurApi (Windows CE Nordic SDK).</summary>
     internal static class NurApiReflection
     {
@@ -37,21 +53,73 @@ namespace MerlinAudit
                 }
             }
 
-            try
+            Type[] types = NurAssemblyTypes.SafeGetTypes(asm);
+            for (int i = 0; i < types.Length; i++)
             {
-                Type[] types = asm.GetTypes();
-                for (int i = 0; i < types.Length; i++)
+                if (IsApiType(types[i]))
                 {
-                    if (IsApiType(types[i]))
-                    {
-                        LastResolvedTypeName = types[i].FullName;
-                        return types[i];
-                    }
+                    LastResolvedTypeName = types[i].FullName;
+                    return types[i];
                 }
             }
-            catch { }
 
             return null;
+        }
+
+        public static MethodInfo FindInstanceMethod(Type t, string name, int paramCount)
+        {
+            if (t == null || name == null) return null;
+            MethodInfo[] methods = t.GetMethods(BindingFlags.Public | BindingFlags.Instance);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo m = methods[i];
+                if (m.Name != name) continue;
+                ParameterInfo[] ps = m.GetParameters();
+                int n = ps == null ? 0 : ps.Length;
+                if (n == paramCount) return m;
+            }
+            return null;
+        }
+
+        public static bool TryInvokeIntMethod(object target, string name, int value)
+        {
+            if (target == null) return false;
+            MethodInfo m = FindInstanceMethod(target.GetType(), name, 1);
+            if (m == null) return false;
+            try
+            {
+                m.Invoke(target, new object[] { value });
+                return true;
+            }
+            catch { }
+            return false;
+        }
+
+        public static bool TryReadIntMember(object target, string[] names, out int value)
+        {
+            value = -1;
+            if (target == null || names == null) return false;
+            Type t = target.GetType();
+            for (int n = 0; n < names.Length; n++)
+            {
+                try
+                {
+                    PropertyInfo p = t.GetProperty(names[n]);
+                    if (p != null && p.PropertyType == typeof(int))
+                    {
+                        value = (int)p.GetValue(target, null);
+                        return true;
+                    }
+                    FieldInfo f = t.GetField(names[n]);
+                    if (f != null && f.FieldType == typeof(int))
+                    {
+                        value = (int)f.GetValue(target);
+                        return true;
+                    }
+                }
+                catch { }
+            }
+            return false;
         }
 
         public static bool AssemblyHasApiType(Assembly asm)

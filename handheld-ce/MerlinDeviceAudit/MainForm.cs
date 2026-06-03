@@ -206,10 +206,10 @@ namespace MerlinAudit
             _keyHandlers[1][0] = delegate { RunFullAudit(true); };
             _keyHandlers[1][1] = delegate { RunFullAudit(false); };
             _keyHandlers[1][2] = delegate { ReuploadLast(); };
-            _keyHandlers[1][3] = delegate { UploadLabLog(); };
+            _keyHandlers[1][3] = delegate { OpenLab(new RfBenchForm(_cfg)); };
             string[] labels1 = new string[]
             {
-                "Full audit + upload", "Inventory only", "Re-upload audit", "Upload lab log",
+                "Full audit + upload", "Inventory only", "Re-upload audit", "RF bench",
             };
             for (int i = 0; i < 4; i++)
             {

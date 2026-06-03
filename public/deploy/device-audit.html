@@ -118,21 +118,31 @@
         <pre id="lab-detail-body" style="user-select:text"></pre>
     </div>
 
-    <h2 style="margin-top:24px">RSSI traces (walk tests)</h2>
-    <p class="hint">Recorded on the gun: scan a tag, track signal, start/stop recording. Use samples for coverage mapping.</p>
+    <h2 style="margin-top:24px">RSSI / RF bench traces</h2>
+    <p class="hint">
+        Walk tests and <strong>RF bench</strong> runs (tag stack distance, count, spacing logged on gun).
+        Select rows to download a bundle for aggregation or delete old tests.
+    </p>
+    <div class="toolbar" style="margin-bottom:8px">
+        <button type="button" class="btn" id="rssi-select-all">Select all</button>
+        <button type="button" class="btn" id="rssi-clear-sel">Clear</button>
+        <button type="button" class="btn" id="rssi-bulk-download">Download selected</button>
+        <button type="button" class="btn" id="rssi-bulk-delete" style="border-color:#7f1d1d;color:#fecaca">Delete selected</button>
+    </div>
     <table>
         <thead>
             <tr>
+                <th style="width:28px"><input type="checkbox" id="rssi-check-all" title="Select all"></th>
                 <th>When</th>
-                <th>Scanner</th>
-                <th>Target EPC</th>
+                <th>Type</th>
+                <th>Stack / setup</th>
+                <th>Target</th>
                 <th>Samples</th>
-                <th>App</th>
                 <th></th>
             </tr>
         </thead>
         <tbody id="rssi-rows">
-            <tr><td colspan="6">Loading…</td></tr>
+            <tr><td colspan="7">Loading…</td></tr>
         </tbody>
     </table>
 
@@ -170,6 +180,8 @@
         var rssiDetailBody = document.getElementById('rssi-detail-body');
         var rssiDetailTitle = document.getElementById('rssi-detail-title');
         var rssiDownload = document.getElementById('rssi-download');
+        var rssiSelectedIds = {};
+        var rssiLastRows = [];
 
         function qsParam(name) {
             return new URLSearchParams(location.search).get(name) || '';
@@ -433,28 +445,51 @@
                 .catch(function (err) { alert(err.message); });
         }
 
+        function rssiTypeLabel(row) {
+            var f = row.trace_format || '';
+            if (f === 'merlin-rf-bench-v1') return 'RF bench';
+            if (f.indexOf('bench') >= 0) return 'bench';
+            return 'walk';
+        }
+
+        function getSelectedRssiIds() {
+            return Object.keys(rssiSelectedIds).filter(function (id) { return rssiSelectedIds[id]; });
+        }
+
+        function setRssiRowChecked(id, on) {
+            if (on) rssiSelectedIds[id] = true;
+            else delete rssiSelectedIds[id];
+        }
+
         function loadRssiTraces() {
             var sid = qsScanner();
-            var url = '/api/handheld/audit-rssi-trace?limit=50';
+            var url = '/api/handheld/audit-rssi-trace?limit=80';
             if (sid) url += '&scanner_id=' + encodeURIComponent(sid);
             fetch(url)
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (!data.ok) throw new Error(data.error || 'load failed');
                     var traces = data.traces || [];
+                    rssiLastRows = traces;
                     if (!traces.length) {
-                        rssiRowsEl.innerHTML = '<tr><td colspan="6">No RSSI traces yet.</td></tr>';
+                        rssiRowsEl.innerHTML = '<tr><td colspan="7">No RSSI / bench traces yet.</td></tr>';
                         return;
                     }
                     rssiRowsEl.innerHTML = traces.map(function (row) {
+                        var checked = rssiSelectedIds[row.id] ? ' checked' : '';
                         return '<tr>'
+                            + '<td><input type="checkbox" class="rssi-row-check" data-id="'
+                            + esc(row.id) + '"' + checked + '></td>'
                             + '<td>' + esc(fmtTime(row.captured_at)) + '</td>'
-                            + '<td>' + esc(row.scanner_id) + '</td>'
+                            + '<td>' + esc(rssiTypeLabel(row)) + '</td>'
+                            + '<td style="font-size:11px;color:#94a3b8">' + esc(row.stack_label || '—') + '</td>'
                             + '<td><code>' + esc(row.target_epc) + '</code></td>'
                             + '<td>' + esc(row.sample_count) + '</td>'
-                            + '<td>' + esc(row.app_version) + '</td>'
-                            + '<td><button type="button" class="btn btn-view-rssi" data-id="'
-                            + esc(row.id) + '">View</button></td>'
+                            + '<td style="white-space:nowrap">'
+                            + '<button type="button" class="btn btn-view-rssi" data-id="'
+                            + esc(row.id) + '">View</button> '
+                            + '<button type="button" class="btn btn-del-rssi" data-id="'
+                            + esc(row.id) + '">Del</button></td>'
                             + '</tr>';
                     }).join('');
                     rssiRowsEl.querySelectorAll('.btn-view-rssi').forEach(function (btn) {
@@ -462,12 +497,141 @@
                             viewRssiTrace(btn.getAttribute('data-id'));
                         });
                     });
+                    rssiRowsEl.querySelectorAll('.btn-del-rssi').forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            deleteRssiTraces([btn.getAttribute('data-id')], true);
+                        });
+                    });
+                    rssiRowsEl.querySelectorAll('.rssi-row-check').forEach(function (cb) {
+                        cb.addEventListener('change', function () {
+                            setRssiRowChecked(cb.getAttribute('data-id'), cb.checked);
+                        });
+                    });
                     var openId = qsParam('rssi_id');
                     if (openId) viewRssiTrace(openId);
                 })
                 .catch(function (err) {
-                    rssiRowsEl.innerHTML = '<tr><td colspan="6">' + esc(err.message) + '</td></tr>';
+                    rssiRowsEl.innerHTML = '<tr><td colspan="7">' + esc(err.message) + '</td></tr>';
                 });
+        }
+
+        function deleteRssiTraces(ids, skipConfirm) {
+            if (!ids || !ids.length) {
+                alert('Select traces to delete');
+                return;
+            }
+            if (!skipConfirm && !confirm('Delete ' + ids.length + ' trace(s)? Cannot undo.')) return;
+            fetch('/api/handheld/audit-rssi-trace/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: ids }),
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok) throw new Error(data.error || 'delete failed');
+                    ids.forEach(function (id) { delete rssiSelectedIds[id]; });
+                    loadRssiTraces();
+                    alert('Deleted ' + (data.deleted || 0) + ' trace(s)');
+                })
+                .catch(function (err) { alert(err.message); });
+        }
+
+        function downloadRssiBundle(ids) {
+            if (!ids || !ids.length) {
+                alert('Select traces to download');
+                return;
+            }
+            fetch('/api/handheld/audit-rssi-trace/bulk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: ids }),
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok) throw new Error(data.error || 'bulk failed');
+                    var bundle = {
+                        format: 'merlin-rssi-bench-bundle-v1',
+                        exported_at: Date.now(),
+                        count: data.traces.length,
+                        missing: data.missing || [],
+                        traces: data.traces,
+                    };
+                    var blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+                    var a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = 'merlin-rssi-bench-bundle-' + Date.now() + '.json';
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                })
+                .catch(function (err) { alert(err.message); });
+        }
+
+        document.getElementById('rssi-select-all').addEventListener('click', function () {
+            rssiLastRows.forEach(function (row) { rssiSelectedIds[row.id] = true; });
+            loadRssiTraces();
+        });
+        document.getElementById('rssi-clear-sel').addEventListener('click', function () {
+            rssiSelectedIds = {};
+            var all = document.getElementById('rssi-check-all');
+            if (all) all.checked = false;
+            loadRssiTraces();
+        });
+        document.getElementById('rssi-check-all').addEventListener('change', function (e) {
+            if (e.target.checked) {
+                rssiLastRows.forEach(function (row) { rssiSelectedIds[row.id] = true; });
+            } else {
+                rssiSelectedIds = {};
+            }
+            loadRssiTraces();
+        });
+        document.getElementById('rssi-bulk-download').addEventListener('click', function () {
+            downloadRssiBundle(getSelectedRssiIds());
+        });
+        document.getElementById('rssi-bulk-delete').addEventListener('click', function () {
+            deleteRssiTraces(getSelectedRssiIds(), false);
+        });
+
+        function formatBenchSummary(trace) {
+            var s = trace.session || {};
+            if (s.format !== 'merlin-rf-bench-v1') return '';
+            var stack = s.stack_setup || {};
+            var lines = [
+                'RF BENCHMARK — merlin-rf-bench-v1',
+                'Target: ' + (s.target_epc || trace.target_epc || ''),
+                'Pulses per preset: ' + (s.pulses_per_preset || '?'),
+            ];
+            if (stack.summary || stack.tag_count) {
+                lines.push(
+                    'Tag stack: ' + (stack.summary || (
+                        (stack.distance_inches_text || stack.distance_inches) + ' in · '
+                        + (stack.tag_count_text || stack.tag_count) + ' tags · '
+                        + (stack.spacing_inches_text || stack.spacing_inches) + ' in apart'
+                    ))
+                );
+            }
+            lines.push((s.notes || ''), '', 'Ranked presets (score = hits + hit% + avg RSSI):');
+            var results = (s.bench_results || []).slice().sort(function (a, b) {
+                return (b.score || 0) - (a.score || 0);
+            });
+            results.forEach(function (r, i) {
+                lines.push(
+                    (i + 1) + '. ' + (r.label || r.preset_id)
+                    + ' — hit ' + (r.hit_pct != null ? r.hit_pct : '?') + '%'
+                    + ' score ' + (r.score != null ? r.score : '?')
+                    + ' avg_RSSI ' + (r.avg_rssi != null ? r.avg_rssi : '?')
+                    + ' other_tags ' + (r.other_tags_total != null ? r.other_tags_total : '?')
+                );
+            });
+            var diag = s.diag_tests || [];
+            if (diag.length) {
+                lines.push('', 'Extra tests on best preset:');
+                diag.forEach(function (d) {
+                    lines.push('  ' + d.test_id + ': ' + d.hits + '/' + d.pulses + ' hits, avg_RSSI ' + d.avg_rssi + ' — ' + (d.detail || ''));
+                });
+            }
+            var rank = s.ranking || [];
+            if (rank.length) lines.push('', 'Ranking IDs: ' + rank.join(', '));
+            return lines.join('\n');
         }
 
         function viewRssiTrace(id) {
@@ -475,8 +639,12 @@
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (!data.ok || !data.trace) throw new Error(data.error || 'not found');
-                    rssiDetailTitle.textContent = 'RSSI trace ' + id;
-                    rssiDetailBody.textContent = JSON.stringify(data.trace, null, 2);
+                    var isBench = (data.trace.trace_format === 'merlin-rf-bench-v1')
+                        || ((data.trace.session || {}).format === 'merlin-rf-bench-v1');
+                    rssiDetailTitle.textContent = isBench ? ('RF bench ' + id) : ('RSSI trace ' + id);
+                    var summary = formatBenchSummary(data.trace);
+                    rssiDetailBody.textContent = (summary ? summary + '\n\n--- raw JSON ---\n\n' : '')
+                        + JSON.stringify(data.trace, null, 2);
                     rssiDownload.href = '/api/handheld/audit-rssi-trace/' + encodeURIComponent(id) + '?download=1';
                     rssiDetailEl.style.display = 'block';
                     rssiDetailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
