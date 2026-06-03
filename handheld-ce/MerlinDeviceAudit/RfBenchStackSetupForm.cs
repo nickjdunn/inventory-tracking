@@ -41,10 +41,10 @@ namespace MerlinAudit
             _spaceBox = UiTheme.MakeField(initial != null ? initial.SpacingText : "0.02");
             CfLayout.Place(_spaceBox, 6, 122, 228, 22);
 
-            var hint = UiTheme.MakeHint("1=OK · 0=Cancel · decimals OK (e.g. 0.02)");
+            var hint = UiTheme.MakeHint("8=save stack · 0=cancel · bench 1=run");
             CfLayout.Place(hint, 6, 148, 228, 24);
 
-            var ok = UiTheme.MakeHotkeyButton(1, "OK — run uses these", true);
+            var ok = UiTheme.MakeHotkeyButton(8, "Save stack settings", true);
             CfLayout.Place(ok, 6, 178, 228, 34);
             ok.Click += delegate { Confirm(); };
 
@@ -54,14 +54,26 @@ namespace MerlinAudit
 
             KeyDown += delegate(object s, KeyEventArgs e)
             {
-                if (e.KeyCode == Keys.D1 || e.KeyCode == Keys.NumPad1) { Confirm(); e.Handled = true; }
+                if (e.KeyCode == Keys.D8 || e.KeyCode == Keys.NumPad8) { Confirm(); e.Handled = true; }
                 if (e.KeyCode == Keys.D0 || e.KeyCode == Keys.NumPad0)
                 {
                     DialogResult = DialogResult.Cancel;
                     Close();
                     e.Handled = true;
                 }
+                if (e.KeyCode == Keys.D1 || e.KeyCode == Keys.NumPad1) { e.Handled = true; }
             };
+
+            Controls.Add(cancel);
+            Controls.Add(ok);
+            Controls.Add(hint);
+            Controls.Add(_spaceBox);
+            Controls.Add(h3);
+            Controls.Add(_countBox);
+            Controls.Add(h2);
+            Controls.Add(_distBox);
+            Controls.Add(h1);
+            Controls.Add(hdr);
         }
 
         private void Confirm()

@@ -57,7 +57,7 @@ foreach ($rec in $records) {
         hit_pct = $best.hit_pct
         score = $best.score
         avg_rssi = $best.avg_rssi
-        other_tags = $best.other_tags_total
+        avg_tags_per_pulse = $best.avg_tags_per_pulse
     }
 }
 
@@ -66,8 +66,9 @@ $rows | Group-Object stack_key | ForEach-Object {
     Write-Host ""
     Write-Host "=== Stack: $($_.Name) ($($_.Count) runs) ==="
     $_.Group | Sort-Object { -$_.score } | Select-Object -First 5 | ForEach-Object {
-        Write-Host ("  {0} hit={1}% score={2} avg={3} noise={4}" -f `
-            $_.best_preset, $_.hit_pct, $_.score, $_.avg_rssi, $_.other_tags)
+        $tags = if ($_.PSObject.Properties.Name -contains 'avg_tags_per_pulse') { $_.avg_tags_per_pulse } else { "?" }
+        Write-Host ("  {0} rounds={1}% tags/p={2} score={3} avg_RSSI={4}" -f `
+            $_.best_preset, $_.hit_pct, $tags, $_.score, $_.avg_rssi)
     }
     $top = $_.Group | Sort-Object { -$_.score } | Select-Object -First 1
     if ($top) {

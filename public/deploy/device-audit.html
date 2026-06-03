@@ -609,17 +609,18 @@
                     ))
                 );
             }
-            lines.push((s.notes || ''), '', 'Ranked presets (score = hits + hit% + avg RSSI):');
+            lines.push('Mode: ' + (s.bench_mode || 'pile'), (s.notes || ''), '', 'Ranked presets (pile: tags/pulse + RSSI):');
             var results = (s.bench_results || []).slice().sort(function (a, b) {
                 return (b.score || 0) - (a.score || 0);
             });
             results.forEach(function (r, i) {
                 lines.push(
                     (i + 1) + '. ' + (r.label || r.preset_id)
-                    + ' — hit ' + (r.hit_pct != null ? r.hit_pct : '?') + '%'
+                    + ' — rounds ' + (r.hit_pct != null ? r.hit_pct : '?') + '%'
+                    + ' avg_tags/p ' + (r.avg_tags_per_pulse != null ? r.avg_tags_per_pulse : '?')
                     + ' score ' + (r.score != null ? r.score : '?')
                     + ' avg_RSSI ' + (r.avg_rssi != null ? r.avg_rssi : '?')
-                    + ' other_tags ' + (r.other_tags_total != null ? r.other_tags_total : '?')
+                    + (r.target_hits > 0 ? (' target_hits ' + r.target_hits) : '')
                 );
             });
             var diag = s.diag_tests || [];

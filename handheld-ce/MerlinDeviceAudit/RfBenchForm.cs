@@ -6,7 +6,7 @@ using System.Windows.Forms;
 namespace MerlinAudit
 {
     /// <summary>
-    /// Automated RF preset sweep: hold target tag still, run bench, upload ranked JSON.
+    /// Automated RF preset sweep over a tag pile (no target EPC required).
     /// </summary>
     internal sealed class RfBenchForm : Form
     {
@@ -16,6 +16,8 @@ namespace MerlinAudit
         private const int StatePresetGap = 3;
         private const int StateDiag = 4;
         private const int StateDone = 5;
+        private const int StateCountdown = 6;
+        private const int BenchCountdownSeconds = 3;
 
         private readonly AuditConfig _cfg;
         private readonly AuditClient _client;
@@ -25,9 +27,11 @@ namespace MerlinAudit
         private readonly Label _stackLabel;
         private readonly TextBox _targetBox;
         private readonly Label _progress;
+        private readonly Label _countdownBanner;
         private readonly ListBox _rankList;
         private RfBenchStackSetup _stackSetup;
         private readonly System.Windows.Forms.Timer _benchTimer;
+        private int _countdownSeconds;
 
         private readonly ArrayList _presetResults = new ArrayList();
         private readonly ArrayList _diagResults = new ArrayList();
@@ -40,6 +44,9 @@ namespace MerlinAudit
         private NurRfPreset _currentPreset;
         private NurRfPreset _bestPreset;
         private bool _running;
+        private bool _triggerHeld;
+        private bool _clearNextBenchPulse;
+        private int _pulseCooldownTicks;
 
         public RfBenchForm(AuditConfig cfg)
         {
@@ -59,10 +66,10 @@ namespace MerlinAudit
             KeyPreview = true;
 
             _nur = new NurApiBridge(this, _cfg);
-            _nur.PollOnlyMode = true;
+            _nur.PollOnlyMode = false;
 
             _hint = UiTheme.MakeHint(
-                "Tag stack in front of reader. 6=stack setup before run.");
+                "Pile mode — 6=stack · 1=run · F1=scan pile");
             CfLayout.Place(_hint, 6, 4, 228, 24);
 
             _stackSetup = new RfBenchStackSetup();
@@ -70,17 +77,28 @@ namespace MerlinAudit
             _stackLabel = UiTheme.MakeHint("Stack: " + _stackSetup.SummaryLine());
             CfLayout.Place(_stackLabel, 6, 28, 228, 14);
 
-            var lblT = UiTheme.MakeHint("Target EPC in stack (hex)");
+            var lblT = UiTheme.MakeHint("Optional target EPC (later)");
             CfLayout.Place(lblT, 6, 44, 228, 12);
 
             _targetBox = UiTheme.MakeField("");
             CfLayout.Place(_targetBox, 6, 56, 228, 20);
 
-            _progress = UiTheme.MakeHint("1=run 6=stack 3=scan 4=upload");
+            _progress = UiTheme.MakeHint("1=run · 3=test scan · 6=stack · 4=upload");
             CfLayout.Place(_progress, 6, 78, 228, 12);
 
             _status = UiTheme.MakeHeader("NUR starting…");
             CfLayout.Place(_status, 6, 92, 228, 28);
+
+            _countdownBanner = new Label
+            {
+                ForeColor = UiTheme.Warn,
+                BackColor = UiTheme.Card,
+                Font = new Font("Tahoma", 16f, FontStyle.Bold),
+                TextAlign = ContentAlignment.TopCenter,
+                Text = "",
+                Visible = false,
+            };
+            CfLayout.Place(_countdownBanner, 6, 118, 228, 36);
 
             _rankList = new ListBox
             {
@@ -88,13 +106,23 @@ namespace MerlinAudit
                 BackColor = UiTheme.Card,
                 ForeColor = UiTheme.Text,
             };
-            CfLayout.Place(_rankList, 6, 122, 228, 150);
+            CfLayout.Place(_rankList, 6, 158, 228, 114);
+
+            Controls.Add(_rankList);
+            Controls.Add(_countdownBanner);
+            Controls.Add(_status);
+            Controls.Add(_progress);
+            Controls.Add(_targetBox);
+            Controls.Add(_stackLabel);
+            Controls.Add(_hint);
+            Controls.Add(lblT);
 
             _benchTimer = new System.Windows.Forms.Timer();
-            _benchTimer.Interval = 120;
+            _benchTimer.Interval = 200;
             _benchTimer.Tick += BenchTimer_Tick;
 
             KeyDown += RfBenchForm_KeyDown;
+            KeyUp += RfBenchForm_KeyUp;
             Load += delegate
             {
                 _nur.Start();
@@ -110,19 +138,59 @@ namespace MerlinAudit
             {
                 _benchTimer.Enabled = false;
                 _running = false;
+                EndTriggerHold();
                 _nur.Dispose();
             };
         }
 
         private void RfBenchForm_KeyDown(object sender, KeyEventArgs e)
         {
+            if (e.KeyCode == Keys.F1 || e.KeyCode == Keys.F9)
+            {
+                OnTriggerDown();
+                e.Handled = true;
+                return;
+            }
             if (e.KeyCode == Keys.D0 || e.KeyCode == Keys.NumPad0) { Close(); e.Handled = true; return; }
             if (e.KeyCode == Keys.D1 || e.KeyCode == Keys.NumPad1) { StartBench(); e.Handled = true; return; }
             if (e.KeyCode == Keys.D2 || e.KeyCode == Keys.NumPad2) { StopBench(); e.Handled = true; return; }
-            if (e.KeyCode == Keys.D3 || e.KeyCode == Keys.NumPad3) { QuickScanTarget(); e.Handled = true; return; }
+            if (e.KeyCode == Keys.D3 || e.KeyCode == Keys.NumPad3) { QuickScanPile(); e.Handled = true; return; }
             if (e.KeyCode == Keys.D4 || e.KeyCode == Keys.NumPad4) { UploadResults(); e.Handled = true; return; }
             if (e.KeyCode == Keys.D5 || e.KeyCode == Keys.NumPad5) { SaveLocal(); e.Handled = true; return; }
             if (e.KeyCode == Keys.D6 || e.KeyCode == Keys.NumPad6) { EditStackSetup(); e.Handled = true; return; }
+        }
+
+        private void RfBenchForm_KeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.F1 || e.KeyCode == Keys.F9)
+            {
+                EndTriggerHold();
+                e.Handled = true;
+            }
+        }
+
+        private void OnTriggerDown()
+        {
+            if (_running || !_nur.IsAvailable)
+            {
+                if (!_nur.IsAvailable) _status.Text = _nur.Status;
+                return;
+            }
+            if (!_triggerHeld)
+            {
+                _triggerHeld = true;
+                _nur.EnsureInventoryStream();
+            }
+            _nur.TriggerInventory();
+            NurTagReading[] tags = _nur.FetchPileTagsAfterPulse();
+            ShowPileScanStatus(tags);
+        }
+
+        private void EndTriggerHold()
+        {
+            if (!_triggerHeld) return;
+            _triggerHeld = false;
+            if (!_running) _nur.StopInventoryStreamSafe();
         }
 
         private void RefreshStackLabel()
@@ -131,25 +199,27 @@ namespace MerlinAudit
             _stackLabel.Text = "Stack: " + _stackSetup.SummaryLine();
         }
 
-        private bool PromptStackSetup()
-        {
-            return EditStackSetup();
-        }
-
         private bool EditStackSetup()
         {
-            using (var dlg = new RfBenchStackSetupForm(_stackSetup))
+            var dlg = new RfBenchStackSetupForm(_stackSetup);
+            try
             {
-                if (dlg.ShowDialog() != DialogResult.OK || dlg.ResultSetup == null)
+                DialogResult dr = dlg.ShowDialog();
+                if (dr != DialogResult.OK || dlg.ResultSetup == null)
                 {
+                    _status.Text = "Stack setup cancelled";
                     return false;
                 }
                 _stackSetup = dlg.ResultSetup;
                 _stackSetup.SaveToConfig(_cfg);
                 RefreshStackLabel();
                 TestSessionLog.Add("rf_bench_stack", _stackSetup.SummaryLine(), "");
-                _status.Text = "Stack logged: " + _stackSetup.SummaryLine();
+                _status.Text = "Stack OK — 1=run (3-2-1)";
                 return true;
+            }
+            finally
+            {
+                dlg.Dispose();
             }
         }
 
@@ -161,18 +231,21 @@ namespace MerlinAudit
         private void StartBench()
         {
             if (_running) return;
-            if (!PromptStackSetup()) return;
-            string target = TargetEpc;
-            if (target.Length == 0)
+            if (_stackSetup == null)
             {
-                _status.Text = "Enter target EPC (3=scan)";
-                return;
+                _stackSetup = new RfBenchStackSetup();
             }
+            _stackSetup.LoadFromConfig(_cfg);
+            RefreshStackLabel();
+
             if (!_nur.IsAvailable)
             {
                 _status.Text = _nur.Status;
                 return;
             }
+
+            _nur.EnsureInventoryStream();
+            _clearNextBenchPulse = true;
 
             _presetResults.Clear();
             _diagResults.Clear();
@@ -182,10 +255,17 @@ namespace MerlinAudit
             _waitTicks = 0;
             _bestPreset = null;
             _running = true;
-            _benchState = StateApplyWait;
+            _countdownSeconds = BenchCountdownSeconds;
+            _benchState = StateCountdown;
+            _countdownBanner.Visible = true;
+            _countdownBanner.Text = _countdownSeconds.ToString();
+            _countdownBanner.BringToFront();
+            _benchTimer.Interval = 1000;
             _benchTimer.Enabled = true;
-            _status.Text = "Bench: " + _stackSetup.SummaryLine();
-            TestSessionLog.Add("rf_bench_run", _stackSetup.SummaryLine(), target);
+            _status.Text = "Set stack — start in " + _countdownSeconds;
+            string targetNote = TargetEpc;
+            TestSessionLog.Add("rf_bench_run", _stackSetup.SummaryLine(),
+                targetNote.Length > 0 ? targetNote : "pile");
             CeAudio.Click();
         }
 
@@ -194,33 +274,49 @@ namespace MerlinAudit
             _running = false;
             _benchState = StateIdle;
             _benchTimer.Enabled = false;
+            _benchTimer.Interval = 200;
+            _countdownBanner.Visible = false;
             _status.Text = "Stopped";
         }
 
-        private void QuickScanTarget()
+        private void QuickScanPile()
         {
             if (!_nur.IsAvailable) return;
-            _nur.TriggerInventory();
-            NurTagReading[] tags = _nur.ForceFetchTags();
+            _nur.EnsureInventoryStream();
+            NurTagReading[] tags = _nur.BenchScanPile(true);
+            ShowPileScanStatus(tags);
+        }
+
+        private void ShowPileScanStatus(NurTagReading[] tags)
+        {
             if (tags == null || tags.Length == 0)
             {
-                _status.Text = "No tags — hold trigger";
+                _status.Text = "No tags — F1/trigger or 3=test";
                 return;
             }
-            NurTagReading best = tags[0];
-            for (int i = 1; i < tags.Length; i++)
+            int bestRssi = -999;
+            int rssiN = 0;
+            int rssiSum = 0;
+            for (int i = 0; i < tags.Length; i++)
             {
-                if (tags[i] == null) continue;
-                if (!tags[i].HasRssi || !best.HasRssi)
-                {
-                    if (tags[i].Epc.Length > best.Epc.Length) best = tags[i];
-                    continue;
-                }
-                if (tags[i].Rssi > best.Rssi) best = tags[i];
+                if (tags[i] == null || !tags[i].HasRssi) continue;
+                rssiSum += tags[i].Rssi;
+                rssiN++;
+                if (tags[i].Rssi > bestRssi) bestRssi = tags[i].Rssi;
             }
-            _targetBox.Text = best.Epc;
-            _status.Text = "Target " + EpcDisplay.Suffix(best.Epc, 8)
-                + (best.HasRssi ? (" @" + best.Rssi) : "");
+            string rssiPart = rssiN > 0
+                ? (" best=" + bestRssi + " avg=" + (rssiSum / rssiN))
+                : "";
+            _status.Text = tags.Length + " tags" + rssiPart;
+        }
+
+        private string PulseModeName()
+        {
+            if (_currentPreset != null && _currentPreset.UseEpcSelect && TargetEpc.Length > 0)
+            {
+                return "pile_epc_filter";
+            }
+            return "pile_stream";
         }
 
         private void BenchTimer_Tick(object sender, EventArgs e)
@@ -229,6 +325,9 @@ namespace MerlinAudit
 
             switch (_benchState)
             {
+                case StateCountdown:
+                    TickCountdown();
+                    break;
                 case StateApplyWait:
                     TickApplyPreset();
                     break;
@@ -245,6 +344,23 @@ namespace MerlinAudit
                     FinishBench();
                     break;
             }
+        }
+
+        private void TickCountdown()
+        {
+            CeAudio.Click();
+            if (_countdownSeconds <= 1)
+            {
+                _countdownBanner.Visible = false;
+                _benchTimer.Interval = 200;
+                _benchState = StateApplyWait;
+                _waitTicks = 0;
+                _status.Text = "Bench: " + _stackSetup.SummaryLine();
+                return;
+            }
+            _countdownSeconds--;
+            _countdownBanner.Text = _countdownSeconds.ToString();
+            _status.Text = "Set stack — start in " + _countdownSeconds;
         }
 
         private void TickApplyPreset()
@@ -271,99 +387,58 @@ namespace MerlinAudit
                 _currentResult.ReadLinkFreqHz = prof.ReadLinkFreqHz;
                 _currentResult.ReadTxLevel = prof.ReadTxLevel;
                 _pulseIndex = 0;
+                _clearNextBenchPulse = true;
                 _status.Text = "Apply " + (_presetIndex + 1) + "/" + NurRfPresets.Count
                     + " " + _currentPreset.ShortLabel();
             }
             _waitTicks++;
-            if (_waitTicks >= 3)
+            if (_waitTicks >= 12)
             {
                 _waitTicks = 0;
+                _pulseCooldownTicks = 0;
                 _benchState = StatePulseWait;
             }
         }
 
         private void TickPulse()
         {
-            if (_waitTicks == 0)
+            if (_pulseCooldownTicks > 0)
             {
-                _nur.BenchInventoryPulse(TargetEpc, _currentPreset.UseEpcSelect);
+                _pulseCooldownTicks--;
+                return;
             }
-            else if (_waitTicks == 2)
+
+            bool clearStorage = _clearNextBenchPulse;
+            _clearNextBenchPulse = false;
+            _status.Text = "Scan " + (_pulseIndex + 1) + "/" + _pulsesPerPreset;
+            NurTagReading[] all = _nur.BenchScanPile(clearStorage);
+            RecordPulseSample(all);
+
+            _pulseIndex++;
+            if (_pulseIndex >= _pulsesPerPreset)
             {
-                RecordPulseSample();
-                _pulseIndex++;
-                if (_pulseIndex >= _pulsesPerPreset)
-                {
-                    _currentResult.RecomputeScore();
-                    _presetResults.Add(_currentResult);
-                    AppendRankLine(_currentResult);
-                    _presetIndex++;
-                    _benchState = StatePresetGap;
-                    _waitTicks = 0;
-                    return;
-                }
+                _currentResult.RecomputeScore();
+                _presetResults.Add(_currentResult);
+                AppendRankLine(_currentResult);
+                _presetIndex++;
+                _clearNextBenchPulse = true;
+                _benchState = StatePresetGap;
+                return;
             }
-            _waitTicks++;
-            if (_waitTicks >= 4)
-            {
-                _waitTicks = 0;
-            }
-            _progress.Text = "Pulse " + (_pulseIndex + 1) + "/" + _pulsesPerPreset
-                + " hit%=" + _currentResult.HitPercent;
+
+            _progress.Text = "Pulse " + _pulseIndex + "/" + _pulsesPerPreset
+                + " last=" + (all != null ? all.Length : 0) + " tags";
+            _pulseCooldownTicks = 4;
         }
 
-        private void RecordPulseSample()
+        private void RecordPulseSample(NurTagReading[] all)
         {
-            string target = TargetEpc;
-            NurTagReading[] targetHits = _nur.FetchTrackRoundTags(target);
-            NurTagReading[] all = _nur.FetchRoundAllTags();
-            bool seen = targetHits != null && targetHits.Length > 0;
-            int rssi = -999;
-            bool hasRssi = false;
-            if (seen)
-            {
-                rssi = targetHits[0].Rssi;
-                hasRssi = targetHits[0].HasRssi;
-            }
-            int others = 0;
-            if (all != null)
-            {
-                string norm = RssiTraceRecorder.NormalizeEpc(target);
-                for (int i = 0; i < all.Length; i++)
-                {
-                    if (all[i] == null) continue;
-                    if (RssiTraceRecorder.NormalizeEpc(all[i].Epc) != norm) others++;
-                }
-            }
-
+            if (all == null) all = new NurTagReading[0];
             var sample = new RfBenchPulseSample();
             sample.Pulse = _pulseIndex + 1;
-            sample.TargetSeen = seen;
-            sample.TargetRssi = rssi;
-            sample.TargetHasRssi = hasRssi;
-            sample.OtherTagCount = others;
-            sample.Mode = _currentPreset.UseEpcSelect ? "round_epc" : "round_open";
+            RfBenchPileMetrics.RecordRound(
+                all, TargetEpc, _currentResult, sample, PulseModeName());
             _currentResult.PulseLog.Add(sample);
-
-            if (seen)
-            {
-                _currentResult.Hits++;
-                if (hasRssi)
-                {
-                    _currentResult.RssiSum += rssi;
-                    _currentResult.RssiCount++;
-                    if (rssi > _currentResult.BestRssi) _currentResult.BestRssi = rssi;
-                    if (_currentResult.WorstRssi == 0 || rssi < _currentResult.WorstRssi)
-                    {
-                        _currentResult.WorstRssi = rssi;
-                    }
-                }
-            }
-            else
-            {
-                _currentResult.Misses++;
-            }
-            _currentResult.OtherTagsTotal += others;
         }
 
         private void TickPresetGap()
@@ -413,13 +488,9 @@ namespace MerlinAudit
             }
             else if (_waitTicks == 3)
             {
-                RunDiagTest("track_round", true, 6);
+                RunDiagPileTest("pile_confirm", 6);
             }
-            else if (_waitTicks == 7)
-            {
-                RunDiagTest("list_force", false, 6);
-            }
-            else if (_waitTicks >= 11)
+            else if (_waitTicks >= 7)
             {
                 _benchState = StateDone;
                 _waitTicks = 0;
@@ -428,35 +499,25 @@ namespace MerlinAudit
             _waitTicks++;
         }
 
-        private void RunDiagTest(string testId, bool useRoundEpc, int pulses)
+        private void RunDiagPileTest(string testId, int pulses)
         {
-            string target = TargetEpc;
             int hits = 0;
+            int tagSum = 0;
             int rssiSum = 0;
             int rssiN = 0;
             for (int i = 0; i < pulses; i++)
             {
-                if (useRoundEpc)
+                NurTagReading[] all = _nur.BenchScanPile(i == 0);
+                System.Threading.Thread.Sleep(80);
+                if (all != null && all.Length > 0)
                 {
-                    _nur.BenchInventoryPulse(target, true);
-                    System.Threading.Thread.Sleep(90);
-                    NurTagReading[] t = _nur.FetchTrackRoundTags(target);
-                    if (t != null && t.Length > 0)
+                    hits++;
+                    tagSum += all.Length;
+                    for (int t = 0; t < all.Length; t++)
                     {
-                        hits++;
-                        if (t[0].HasRssi) { rssiSum += t[0].Rssi; rssiN++; }
-                    }
-                }
-                else
-                {
-                    _nur.BenchInventoryPulse(target, false);
-                    System.Threading.Thread.Sleep(90);
-                    NurTagReading[] all = _nur.ForceFetchTags();
-                    NurTagReading[] t = NurReaderProfile.FilterExactEpc(all, target);
-                    if (t != null && t.Length > 0)
-                    {
-                        hits++;
-                        if (t[0].HasRssi) { rssiSum += t[0].Rssi; rssiN++; }
+                        if (all[t] == null || !all[t].HasRssi) continue;
+                        rssiSum += all[t].Rssi;
+                        rssiN++;
                     }
                 }
             }
@@ -464,16 +525,20 @@ namespace MerlinAudit
             d.TestId = testId;
             d.Pulses = pulses;
             d.Hits = hits;
+            d.AvgTags = pulses > 0 ? (tagSum / pulses) : 0;
             d.AvgRssi = rssiN > 0 ? (rssiSum / rssiN) : -999;
-            d.Detail = useRoundEpc ? "EPC round read" : "ForceFetch list";
+            d.Detail = "open inventory pile read";
             _diagResults.Add(d);
-            _waitTicks = 10;
+            _waitTicks = 6;
         }
 
         private void FinishBench()
         {
             _running = false;
             _benchTimer.Enabled = false;
+            _benchTimer.Interval = 200;
+            _countdownBanner.Visible = false;
+            _nur.EnsureInventoryStream();
             PickBestPreset();
             if (_bestPreset != null)
             {
@@ -499,8 +564,9 @@ namespace MerlinAudit
         private void AppendRankLine(RfBenchPresetResult r)
         {
             r.RecomputeScore();
-            string line = r.HitPercent + "% sc=" + r.Score + " " + r.PresetId;
-            if (r.AvgRssi > -900) line += " avg=" + r.AvgRssi;
+            string line = r.AvgTagsPerPulse + " tags/p sc=" + r.Score + " " + r.PresetId;
+            if (r.AvgRssi > -900) line += " rssi=" + r.AvgRssi;
+            if (r.TargetHits > 0) line += " tgt=" + r.TargetHits;
             _rankList.Items.Add(line);
         }
 
@@ -518,7 +584,8 @@ namespace MerlinAudit
                 notes += " best=" + _bestPreset.Id;
             }
             return RfBenchJson.ToJson(
-                TargetEpc, _pulsesPerPreset, _stackSetup, _presetResults, _diagResults, notes);
+                "pile", TargetEpc, _pulsesPerPreset, _stackSetup,
+                _presetResults, _diagResults, notes);
         }
 
         private void SaveLocal()

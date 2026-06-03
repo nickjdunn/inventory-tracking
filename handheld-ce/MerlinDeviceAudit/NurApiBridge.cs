@@ -261,15 +261,42 @@ namespace MerlinAudit
             }
         }
 
-        /// <summary>All tags in the current inventory round (for bench noise count).</summary>
-        public NurTagReading[] FetchRoundAllTags()
+        /// <summary>
+        /// One bench read — same path as manual ForceFetchTags/trigger (stream + storage).
+        /// clearStorage: true only when RF preset just changed.
+        /// </summary>
+        public NurTagReading[] BenchScanPile(bool clearStorage)
         {
             lock (_apiLock)
             {
                 if (_api == null || !_connected) return new NurTagReading[0];
+
+                if (!_streamRunning)
+                {
+                    EnsureInventoryStream();
+                }
+
+                InvalidateTagCache();
+                if (clearStorage)
+                {
+                    TryClearTagStorageInstance();
+                }
+
+                TryRunInventoryPulse();
+                TryRunInventoryPulse();
                 TryFetchTagsWithMeta(_api);
-                return BuildCurrentRoundReadings(null);
+                NurTagReading[] readings = ReadTagsFromApiUncached(null);
+                if (readings == null) readings = new NurTagReading[0];
+
+                _cachedReadings = readings;
+                _cacheTicks = DateTime.UtcNow.Ticks;
+                return readings;
             }
+        }
+
+        public NurTagReading[] FetchPileTagsAfterPulse()
+        {
+            return BenchScanPile(false);
         }
 
         public NurProfileStatus ApplyRfPreset(NurRfPreset preset)
@@ -282,27 +309,6 @@ namespace MerlinAudit
                 _api, preset.LinkFreqHz, preset.TxLevel);
             ReaderProfile.EpcSelectMethodFound = NurReaderProfile.HasInventorySelectByEpc(_api);
             return ReaderProfile;
-        }
-
-        /// <summary>Bench pulse: clear storage, optional EPC select, one inventory round.</summary>
-        public void BenchInventoryPulse(string targetEpc, bool useEpcSelect)
-        {
-            lock (_apiLock)
-            {
-                if (_api == null || !_connected) return;
-                if (!_streamRunning) EnsureInventoryStream();
-                TryClearTagStorageInstance();
-                bool selected = false;
-                if (useEpcSelect && targetEpc != null && targetEpc.Length > 0)
-                {
-                    selected = NurReaderProfile.TryInventorySelectByEpc(_api, targetEpc);
-                }
-                if (!selected && !(_streamRunning && PollOnlyMode))
-                {
-                    TryRunInventoryPulse();
-                }
-                InvalidateTagCache();
-            }
         }
 
         private void EmitTrackTags(string targetEpc)
