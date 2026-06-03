@@ -3,17 +3,18 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{C9F6E2B3-4D5E-6F70-8123-456789ABCDEF}</ProjectGuid>
+    <ProjectGuid>{D4E5F6A7-B8C9-0123-DEF4-567890ABCDEF}</ProjectGuid>
     <OutputType>WinExe</OutputType>
-    <RootNamespace>MerlinStream</RootNamespace>
-    <AssemblyName>MerlinStreamTest</AssemblyName>
+    <RootNamespace>MerlinAudit</RootNamespace>
+    <AssemblyName>MerlinDeviceAudit</AssemblyName>
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <ProjectTypeGuids>{4D628B5B-2FBC-4AA6-8C16-197242AEB884};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <PlatformFamilyName>WindowsCE</PlatformFamilyName>
     <PlatformID>E2BECB1F-8C8C-41ba-B736-9BE7D946A398</PlatformID>
-    <DeployDirSuffix>MerlinStream</DeployDirSuffix>
+    <DeployDirSuffix>MerlinAudit</DeployDirSuffix>
     <TargetFrameworkIdentifier>.NETCompactFramework</TargetFrameworkIdentifier>
     <GenerateManifests>false</GenerateManifests>
+    <DeviceCpuType>ARMV4I</DeviceCpuType>
     <NativePlatformName>Windows CE</NativePlatformName>
     <FormFactorID>
     </FormFactorID>
@@ -23,7 +24,7 @@
     <Optimize>true</Optimize>
     <NoStdLib>true</NoStdLib>
     <NoConfig>true</NoConfig>
-    <GenerateSerializationAssemblies>off</GenerateSerializationAssemblies>
+    <GenerateSerializationAssemblies>Off</GenerateSerializationAssemblies>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="mscorlib" />
@@ -31,23 +32,25 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="StreamConfig.cs" />
-    <Compile Include="StreamClient.cs" />
+    <Compile Include="AuditClient.cs" />
+    <Compile Include="AuditConfig.cs" />
+    <Compile Include="AuditJson.cs" />
+    <Compile Include="CeSystemInfo.cs" />
+    <Compile Include="CfCompat.cs" />
+    <Compile Include="DeviceAuditCollector.cs" />
+    <Compile Include="GuidedScanForm.cs" />
+    <Compile Include="HttpHelper.cs" />
+    <Compile Include="KnownAppsCatalog.cs" />
     <Compile Include="MainForm.cs" />
     <Compile Include="Program.cs" />
-    <Compile Include="HttpHelper.cs" />
-    <Compile Include="SimpleJson.cs" />
-    <Compile Include="UrlCodec.cs" />
-    <Compile Include="CfCompat.cs" />
-    <Compile Include="Models.cs" />
-    <Compile Include="TagParser.cs" />
+    <Compile Include="ScanInputClassifier.cs" />
     <Compile Include="ScanLimits.cs" />
+    <Compile Include="SimpleJson.cs" />
     <Compile Include="WedgeInputCapture.cs" />
-    <Compile Include="GlobalScanCapture.cs" />
-    <Compile Include="HardwareBridge.cs" />
-    <Compile Include="NurApiBridge.cs" />
+    <Compile Include="WedgeLineEventArgs.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CompactFramework.CSharp.targets" />

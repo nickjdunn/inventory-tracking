@@ -2,43 +2,169 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Merlin Handheld — Deploy</title>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=240, initial-scale=1.0, user-scalable=yes">
+    <title>Merlin Deploy</title>
     <link rel="stylesheet" href="/app.css">
+    <style>
+        /* QVGA / Windows CE — keep layout simple (no flex/grid required) */
+        body.deploy-hub {
+            margin: 0;
+            padding: 8px;
+            max-width: 480px;
+        }
+
+        .deploy-header {
+            background: #1e293b;
+            border: 1px solid #334155;
+            margin-bottom: 10px;
+            padding: 10px;
+        }
+
+        .deploy-header h1 {
+            font-size: 16px;
+            line-height: 1.25;
+            margin: 0 0 6px;
+        }
+
+        .deploy-meta {
+            color: #94a3b8;
+            font-size: 11px;
+            line-height: 1.4;
+            margin: 0;
+        }
+
+        .deploy-section {
+            margin-bottom: 14px;
+        }
+
+        .deploy-section-title {
+            background: #0b1220;
+            border-bottom: 1px solid #334155;
+            color: #64748b;
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 0.06em;
+            margin: 0 0 6px;
+            padding: 4px 2px;
+            text-transform: uppercase;
+        }
+
+        .deploy-hub a.big {
+            border: 2px solid #0ea5e9;
+            font-size: 14px;
+            line-height: 1.25;
+            margin: 6px 0 0;
+            min-height: 44px;
+            padding: 12px 8px;
+        }
+
+        .deploy-hub a.big.secondary {
+            border-color: #475569;
+            font-size: 13px;
+            min-height: 40px;
+            padding: 10px 8px;
+        }
+
+        .deploy-hub a.big.audit {
+            background: #065f46;
+            border-color: #34d399;
+        }
+
+        .deploy-hub a.big.danger {
+            background: #450a0a;
+            border-color: #f87171;
+            color: #fecaca;
+        }
+
+        .deploy-hint {
+            color: #94a3b8;
+            font-size: 11px;
+            line-height: 1.35;
+            margin: 2px 0 8px;
+        }
+
+        .deploy-hint.ok { color: #4ade80; }
+        .deploy-hint.warn { color: #fbbf24; }
+
+        #update-banner {
+            background: #422006;
+            border: 1px solid #fbbf24;
+            font-size: 12px;
+            margin-bottom: 10px;
+            padding: 8px;
+        }
+
+        .deploy-pc-only {
+            display: none;
+        }
+
+        body.deploy-wide .deploy-pc-only {
+            display: block;
+        }
+
+        .deploy-footnote {
+            border-top: 1px solid #334155;
+            color: #64748b;
+            font-size: 10px;
+            line-height: 1.4;
+            margin-top: 12px;
+            padding-top: 8px;
+        }
+    </style>
     <script src="/handheld-detect.js"></script>
 </head>
-<body class="terminal-page">
-    <h1>📡 Merlin handheld</h1>
-    <p>Server: <strong id="host"></strong></p>
-    <p class="version-line" id="client-version">Checking version…</p>
-
-    <div id="update-banner" style="display:none;background:#422006;border:1px solid #fbbf24;border-radius:8px;padding:12px;margin:12px 0;">
-        <strong class="warn">⬆ Update available</strong>
-        <p id="update-banner-text"></p>
+<body class="terminal-page deploy-hub">
+    <div class="deploy-header">
+        <h1>Merlin deploy</h1>
+        <p class="deploy-meta">Server: <strong id="host"></strong></p>
+        <p class="deploy-meta" id="client-version">Checking version…</p>
     </div>
 
-    <a class="big" href="/deploy/ce-wifi-test.html">📶 Wi‑Fi + API test</a>
-    <p>Run first — no install. Confirms connection to inventory server.</p>
+    <div id="update-banner" style="display:none;">
+        <strong class="warn">Update available</strong>
+        <p id="update-banner-text" style="margin:4px 0 0;font-size:11px;"></p>
+    </div>
 
-    <a class="big secondary" href="/mobile.html">📱 Inventory mobile UI</a>
-    <p>Full scan / find / add in the browser.</p>
+    <div class="deploy-section">
+        <p class="deploy-section-title">Step 1 — test Wi‑Fi</p>
+        <a class="big" href="/deploy/ce-wifi-test.html">Wi‑Fi + API test</a>
+        <p class="deploy-hint">No install. Run this first.</p>
+    </div>
 
-    <a class="big secondary" href="/deploy/scanner-live.html?scanner_id=merlin-handheld-01">📡 Live raw scanner feed</a>
-    <p>Watch RFID wedge / live posts from the native app in real time (desktop browser).</p>
+    <div class="deploy-section">
+        <p class="deploy-section-title">Step 2 — install apps (.cab)</p>
 
-    <a class="big secondary" href="/deploy/scanner-stream-test.html?scanner_id=merlin-handheld-01">🧪 Scanner stream test</a>
-    <p>Minimal test app — every scan POSTs directly to the server (no local log). Use while building features step by step.</p>
+        <a class="big" href="/deploy/MerlinInventoryTest.cab" id="cab-link">Install inventory app</a>
+        <p class="deploy-hint" id="cab-hint">Scan, receive, find, add items.</p>
 
-    <a class="big" href="/deploy/MerlinStreamTest.cab" id="stream-cab-link">⬇ Install stream test app (.cab)</a>
-    <p>MerlinStreamTest — direct server stream only (~50 KB).</p>
+        <a class="big audit" href="/deploy/MerlinDeviceAudit.cab" id="audit-cab-link">Install device audit app</a>
+        <p class="deploy-hint" id="audit-cab-hint">Diagnostics + 7-step scan guide. Uploads to server.</p>
 
-    <a class="big" href="/deploy/MerlinInventoryTest.cab" id="cab-link">⬇ Install full inventory app (.cab)</a>
-    <p id="cab-hint" class="warn">Tap the link above to download. Checking server…</p>
+        <a class="big secondary" href="/deploy/MerlinStreamTest.cab" id="stream-cab-link">Install stream test (optional)</a>
+        <p class="deploy-hint" id="stream-cab-hint">Dev tool — streams every scan to server.</p>
 
-    <a class="big secondary" href="/deploy/MerlinInventoryUninstall.cab" id="uninstall-cab-link" style="border-color:#f87171;color:#fecaca;">🗑 Force uninstall (.cab)</a>
-    <p id="uninstall-hint" class="warn">Stuck? Set → Exit app on the gun, tap this CAB, choose Remove when asked, then reinstall.</p>
+        <a class="big danger secondary" href="/deploy/MerlinInventoryUninstall.cab" id="uninstall-cab-link">Force uninstall inventory</a>
+        <p class="deploy-hint" id="uninstall-hint">Removes MerlinInventoryTest if stuck.</p>
+    </div>
 
-    <p style="font-size:12px;color:#94a3b8;">Merlin CE: use the direct .cab links above if this page looks empty — no JavaScript required.</p>
+    <div class="deploy-section">
+        <p class="deploy-section-title">Browser on gun</p>
+        <a class="big secondary" href="/mobile.html">Inventory mobile UI</a>
+        <p class="deploy-hint">Full UI in browser (no CAB).</p>
+    </div>
+
+    <div class="deploy-section deploy-pc-only">
+        <p class="deploy-section-title">PC tools</p>
+        <a class="big secondary" href="/deploy/device-audit.html?scanner_id=merlin-handheld-01">Device audit history</a>
+        <p class="deploy-hint">Download audit JSON from the gun.</p>
+        <a class="big secondary" href="/deploy/scanner-live.html?scanner_id=merlin-handheld-01">Live scanner feed</a>
+        <p class="deploy-hint">Watch raw RFID posts in real time.</p>
+        <a class="big secondary" href="/deploy/scanner-stream-test.html?scanner_id=merlin-handheld-01">Stream test viewer</a>
+        <p class="deploy-hint">Pairs with stream test CAB.</p>
+    </div>
+
+    <p class="deploy-footnote">Tap a .cab link, then open it in File Explorer to install. Links work without JavaScript.</p>
 
     <div data-terminal-chrome></div>
 
@@ -46,45 +172,106 @@
     <script src="/terminal-chrome.js"></script>
     <script src="/handheld-update.js"></script>
     <script type="text/javascript">
+        (function () {
+            var body = document.body;
+            var wide = false;
+            if (window.MerlinHandheldDetect && MerlinHandheldDetect.shouldRedirectToHandheld()) {
+                wide = false;
+            } else if (window.screen && screen.width > 320) {
+                wide = true;
+            } else if (window.innerWidth > 320) {
+                wide = true;
+            }
+            if (wide) {
+                body.className += ' deploy-wide';
+            }
+        })();
+
         document.getElementById('host').appendChild(document.createTextNode(location.host));
 
         var clientVer = '0.0.0';
 
+        function setHint(id, text, kind) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.className = 'deploy-hint' + (kind ? ' ' + kind : '');
+            el.innerHTML = '';
+            el.appendChild(document.createTextNode(text));
+        }
+
+        function cabHint(available, filename, sizeKb, fallback) {
+            if (available && sizeKb) {
+                return filename + ' on server (' + sizeKb + ' KB). Tap to download.';
+            }
+            if (available) {
+                return filename + ' on server. Tap to download.';
+            }
+            return fallback;
+        }
+
         function applyDeployInfo(d) {
             if (!d) return;
+            var verEl = document.getElementById('client-version');
+            verEl.innerHTML = '';
             var verLine = 'Client ' + clientVer;
             if (d.version) verLine += ' · Server ' + d.version;
-            document.getElementById('client-version').appendChild(document.createTextNode(verLine));
-            var hint = document.getElementById('cab-hint');
-            var link = document.getElementById('cab-link');
-            if (d.cab_available && d.cab_url) {
-                link.href = d.cab_url;
-                hint.className = 'ok';
-                hint.innerHTML = '';
-                hint.appendChild(document.createTextNode(
-                    'CAB on server: ' + d.cab_filename + ' (' + d.cab_size_kb + ' KB) — adds Start Menu + desktop shortcut.'
-                ));
-            } else {
-                hint.className = 'warn';
-                hint.innerHTML = '';
-                hint.appendChild(document.createTextNode(
-                    'CAB not found on server — copy MerlinInventoryTest.cab to public/deploy/ on the server.'
-                ));
-            }
+            verEl.appendChild(document.createTextNode(verLine));
+
+            var invLink = document.getElementById('cab-link');
+            if (d.cab_available && d.cab_url) invLink.href = d.cab_url;
+            setHint(
+                'cab-hint',
+                cabHint(
+                    d.cab_available,
+                    d.cab_filename || 'MerlinInventoryTest.cab',
+                    d.cab_size_kb,
+                    'CAB not on server — build and copy to public/deploy/.'
+                ),
+                d.cab_available ? 'ok' : 'warn'
+            );
+
+            var auditLink = document.getElementById('audit-cab-link');
+            if (d.audit_cab_available && d.audit_cab_url) auditLink.href = d.audit_cab_url;
+            setHint(
+                'audit-cab-hint',
+                cabHint(
+                    d.audit_cab_available,
+                    d.audit_cab_filename || 'MerlinDeviceAudit.cab',
+                    d.audit_cab_size_kb,
+                    'Audit CAB not on server yet.'
+                ),
+                d.audit_cab_available ? 'ok' : 'warn'
+            );
+
+            var streamLink = document.getElementById('stream-cab-link');
+            if (d.stream_cab_available && d.stream_cab_url) streamLink.href = d.stream_cab_url;
+            setHint(
+                'stream-cab-hint',
+                cabHint(
+                    d.stream_cab_available,
+                    d.stream_cab_filename || 'MerlinStreamTest.cab',
+                    d.stream_cab_size_kb,
+                    'Optional dev CAB — not required for floor use.'
+                ),
+                d.stream_cab_available ? 'ok' : ''
+            );
+
             var unLink = document.getElementById('uninstall-cab-link');
-            var unHint = document.getElementById('uninstall-hint');
-            if (d.uninstall_cab_available && d.uninstall_cab_url) {
-                unLink.href = d.uninstall_cab_url;
-                unHint.className = 'ok';
-                unHint.innerHTML = '';
-                unHint.appendChild(document.createTextNode(
-                    'Force remove CAB: ' + d.uninstall_cab_filename + ' (' + d.uninstall_cab_size_kb + ' KB).'
-                ));
-            }
+            if (d.uninstall_cab_available && d.uninstall_cab_url) unLink.href = d.uninstall_cab_url;
+            setHint(
+                'uninstall-hint',
+                d.uninstall_cab_available
+                    ? 'Remove stuck inventory app, then reinstall.'
+                    : 'Uninstall CAB not on server.',
+                d.uninstall_cab_available ? '' : 'warn'
+            );
+
             if (window.MerlinHandheldUpdate && d.version && MerlinHandheldUpdate.compareVersion(d.version, clientVer) > 0) {
                 document.getElementById('update-banner').style.display = 'block';
-                document.getElementById('update-banner-text').appendChild(document.createTextNode(
-                    clientVer + ' → ' + d.version + (d.cab_available ? ' — install CAB above.' : '')
+                var bannerText = document.getElementById('update-banner-text');
+                bannerText.innerHTML = '';
+                bannerText.appendChild(document.createTextNode(
+                    clientVer + ' → ' + d.version + (d.cab_available ? ' — install inventory CAB above.' : '')
                 ));
             } else if (window.MerlinHandheldUpdate && d.version) {
                 MerlinHandheldUpdate.setStoredClientVersion(d.version);
@@ -99,12 +286,7 @@
             var s = document.createElement('script');
             s.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + cbName + '&_=' + new Date().getTime();
             s.onerror = function () {
-                var hint = document.getElementById('cab-hint');
-                hint.className = 'warn';
-                hint.innerHTML = '';
-                hint.appendChild(document.createTextNode(
-                    'Could not reach server API — you can still tap the .cab link above.'
-                ));
+                setHint('cab-hint', 'API unreachable — CAB links above may still work.', 'warn');
             };
             document.getElementsByTagName('head')[0].appendChild(s);
         }

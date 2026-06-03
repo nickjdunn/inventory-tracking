@@ -1,0 +1,41 @@
+; Merlin Device Audit — diagnostics collector for Nordic Merlin CE guns
+[Version]
+Signature="$Windows NT$"
+Provider="Merlin Device Audit"
+CESignature="$Windows CE$"
+MajorVersion=1
+MinorVersion=0
+
+[CEStrings]
+AppName="Merlin Audit"
+InstallDir=%CE1%\MerlinAudit
+
+[Strings]
+
+[CEDevice]
+VersionMin=6.0
+VersionMax=6.99
+
+[DefaultInstall]
+CopyFiles=Files.App
+CEShortcuts=Shortcuts
+
+[DefaultUninstall]
+DelFiles=Files.App
+DelShortcuts=Shortcuts
+
+[SourceDisksNames]
+1=,"Merlin Audit",,.
+
+[SourceDisksFiles]
+MerlinDeviceAudit.exe=1
+
+[DestinationDirs]
+Files.App=0,%InstallDir%
+Shortcuts=0,%CE14%
+
+[Files.App]
+MerlinDeviceAudit.exe,,,0
+
+[Shortcuts]
+Merlin Audit,0,MerlinDeviceAudit.exe,%CE14%

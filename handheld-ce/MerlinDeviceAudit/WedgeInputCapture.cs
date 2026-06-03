@@ -2,16 +2,11 @@ using System;
 using System.Text;
 using System.Windows.Forms;
 
-namespace MerlinHandheld
+namespace MerlinAudit
 {
-    /// <summary>
-    /// Captures keyboard-wedge input (RFID or barcode) terminated by Enter.
-    /// Nordic wedge and many laser scanners post text + CR to the focused field.
-    /// </summary>
     public sealed class WedgeInputCapture : TextBox
     {
         private readonly StringBuilder _buffer = new StringBuilder();
-        private int _suppressEcho;
 
         public WedgeInputCapture()
         {
@@ -19,10 +14,9 @@ namespace MerlinHandheld
             Height = 1;
             TabStop = false;
             ReadOnly = true;
-            Font = new System.Drawing.Font("Tahoma", 1f, System.Drawing.FontStyle.Regular);
             BorderStyle = BorderStyle.None;
-            BackColor = System.Drawing.Color.FromArgb(30, 41, 59);
-            ForeColor = System.Drawing.Color.FromArgb(30, 41, 59);
+            BackColor = System.Drawing.Color.FromArgb(15, 23, 42);
+            ForeColor = System.Drawing.Color.FromArgb(15, 23, 42);
         }
 
         public event EventHandler<WedgeLineEventArgs> LineReceived;
@@ -30,22 +24,16 @@ namespace MerlinHandheld
         public void ArmCapture()
         {
             _buffer.Length = 0;
+            Text = "";
             Focus();
             SelectAll();
         }
 
         protected override void OnKeyPress(KeyPressEventArgs e)
         {
-            if (_suppressEcho > 0)
-            {
-                _suppressEcho--;
-                e.Handled = true;
-                return;
-            }
-
             if (e.KeyChar == '\r' || e.KeyChar == '\n')
             {
-                string line = _buffer.ToString().Trim();
+                string line = _buffer.ToString();
                 _buffer.Length = 0;
                 Text = "";
                 e.Handled = true;
@@ -56,14 +44,10 @@ namespace MerlinHandheld
                 return;
             }
 
-            if (e.KeyChar >= 32)
+            if (e.KeyChar >= 32 && _buffer.Length < ScanLimits.MaxWedgeBufferChars)
             {
-                if (_buffer.Length < ScanLimits.MaxWedgeBufferChars)
-                {
-                    _buffer.Append(e.KeyChar);
-                }
+                _buffer.Append(e.KeyChar);
             }
-
             e.Handled = true;
         }
 
@@ -76,11 +60,5 @@ namespace MerlinHandheld
             }
             base.OnKeyDown(e);
         }
-    }
-
-    public sealed class WedgeLineEventArgs : EventArgs
-    {
-        public readonly string Line;
-        public WedgeLineEventArgs(string line) { Line = line ?? ""; }
     }
 }

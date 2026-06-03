@@ -33,6 +33,7 @@ namespace MerlinHandheld
             _tagsBox.Height = 72;
             _tagsBox.ScrollBars = ScrollBars.Vertical;
             _tagsBox.Dock = DockStyle.Fill;
+            _tagsBox.ReadOnly = true;
 
             var sendBtn = MerlinUi.MakePrimaryButton("Send tags");
             sendBtn.Click += delegate { SendTags(); };
@@ -41,7 +42,7 @@ namespace MerlinHandheld
 
             var hint = new Label
             {
-                Text = "F1/trigger = RFID. Tags below.",
+                Text = "Pull trigger — tags auto-send to bin.",
                 Height = 24,
                 Dock = DockStyle.Top,
                 ForeColor = Color.FromArgb(148, 163, 184),
@@ -85,7 +86,7 @@ namespace MerlinHandheld
             if (_binCombo.Items.Count > 0) _binCombo.SelectedIndex = 0;
         }
 
-        public void SetWedgeText(string text)
+        public void SetWedgeText(string text, bool autoSend)
         {
             ArrayList parsed = ScanLimits.ParseTags(text);
             _lastRawTagCount = parsed.Count;
@@ -93,6 +94,10 @@ namespace MerlinHandheld
             DiagnosticLog.LogParsedTags("Receive SetWedge", parsed, text != null ? text.Length : 0);
             _tagsBox.Text = ScanLimits.FormatSummary(_pendingTags);
             _resultLabel.Text = _pendingTags.Count + " tag(s) ready";
+            if (autoSend && _pendingTags.Count > 0)
+            {
+                SendTags();
+            }
         }
 
         private void SendTags()
@@ -442,15 +447,17 @@ namespace MerlinHandheld
 
             _binCombo = MerlinUi.MakeCombo();
             _epcBox = MerlinUi.MakeField();
+            _epcBox.ReadOnly = true;
             _nameBox = MerlinUi.MakeField();
             _upcBox = MerlinUi.MakeField();
+            _upcBox.ReadOnly = true;
 
             var lookupBtn = MerlinUi.MakeButton("Lookup UPC");
             lookupBtn.Click += delegate { LookupUpc(); };
 
             var hint = new Label
             {
-                Text = "F2 = barcode, F1 = EPC",
+                Text = "Scan = UPC, Trigger = EPC (no tap needed)",
                 Height = 20,
                 Dock = DockStyle.Top,
                 ForeColor = Color.FromArgb(148, 163, 184),
@@ -468,6 +475,13 @@ namespace MerlinHandheld
             Controls.Add(_upcBox);
             Controls.Add(MerlinUi.MakeCaption("UPC"));
             Controls.Add(hint);
+        }
+
+        public void LookupUpcSilent()
+        {
+            string upc = _upcBox.Text.Trim();
+            if (upc.Length == 0) return;
+            LookupUpcInternal(upc);
         }
 
         public void RefreshBins()
@@ -492,6 +506,11 @@ namespace MerlinHandheld
         {
             string upc = _upcBox.Text.Trim();
             if (upc.Length == 0) return;
+            LookupUpcInternal(upc);
+        }
+
+        private void LookupUpcInternal(string upc)
+        {
             _status.Text = "Lookup…";
             ThreadPool.QueueUserWorkItem(delegate
             {

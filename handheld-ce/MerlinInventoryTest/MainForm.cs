@@ -239,12 +239,14 @@ namespace MerlinHandheld
         {
             if (_mode == "Add")
             {
-                _hardware.SetInputMode("barcode");
+                _hardware.SetInputMode("auto");
             }
             else
             {
                 _hardware.SetInputMode("rfid");
             }
+            _hardware.RefreshTypingFields();
+            _hardware.ArmWedgeCapture();
         }
 
         private void HardwareOnRfid(object sender, HardwareRfidEventArgs e)
@@ -265,7 +267,7 @@ namespace MerlinHandheld
             }
             if (_mode == "Receive")
             {
-                _receive.SetWedgeText(e.WedgeText);
+                _receive.SetWedgeText(e.WedgeText, e.IsCompleteScan);
             }
             else if (_mode == "Find")
             {
@@ -292,6 +294,7 @@ namespace MerlinHandheld
             if (_mode == "Add")
             {
                 _add.SetUpc(e.Code);
+                _add.LookupUpcSilent();
             }
         }
 
@@ -328,26 +331,21 @@ namespace MerlinHandheld
         {
             if (e.KeyCode == Keys.F1)
             {
-                _hardware.SetInputMode("rfid");
+                _hardware.SetInputMode(_mode == "Add" ? "auto" : "rfid");
                 if (_hardware.NurAvailable)
                 {
                     _hardware.FireTriggerInventory();
                 }
                 else
                 {
-                    _hardware.ArmWedgeCapture();
-                    _topStatus.Text = "Pull trigger or scan into wedge…";
+                    _topStatus.Text = "Trigger / RFID scan ready";
                 }
                 e.Handled = true;
             }
-            else if (e.KeyCode == Keys.F2)
+            else if (e.KeyCode == Keys.F2 && _mode == "Add")
             {
-                if (_mode == "Add")
-                {
-                    _hardware.SetInputMode("barcode");
-                    _hardware.ArmWedgeCapture();
-                    _topStatus.Text = "Scan barcode (Scan key)…";
-                }
+                _hardware.SetInputMode("auto");
+                _topStatus.Text = "Scan barcode ready";
                 e.Handled = true;
             }
         }

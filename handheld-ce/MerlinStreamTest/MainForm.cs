@@ -159,7 +159,7 @@ namespace MerlinStream
             {
                 hint = "WATCH: stream all reads.\r\nShows count on gun only.";
             }
-            _detail.Text = hint + "\r\n\r\nOpen PC:\r\n/deploy/scanner-stream-test.html";
+            _detail.Text = hint + "\r\n\r\nScans work without tapping a field.\r\nOpen PC:\r\n/deploy/scanner-stream-test.html";
             _status.Text = "Mode: " + mode.ToUpper();
             _client.PushSession("mode=" + mode);
         }
@@ -195,8 +195,7 @@ namespace MerlinStream
                 }
                 else
                 {
-                    _hardware.ArmWedgeCapture();
-                    _status.Text = "Wedge armed — scan";
+                    _status.Text = "RFID scan ready";
                 }
                 e.Handled = true;
             }

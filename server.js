@@ -404,8 +404,15 @@ const DEPLOY_STATIC_PAGES = [
     'ce-wifi-test.html',
     'scanner-live.html',
     'scanner-stream-test.html',
+    'device-audit.html',
 ];
 const { discoverLanHosts } = require('./lib/scanner-discovery');
+const {
+    saveAuditReport,
+    listAuditReports,
+    getAuditReport,
+    listScannerIds,
+} = require('./lib/device-audit-store');
 
 function deployFilesStatus() {
     const pages = {};
@@ -448,11 +455,18 @@ function getDeployCabMeta(filename) {
 function getDeployCabInfo() {
     const install = getDeployCabMeta(DEPLOY_CAB_NAME);
     const uninstall = getDeployCabMeta(DEPLOY_UNINSTALL_CAB_NAME);
+    const audit = getDeployCabMeta('MerlinDeviceAudit.cab');
+    const stream = getDeployCabMeta('MerlinStreamTest.cab');
     const out = {
         cab_available: install.available,
         cab_filename: DEPLOY_CAB_NAME,
         uninstall_cab_available: uninstall.available,
         uninstall_cab_filename: DEPLOY_UNINSTALL_CAB_NAME,
+        audit_cab_available: audit.available,
+        audit_cab_filename: 'MerlinDeviceAudit.cab',
+        stream_cab_available: stream.available,
+        stream_cab_filename: 'MerlinStreamTest.cab',
+        device_audit_page: '/deploy/device-audit.html',
     };
     if (install.available) {
         out.cab_url = install.url;
@@ -462,6 +476,15 @@ function getDeployCabInfo() {
     if (uninstall.available) {
         out.uninstall_cab_url = uninstall.url;
         out.uninstall_cab_size_kb = uninstall.size_kb;
+    }
+    if (audit.available) {
+        out.audit_cab_url = audit.url;
+        out.audit_cab_size_kb = audit.size_kb;
+        out.audit_cab_modified = audit.modified;
+    }
+    if (stream.available) {
+        out.stream_cab_url = stream.url;
+        out.stream_cab_size_kb = stream.size_kb;
     }
     return out;
 }
@@ -773,6 +796,60 @@ app.get('/api/handheld/diagnostic-log', (req, res) => {
     });
 });
 
+// 📋 Merlin device audit reports (standalone audit CAB)
+app.post('/api/handheld/device-audit', (req, res) => {
+    const body = req.body || {};
+    const scannerId = body.scanner_id == null ? '' : String(body.scanner_id).trim();
+    if (!scannerId) {
+        return res.status(400).json({ error: 'scanner_id is required' });
+    }
+    try {
+        const record = saveAuditReport(scannerId, body);
+        recordScannerHeartbeat(scannerId, req, {
+            mode: 'device-audit',
+            app_version: body.app_version,
+        });
+        res.json({
+            ok: true,
+            id: record.id,
+            scanner_id: record.scanner_id,
+            captured_at: record.captured_at,
+            view_url: '/deploy/device-audit.html?scanner_id=' + encodeURIComponent(scannerId),
+            download_url:
+                '/api/handheld/device-audit/' + encodeURIComponent(record.id) + '?download=1',
+        });
+    } catch (err) {
+        const status = err.status || 500;
+        res.status(status).json({ error: err.message || 'failed to save audit report' });
+    }
+});
+
+app.get('/api/handheld/device-audit', (req, res) => {
+    const scannerId = req.query.scanner_id == null ? '' : String(req.query.scanner_id).trim();
+    const limit = req.query.limit;
+    sendJsonOrJsonp(req, res, {
+        ok: true,
+        scanner_ids: listScannerIds(),
+        reports: listAuditReports({ scanner_id: scannerId || undefined, limit }),
+    });
+});
+
+app.get('/api/handheld/device-audit/:id', (req, res) => {
+    const id = req.params.id == null ? '' : String(req.params.id).trim();
+    const record = getAuditReport(id);
+    if (!record) {
+        return sendJsonOrJsonp(req, res, { error: 'audit report not found' }, 404);
+    }
+    if (req.query.download === '1' || req.query.download === 'true') {
+        const filename =
+            'merlin-audit-' + (record.scanner_id || 'scanner') + '-' + id + '.json';
+        res.type('application/json; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
+        return res.send(JSON.stringify(record, null, 2));
+    }
+    sendJsonOrJsonp(req, res, { ok: true, report: record });
+});
+
 // 📦 Handheld / deploy hub — Wi‑Fi CAB update metadata
 app.get('/api/deploy/info', (req, res) => {
     const clientVersion =
@@ -851,6 +928,14 @@ function sendDeployCab(res, filename) {
     res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');
     return res.sendFile(cabPath);
 }
+
+app.get('/deploy/MerlinStreamTest.cab', (req, res) => {
+    sendDeployCab(res, 'MerlinStreamTest.cab');
+});
+
+app.get('/deploy/MerlinDeviceAudit.cab', (req, res) => {
+    sendDeployCab(res, 'MerlinDeviceAudit.cab');
+});
 
 app.get('/deploy/' + DEPLOY_CAB_NAME, (req, res) => {
     sendDeployCab(res, DEPLOY_CAB_NAME);

@@ -169,7 +169,7 @@ namespace MerlinStream
             string text = FormatTagsFromStorage(tags);
             if (text.Length > 0 && TagsInventoryReady != null)
             {
-                TagsInventoryReady(this, new NurTagsEventArgs(text));
+                TagsInventoryReady(this, new NurTagsEventArgs(text, force));
             }
         }
 
@@ -323,6 +323,12 @@ namespace MerlinStream
     public sealed class NurTagsEventArgs : EventArgs
     {
         public readonly string WedgeText;
-        public NurTagsEventArgs(string wedgeText) { WedgeText = wedgeText ?? ""; }
+        public readonly bool IsComplete;
+
+        public NurTagsEventArgs(string wedgeText, bool isComplete)
+        {
+            WedgeText = wedgeText ?? "";
+            IsComplete = isComplete;
+        }
     }
 }

@@ -179,7 +179,7 @@ namespace MerlinHandheld
             DiagnosticLog.LogNur("emit len=" + text.Length + " approx_tags=" + lineCount + " force=" + force);
             if (text.Length > 0 && TagsInventoryReady != null)
             {
-                TagsInventoryReady(this, new NurTagsEventArgs(text));
+                TagsInventoryReady(this, new NurTagsEventArgs(text, force));
             }
         }
 
@@ -333,6 +333,12 @@ namespace MerlinHandheld
     public sealed class NurTagsEventArgs : EventArgs
     {
         public readonly string WedgeText;
-        public NurTagsEventArgs(string wedgeText) { WedgeText = wedgeText ?? ""; }
+        public readonly bool IsComplete;
+
+        public NurTagsEventArgs(string wedgeText, bool isComplete)
+        {
+            WedgeText = wedgeText ?? "";
+            IsComplete = isComplete;
+        }
     }
 }

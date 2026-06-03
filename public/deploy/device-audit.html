@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Merlin — device audit history</title>
+    <link rel="stylesheet" href="/app.css">
+    <style>
+        body { padding: 12px; max-width: 1100px; margin: 0 auto; }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: center; }
+        .toolbar input, .toolbar select {
+            padding: 8px; border-radius: 6px; border: 1px solid #475569;
+            background: #0f172a; color: #e2e8f0; min-width: 160px;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { text-align: left; padding: 8px; border-bottom: 1px solid #334155; vertical-align: top; }
+        th { color: #94a3b8; font-weight: 600; }
+        .detail {
+            background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+            padding: 12px; margin-top: 12px; display: none;
+        }
+        .detail pre {
+            white-space: pre-wrap; word-break: break-word; font-size: 11px;
+            max-height: 50vh; overflow: auto; color: #cbd5e1;
+        }
+        .hint { font-size: 12px; color: #94a3b8; margin-bottom: 12px; }
+        .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: #1e293b; }
+        .pill.ok { background: #14532d; color: #bbf7d0; }
+        .pill.fail { background: #450a0a; color: #fecaca; }
+    </style>
+</head>
+<body class="terminal-page">
+    <h1>📋 Device audit history</h1>
+    <p class="hint">
+        Install <strong>MerlinDeviceAudit.cab</strong> on the gun. Use <strong>Full audit + upload</strong>
+        (runs a 7-step scan guide first: 3× RFID trigger, 3× barcode, 1× no-tap scan).
+        Reports stay on the server for download.
+    </p>
+
+    <div class="toolbar">
+        <label for="scanner-id">Scanner ID</label>
+        <input type="text" id="scanner-id" value="merlin-handheld-01" autocomplete="off">
+        <button type="button" class="btn" id="btn-refresh">Refresh</button>
+        <a class="btn" href="/deploy/MerlinDeviceAudit.cab">Download audit CAB</a>
+        <a class="btn" href="/deploy/">Deploy hub</a>
+    </div>
+
+    <p id="meta" class="hint">Loading…</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>When</th>
+                <th>Scanner</th>
+                <th>Summary</th>
+                <th>Size</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody id="rows">
+            <tr><td colspan="5">Loading…</td></tr>
+        </tbody>
+    </table>
+
+    <div class="detail" id="detail">
+        <h2 id="detail-title">Report</h2>
+        <pre id="detail-body"></pre>
+    </div>
+
+    <div data-terminal-chrome></div>
+
+    <script src="/site-version.js"></script>
+    <script src="/terminal-chrome.js"></script>
+    <script>
+        var rowsEl = document.getElementById('rows');
+        var metaEl = document.getElementById('meta');
+        var detailEl = document.getElementById('detail');
+        var detailBody = document.getElementById('detail-body');
+        var detailTitle = document.getElementById('detail-title');
+
+        function qsScanner() {
+            var p = new URLSearchParams(location.search);
+            return (p.get('scanner_id') || document.getElementById('scanner-id').value || '').trim();
+        }
+
+        function esc(s) {
+            return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function fmtTime(ms) {
+            if (!ms) return '—';
+            try { return new Date(Number(ms)).toLocaleString(); } catch (e) { return String(ms); }
+        }
+
+        function fmtKb(bytes) {
+            if (!bytes) return '—';
+            return Math.round(bytes / 1024) + ' KB';
+        }
+
+        function summaryLine(row) {
+            var s = row.summary || {};
+            var ping = s.ping_ok
+                ? '<span class="pill ok">ping OK</span>'
+                : '<span class="pill fail">ping fail</span>';
+            var scan = '';
+            if (s.scan_captures > 0) {
+                scan = ' · <span class="pill">' + esc(s.scan_captures) + ' scans</span>';
+                if (s.scan_completed) scan += ' <span class="pill ok">guide OK</span>';
+            }
+            return ping + scan + ' · ' + esc(s.known_app_count || 0) + ' known apps · '
+                + esc(s.file_count || 0) + ' files<br><span style="color:#64748b">'
+                + esc(s.machine || '') + '</span>';
+        }
+
+        function loadList() {
+            var sid = qsScanner();
+            document.getElementById('scanner-id').value = sid;
+            var url = '/api/handheld/device-audit?limit=100';
+            if (sid) url += '&scanner_id=' + encodeURIComponent(sid);
+            metaEl.textContent = 'Loading…';
+            fetch(url)
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok) throw new Error(data.error || 'load failed');
+                    var reports = data.reports || [];
+                    metaEl.textContent = reports.length + ' report(s)'
+                        + (data.scanner_ids && data.scanner_ids.length
+                            ? ' · scanners seen: ' + data.scanner_ids.join(', ')
+                            : '');
+                    if (!reports.length) {
+                        rowsEl.innerHTML = '<tr><td colspan="5">No reports yet — run Merlin Audit on the gun.</td></tr>';
+                        return;
+                    }
+                    rowsEl.innerHTML = reports.map(function (row) {
+                        var dl = '/api/handheld/device-audit/' + encodeURIComponent(row.id) + '?download=1';
+                        return '<tr>'
+                            + '<td>' + esc(fmtTime(row.captured_at)) + '</td>'
+                            + '<td>' + esc(row.scanner_id) + '<br><span style="color:#64748b;font-size:11px">'
+                            + esc(row.app_version || '') + '</span></td>'
+                            + '<td>' + summaryLine(row) + '</td>'
+                            + '<td>' + esc(fmtKb(row.bytes)) + '</td>'
+                            + '<td><button type="button" class="btn btn-view" data-id="'
+                            + esc(row.id) + '">View</button> '
+                            + '<a class="btn" href="' + dl + '">JSON</a></td>'
+                            + '</tr>';
+                    }).join('');
+                    rowsEl.querySelectorAll('.btn-view').forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            viewReport(btn.getAttribute('data-id'));
+                        });
+                    });
+                })
+                .catch(function (err) {
+                    metaEl.textContent = 'Error: ' + err.message;
+                    rowsEl.innerHTML = '<tr><td colspan="5">Failed to load.</td></tr>';
+                });
+        }
+
+        function viewReport(id) {
+            fetch('/api/handheld/device-audit/' + encodeURIComponent(id))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok || !data.report) throw new Error(data.error || 'not found');
+                    detailTitle.textContent = 'Report ' + id;
+                    detailBody.textContent = JSON.stringify(data.report, null, 2);
+                    detailEl.style.display = 'block';
+                    detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                })
+                .catch(function (err) {
+                    alert(err.message);
+                });
+        }
+
+        document.getElementById('btn-refresh').addEventListener('click', function () {
+            var sid = document.getElementById('scanner-id').value.trim();
+            var u = new URL(location.href);
+            if (sid) u.searchParams.set('scanner_id', sid);
+            else u.searchParams.delete('scanner_id');
+            history.replaceState(null, '', u.pathname + u.search);
+            loadList();
+        });
+
+        loadList();
+    </script>
+</body>
+</html>
