@@ -1,0 +1,31 @@
+#!/bin/sh
+# Install on server: /opt/inventory-app/repo.git/hooks/post-receive
+#   chmod +x /opt/inventory-app/repo.git/hooks/post-receive
+#
+# After "git push prod main" from your PC, this checks out main into app/ and restarts PM2.
+
+set -e
+
+GIT_DIR="/opt/inventory-app/repo.git"
+WORK_TREE="/opt/inventory-app/app"
+PM2_APP="rfid-brain"
+
+while read oldrev newrev refname; do
+    branch="${refname#refs/heads/}"
+    if [ "$branch" != "main" ]; then
+        echo "post-receive: ignoring branch $branch (only main deploys)"
+        continue
+    fi
+
+    echo "post-receive: deploying $newrev to $WORK_TREE"
+    git --git-dir="$GIT_DIR" --work-tree="$WORK_TREE" checkout -f main
+
+    if command -v pm2 >/dev/null 2>&1; then
+        pm2 restart "$PM2_APP" || pm2 restart all
+        echo "post-receive: pm2 restart done"
+    else
+        echo "post-receive: pm2 not found — restart Node manually"
+    fi
+
+    echo "post-receive: deploy complete at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+done
