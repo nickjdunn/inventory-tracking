@@ -36,5 +36,24 @@ namespace MerlinAudit
             sb.Append("}");
             return HttpHelper.PostJson(Base + "/api/handheld/device-audit", sb.ToString(), 60000);
         }
+
+        public HttpResult UploadError(string context, string message, string detail)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"scanner_id\":\"");
+            sb.Append(SimpleJson.Escape(_cfg.ScannerId));
+            sb.Append("\",\"app_version\":\"");
+            sb.Append(SimpleJson.Escape(AuditConfig.AppVersion));
+            sb.Append("\",\"context\":\"");
+            sb.Append(SimpleJson.Escape(context ?? ""));
+            sb.Append("\",\"message\":\"");
+            sb.Append(SimpleJson.Escape(message ?? ""));
+            sb.Append("\",\"detail\":\"");
+            sb.Append(SimpleJson.Escape(detail ?? ""));
+            sb.Append("\",\"captured_at\":");
+            sb.Append(DateTime.UtcNow.Ticks / 10000L);
+            sb.Append("}");
+            return HttpHelper.PostJson(Base + "/api/handheld/audit-error", sb.ToString(), 45000);
+        }
     }
 }

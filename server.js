@@ -413,6 +413,12 @@ const {
     getAuditReport,
     listScannerIds,
 } = require('./lib/device-audit-store');
+const {
+    saveAuditError,
+    listAuditErrors,
+    getAuditError,
+    listScannerIds: listErrorScannerIds,
+} = require('./lib/audit-error-store');
 
 function deployFilesStatus() {
     const pages = {};
@@ -486,7 +492,41 @@ function getDeployCabInfo() {
         out.stream_cab_url = stream.url;
         out.stream_cab_size_kb = stream.size_kb;
     }
+    out.nur_dll = getNurDllDeployInfo();
     return out;
+}
+
+const NUR_DLL_DIR = path.join(DEPLOY_DIR, 'nur');
+const NUR_DLL_NAMES = ['NurApiDotNetWCE.dll', 'NurApiDotNet.dll'];
+
+function getNurDllDeployInfo() {
+    const urls = NUR_DLL_NAMES.map((n) => '/deploy/nur/' + n);
+    for (let i = 0; i < NUR_DLL_NAMES.length; i++) {
+        const p = path.join(NUR_DLL_DIR, NUR_DLL_NAMES[i]);
+        if (fs.existsSync(p)) {
+            const stat = fs.statSync(p);
+            return {
+                available: true,
+                filename: NUR_DLL_NAMES[i],
+                url: urls[i],
+                size_kb: Math.round(stat.size / 1024),
+                modified: stat.mtime.toISOString(),
+                also_try: urls.filter((_, j) => j !== i),
+            };
+        }
+    }
+    return {
+        available: false,
+        filenames: NUR_DLL_NAMES,
+        urls,
+        note: 'Merlin CE guns use NurApiDotNetWCE.dll in \\Windows',
+    };
+}
+
+function resolveNurDllUploadPath(filename) {
+    const safe = String(filename || NUR_DLL_NAMES[0]).replace(/[^a-zA-Z0-9._-]+/g, '');
+    const name = NUR_DLL_NAMES.includes(safe) ? safe : NUR_DLL_NAMES[0];
+    return path.join(NUR_DLL_DIR, name);
 }
 
 // 🏓 Minimal ping (CE browser / JSONP friendly)
@@ -849,6 +889,105 @@ app.get('/api/handheld/device-audit/:id', (req, res) => {
     }
     sendJsonOrJsonp(req, res, { ok: true, report: record });
 });
+
+// Merlin audit app errors (scan guide crashes — view/copy on PC)
+app.post('/api/handheld/audit-error', (req, res) => {
+    const body = req.body || {};
+    const scannerId = body.scanner_id == null ? '' : String(body.scanner_id).trim();
+    if (!scannerId) {
+        return res.status(400).json({ error: 'scanner_id is required' });
+    }
+    try {
+        const record = saveAuditError(body);
+        recordScannerHeartbeat(scannerId, req, {
+            mode: 'device-audit-error',
+            app_version: body.app_version,
+        });
+        res.json({
+            ok: true,
+            id: record.id,
+            scanner_id: record.scanner_id,
+            captured_at: record.captured_at,
+            view_url:
+                '/deploy/device-audit.html?scanner_id=' +
+                encodeURIComponent(scannerId) +
+                '&error_id=' +
+                encodeURIComponent(record.id),
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message || 'failed to save error' });
+    }
+});
+
+app.get('/api/handheld/audit-error', (req, res) => {
+    const scannerId = req.query.scanner_id == null ? '' : String(req.query.scanner_id).trim();
+    const limit = req.query.limit;
+    sendJsonOrJsonp(req, res, {
+        ok: true,
+        scanner_ids: listErrorScannerIds(),
+        errors: listAuditErrors({ scanner_id: scannerId || undefined, limit }),
+    });
+});
+
+app.get('/api/handheld/audit-error/:id', (req, res) => {
+    const id = req.params.id == null ? '' : String(req.params.id).trim();
+    const record = getAuditError(id);
+    if (!record) {
+        return sendJsonOrJsonp(req, res, { error: 'error record not found' }, 404);
+    }
+    if (req.query.download === '1' || req.query.download === 'true') {
+        const text =
+            'context: ' +
+            record.context +
+            '\nmessage: ' +
+            record.message +
+            '\n\n' +
+            (record.detail || '');
+        res.type('text/plain; charset=utf-8');
+        res.setHeader(
+            'Content-Disposition',
+            'attachment; filename="merlin-audit-error-' + record.id + '.txt"'
+        );
+        return res.send(text);
+    }
+    sendJsonOrJsonp(req, res, { ok: true, error: record });
+});
+
+// 📦 Nordic NUR .NET DLL for Merlin handheld apps (upload from PC after copying off gun)
+app.get('/api/deploy/nur-dll', (req, res) => {
+    sendJsonOrJsonp(req, res, {
+        ok: true,
+        ...getNurDllDeployInfo(),
+        upload: 'POST application/octet-stream body to /api/deploy/nur-dll',
+    });
+});
+
+app.post(
+    '/api/deploy/nur-dll',
+    express.raw({ type: ['application/octet-stream', 'application/x-msdownload', '*/*'], limit: '4mb' }),
+    (req, res) => {
+        const body = req.body;
+        if (!body || !Buffer.isBuffer(body) || body.length < 512) {
+            return res.status(400).json({
+                error: 'POST raw DLL bytes (min 512). Use scripts/upload-nur-dll.ps1',
+            });
+        }
+        try {
+            fs.mkdirSync(NUR_DLL_DIR, { recursive: true });
+            const dest = resolveNurDllUploadPath(req.query.filename);
+            fs.writeFileSync(dest, body);
+            const info = getNurDllDeployInfo();
+            res.json({
+                ok: true,
+                message: 'NUR DLL published for gun download',
+                saved_as: path.basename(dest),
+                ...info,
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message || 'write failed' });
+        }
+    }
+);
 
 // 📦 Handheld / deploy hub — Wi‑Fi CAB update metadata
 app.get('/api/deploy/info', (req, res) => {

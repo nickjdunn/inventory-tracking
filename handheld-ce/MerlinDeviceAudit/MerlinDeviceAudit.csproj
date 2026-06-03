@@ -36,6 +36,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AuditClient.cs" />
+    <Compile Include="AuditErrorReporter.cs" />
     <Compile Include="AuditConfig.cs" />
     <Compile Include="AuditJson.cs" />
     <Compile Include="CeSystemInfo.cs" />
@@ -45,6 +46,10 @@
     <Compile Include="HttpHelper.cs" />
     <Compile Include="KnownAppsCatalog.cs" />
     <Compile Include="MainForm.cs" />
+    <Compile Include="NurDllDiscovery.cs" />
+    <Compile Include="NurApiReflection.cs" />
+    <Compile Include="NurApiBridge.cs" />
+    <Compile Include="NurAssemblyLocator.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="ScanInputClassifier.cs" />
     <Compile Include="ScanLimits.cs" />

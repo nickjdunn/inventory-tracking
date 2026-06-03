@@ -1,15 +1,18 @@
 using System;
 using System.IO;
+using System.Text;
 
 namespace MerlinAudit
 {
     public sealed class AuditConfig
     {
-        public const string AppVersion = "audit-1.1.0";
+        public const string AppVersion = "audit-1.1.7";
         private const string FileName = "merlin-audit.cfg";
 
         public string ServerUrl = "http://10.17.17.17:3000";
         public string ScannerId = "merlin-handheld-01";
+        public bool HardwareNurEnabled = true;
+        public string NurAssemblyPath = "";
 
         public static string ConfigDirectory
         {
@@ -44,6 +47,7 @@ namespace MerlinAudit
                     string val = line.Substring(eq + 1).Trim();
                     if (key == "server") cfg.ServerUrl = HttpHelper.NormalizeBaseUrl(val);
                     else if (key == "scanner") cfg.ScannerId = val;
+                    else if (key == "nur_dll") cfg.NurAssemblyPath = val;
                 }
             }
             catch { }
@@ -53,8 +57,14 @@ namespace MerlinAudit
         public void Save()
         {
             ServerUrl = HttpHelper.NormalizeBaseUrl(ServerUrl);
-            string text = "server=" + ServerUrl + "\r\nscanner=" + ScannerId + "\r\n";
-            CfCompat.WriteAllText(ConfigPath, text);
+            var sb = new System.Text.StringBuilder();
+            sb.Append("server=").Append(ServerUrl).Append("\r\n");
+            sb.Append("scanner=").Append(ScannerId ?? "").Append("\r\n");
+            if (NurAssemblyPath != null && NurAssemblyPath.Length > 0)
+            {
+                sb.Append("nur_dll=").Append(NurAssemblyPath).Append("\r\n");
+            }
+            CfCompat.WriteAllText(ConfigPath, sb.ToString());
         }
     }
 }

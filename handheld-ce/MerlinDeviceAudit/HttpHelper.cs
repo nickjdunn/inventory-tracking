@@ -38,6 +38,34 @@ namespace MerlinAudit
             return Request("POST", url, json, timeoutMs);
         }
 
+        public static bool DownloadToFile(string url, string destPath, int timeoutMs)
+        {
+            try
+            {
+                var req = (HttpWebRequest)WebRequest.Create(url);
+                req.Method = "GET";
+                req.Timeout = timeoutMs;
+                req.ReadWriteTimeout = timeoutMs;
+
+                using (var res = (HttpWebResponse)req.GetResponse())
+                using (var input = res.GetResponseStream())
+                using (var output = new FileStream(destPath, FileMode.Create, FileAccess.Write))
+                {
+                    byte[] buf = new byte[4096];
+                    int n;
+                    while ((n = input.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        output.Write(buf, 0, n);
+                    }
+                }
+                return File.Exists(destPath) && new FileInfo(destPath).Length > 512;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static HttpResult Request(string method, string url, string jsonBody, int timeoutMs)
         {
             var result = new HttpResult();

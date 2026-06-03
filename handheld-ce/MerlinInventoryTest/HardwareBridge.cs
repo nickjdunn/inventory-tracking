@@ -22,7 +22,7 @@ namespace MerlinHandheld
             _form = form;
             _cfg = cfg;
             _wedge = new WedgeInputCapture();
-            _nur = new NurApiBridge(cfg);
+            _nur = new NurApiBridge(form, cfg);
 
             _form.Controls.Add(_wedge);
             _wedge.BringToFront();

@@ -15,6 +15,7 @@ namespace MerlinHandheld
     /// </summary>
     public sealed class NurApiBridge : IDisposable
     {
+        private readonly Form _owner;
         private readonly AppConfig _cfg;
         private object _api;
         private bool _inventoryRunning;
@@ -22,8 +23,9 @@ namespace MerlinHandheld
         private string _status = "NUR: not loaded";
         private long _lastEmitTicks;
 
-        public NurApiBridge(AppConfig cfg)
+        public NurApiBridge(Form owner, AppConfig cfg)
         {
+            _owner = owner;
             _cfg = cfg;
         }
 
@@ -56,17 +58,23 @@ namespace MerlinHandheld
 
             try
             {
-                Type apiType = asm.GetType("NurApi.NurApi", false);
-                if (apiType == null) apiType = asm.GetType("NurApi", false);
+                Type apiType = NurApiReflection.ResolveApiType(asm);
                 if (apiType == null)
                 {
-                    _status = "NUR: NurApi type missing";
+                    _status = "NUR: type missing";
                     return;
                 }
 
-                _api = Activator.CreateInstance(apiType);
-                TryInvoke(_api, "Connect", null);
+                _api = CreateNurInstance(apiType, _owner);
                 HookInventoryCallback(apiType);
+                if (NurApiReflection.HasMethodNamed(apiType, "ConnectIntegratedReader"))
+                {
+                    TryInvoke(_api, "ConnectIntegratedReader", null);
+                }
+                else
+                {
+                    TryInvoke(_api, "Connect", null);
+                }
                 _status = "NUR: ready";
             }
             catch (Exception ex)
@@ -99,6 +107,14 @@ namespace MerlinHandheld
                 EmitInventoryTags(true);
                 return;
             }
+            Type t = _api.GetType();
+            if (NurApiReflection.HasMethodNamed(t, "StartInventoryStream"))
+            {
+                TryInvoke(_api, "StartInventoryStream", null);
+                _inventoryRunning = true;
+                SetPollTimer(true);
+                return;
+            }
             TryInvoke(_api, "StartInventory", null);
             _inventoryRunning = true;
             SetPollTimer(true);
@@ -107,7 +123,15 @@ namespace MerlinHandheld
         public void StopInventory()
         {
             if (_api == null || !_inventoryRunning) return;
-            TryInvoke(_api, "StopInventory", null);
+            Type t = _api.GetType();
+            if (NurApiReflection.HasMethodNamed(t, "StopInventoryStream"))
+            {
+                TryInvoke(_api, "StopInventoryStream", null);
+            }
+            else
+            {
+                TryInvoke(_api, "StopInventory", null);
+            }
             _inventoryRunning = false;
             SetPollTimer(false);
         }
@@ -169,6 +193,7 @@ namespace MerlinHandheld
             _lastEmitTicks = now;
 
             object tags = TryInvokeReturn(_api, "GetTagStorage", null);
+            if (tags == null) tags = TryInvokeReturn(_api, "FetchTags", null);
             if (tags == null)
             {
                 DiagnosticLog.LogNur("GetTagStorage returned null");
@@ -214,10 +239,16 @@ namespace MerlinHandheld
         {
             if (tag == null) return "";
             Type t = tag.GetType();
-            object v = GetProp(t, tag, "EpcString");
-            if (v == null) v = GetProp(t, tag, "EPC");
-            if (v == null) v = GetProp(t, tag, "epc");
-            return v == null ? "" : v.ToString().Trim();
+            MethodInfo gm = t.GetMethod("GetEpcString");
+            if (gm != null)
+            {
+                object v = gm.Invoke(tag, null);
+                if (v != null) return v.ToString().Trim();
+            }
+            object val = GetProp(t, tag, "EpcString");
+            if (val == null) val = GetProp(t, tag, "EPC");
+            if (val == null) val = GetProp(t, tag, "epc");
+            return val == null ? "" : val.ToString().Trim();
         }
 
         private static int ExtractRssiFromTag(object tag)
@@ -255,22 +286,53 @@ namespace MerlinHandheld
             return sb.ToString();
         }
 
+        private static object CreateNurInstance(Type apiType, Form owner)
+        {
+            ConstructorInfo[] ctors = apiType.GetConstructors();
+            if (ctors != null)
+            {
+                for (int i = 0; i < ctors.Length; i++)
+                {
+                    ParameterInfo[] ps = ctors[i].GetParameters();
+                    if (ps == null || ps.Length != 1) continue;
+                    if (!typeof(Control).IsAssignableFrom(ps[0].ParameterType)) continue;
+                    try
+                    {
+                        return ctors[i].Invoke(new object[] { owner });
+                    }
+                    catch { }
+                }
+            }
+            return Activator.CreateInstance(apiType);
+        }
+
         private Assembly TryLoadNurAssembly()
         {
-            string[] names = { "NurApiDotNet", "NurApi", "NordicId.NurApi" };
             string custom = _cfg.NurAssemblyPath;
             if (custom != null && custom.Length > 0)
             {
-                try
-                {
-                    if (File.Exists(custom)) return Assembly.LoadFrom(custom);
-                }
-                catch { }
+                Assembly asm = TryLoadNurFile(custom);
+                if (asm != null) return asm;
             }
 
+            string[] bootstrap = new string[]
+            {
+                @"\Windows\NurApiDotNetWCE.dll",
+                Path.Combine(AppConfig.ConfigDirectory, "NurApiDotNetWCE.dll"),
+                @"\Program Files\MerlinInventory\NurApiDotNetWCE.dll",
+                @"\Windows\NurApiDotNet.dll",
+            };
+            for (int i = 0; i < bootstrap.Length; i++)
+            {
+                Assembly asm = TryLoadNurFile(bootstrap[i]);
+                if (asm != null) return asm;
+            }
+
+            string[] names = { "NurApiDotNet", "NurApi", "NordicId.NurApi" };
             string[] dirs = {
                 @"\Program Files\Nordic ID\NUR API",
                 @"\Program Files\NordicId\NurApi",
+                @"\Program Files\NID RFID Demo",
                 @"\Flash\Nordic",
                 Path.GetDirectoryName(AppConfig.ConfigDirectory)
             };
@@ -282,13 +344,9 @@ namespace MerlinHandheld
                 string[] files = Directory.GetFiles(dir, "*.dll");
                 for (int i = 0; i < files.Length; i++)
                 {
-                    string low = files[i].ToLower();
-                    if (low.IndexOf("nur") < 0) continue;
-                    try
-                    {
-                        return Assembly.LoadFrom(files[i]);
-                    }
-                    catch { }
+                    if (!NurApiReflection.IsManagedNurDllFile(Path.GetFileName(files[i]))) continue;
+                    Assembly asm = TryLoadNurFile(files[i]);
+                    if (asm != null) return asm;
                 }
             }
 
@@ -296,11 +354,30 @@ namespace MerlinHandheld
             {
                 try
                 {
-                    return Assembly.Load(names[i]);
+                    Assembly asm = Assembly.Load(names[i]);
+                    if (asm != null && NurApiReflection.AssemblyHasApiType(asm)) return asm;
                 }
                 catch { }
             }
             return null;
+        }
+
+        private static Assembly TryLoadNurFile(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return null;
+                if (!NurApiReflection.IsManagedNurDllFile(Path.GetFileName(path))) return null;
+                Assembly asm = Assembly.LoadFrom(path);
+                if (NurApiReflection.AssemblyHasApiType(asm)) return asm;
+            }
+            catch { }
+            return null;
+        }
+
+        private static bool HasNurApiType(Assembly asm)
+        {
+            return NurApiReflection.AssemblyHasApiType(asm);
         }
 
         private static void TryInvoke(object target, string method, object[] args)

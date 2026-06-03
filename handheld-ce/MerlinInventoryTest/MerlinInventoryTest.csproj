@@ -68,6 +68,7 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Models.cs" />
+    <Compile Include="NurApiReflection.cs" />
     <Compile Include="NurApiBridge.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="SimpleJson.cs" />

@@ -160,18 +160,40 @@ namespace MerlinAudit
         private void RunScanGuide()
         {
             SaveSettings();
-            var guide = new GuidedScanForm();
-            guide.ShowDialog();
-            _lastScanSessionJson = guide.SessionJson;
-            _summaryBox.Text = BuildScanSummary(_lastScanSessionJson);
-            _status.Text = guide.Completed ? "Guide done" : "Guide partial";
+            try
+            {
+                var guide = new GuidedScanForm(_cfg);
+                guide.ShowDialog();
+                _lastScanSessionJson = guide.SessionJson;
+                _summaryBox.Text = BuildScanSummary(_lastScanSessionJson);
+                _status.Text = guide.Completed ? "Guide done" : "Guide partial";
+                if (guide.LastError.Length > 0)
+                {
+                    _summaryBox.Text = guide.LastError + "\r\n\r\n" + _summaryBox.Text;
+                }
+            }
+            catch (Exception ex)
+            {
+                HttpResult res = AuditErrorReporter.ReportSync(_cfg, "scan_guide", ex, "");
+                string pc = "http://10.17.17.17:3000/deploy/device-audit.html";
+                _summaryBox.Text = (res.Ok ? "Error uploaded.\r\n" : "Upload failed.\r\n")
+                    + "PC: device-audit page, Errors section.\r\n\r\n"
+                    + AuditErrorReporter.FormatDetail(ex, "");
+                _status.Text = res.Ok ? "Error on server" : "Error (upload fail)";
+                MessageBox.Show(
+                    res.Ok ? ("Logged to server.\r\n" + pc) : ("Log failed: " + res.Error),
+                    "Scan guide",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Exclamation,
+                    MessageBoxDefaultButton.Button1);
+            }
         }
 
         private void RunFullAudit(bool upload)
         {
             SaveSettings();
             _status.Text = "Scan guide…";
-            var guide = new GuidedScanForm();
+            var guide = new GuidedScanForm(_cfg);
             if (guide.ShowDialog() == DialogResult.OK)
             {
                 _lastScanSessionJson = guide.SessionJson;
@@ -340,8 +362,25 @@ namespace MerlinAudit
             sb.Append("Files indexed: ").Append(fileCount).Append("\r\n");
             sb.Append("Known apps: ").Append(knownCount).Append("\r\n");
             sb.Append("Server ping: ").Append(pingOk ? "OK" : "FAIL").Append("\r\n\r\n");
+            AppendNurDiscovery(reportJson, sb);
             AppendKnownAppNames(reportJson, sb);
             return sb.ToString();
+        }
+
+        private static void AppendNurDiscovery(string reportJson, System.Text.StringBuilder sb)
+        {
+            int idx = reportJson.IndexOf("\"nur_discovery\"");
+            if (idx < 0) return;
+            string tail = reportJson.Substring(idx);
+            bool dotnetReady = SimpleJson.ExtractBool(tail, "dotnet_ready", false);
+            string best = SimpleJson.ExtractString(tail, "best_path");
+            string installed = SimpleJson.ExtractString(tail, "installed_beside_app");
+            string fetchErr = SimpleJson.ExtractString(tail, "server_fetch_error");
+            sb.Append("NUR .NET: ").Append(dotnetReady ? "ready" : "not found").Append("\r\n");
+            if (best.Length > 0) sb.Append("NUR path: ").Append(Short(best, 55)).Append("\r\n");
+            if (installed.Length > 0) sb.Append("Copied: ").Append(Short(installed, 55)).Append("\r\n");
+            if (fetchErr.Length > 0) sb.Append("Server DLL: ").Append(Short(fetchErr, 50)).Append("\r\n");
+            sb.Append("\r\n");
         }
 
         private static string ExtractScanSession(string reportJson)

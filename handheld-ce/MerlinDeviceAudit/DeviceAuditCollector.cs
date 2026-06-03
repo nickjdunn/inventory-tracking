@@ -42,6 +42,8 @@ namespace MerlinAudit
             }
 
             CollectStartMenu(installed);
+            NurDllDiscoveryResult nurDiscovery = NurDllDiscovery.Discover(installed, _cfg);
+            NurDllDiscovery.TryFetchFromServer(_cfg, nurDiscovery);
             CollectConfigSnippets(configs);
             ArrayList known = KnownAppsCatalog.MatchInstalledFiles(installed);
             string networkJson = CollectNetworkJson();
@@ -65,6 +67,9 @@ namespace MerlinAudit
             AuditJson.AppendArray(sb, "installed_files", BuildFilesArray(installed));
             sb.Append(",");
             AuditJson.AppendArray(sb, "known_apps", BuildKnownAppsArray(known));
+            sb.Append(",");
+            sb.Append("\"nur_discovery\":");
+            NurDllDiscovery.AppendJson(sb, nurDiscovery);
             sb.Append(",");
             AuditJson.AppendArray(sb, "config_snippets", BuildConfigsArray(configs));
             sb.Append(",");

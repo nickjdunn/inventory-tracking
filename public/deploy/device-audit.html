@@ -67,6 +67,32 @@
         <pre id="detail-body"></pre>
     </div>
 
+    <h2 style="margin-top:24px">Errors (crashes / scan guide)</h2>
+    <p class="hint">When the audit app fails, it uploads the full message here. Click View, then Copy text.</p>
+    <table>
+        <thead>
+            <tr>
+                <th>When</th>
+                <th>Scanner</th>
+                <th>Context</th>
+                <th>Message</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody id="error-rows">
+            <tr><td colspan="5">Loading…</td></tr>
+        </tbody>
+    </table>
+
+    <div class="detail" id="error-detail">
+        <h2 id="error-detail-title">Error</h2>
+        <p class="hint">
+            <button type="button" class="btn" id="btn-copy-error">Copy text</button>
+            <a class="btn" id="error-download" href="#">Download .txt</a>
+        </p>
+        <pre id="error-detail-body" style="user-select:text"></pre>
+    </div>
+
     <div data-terminal-chrome></div>
 
     <script src="/site-version.js"></script>
@@ -77,6 +103,16 @@
         var detailEl = document.getElementById('detail');
         var detailBody = document.getElementById('detail-body');
         var detailTitle = document.getElementById('detail-title');
+        var errorRowsEl = document.getElementById('error-rows');
+        var errorDetailEl = document.getElementById('error-detail');
+        var errorDetailBody = document.getElementById('error-detail-body');
+        var errorDetailTitle = document.getElementById('error-detail-title');
+        var errorDownload = document.getElementById('error-download');
+        var lastErrorText = '';
+
+        function qsParam(name) {
+            return new URLSearchParams(location.search).get(name) || '';
+        }
 
         function qsScanner() {
             var p = new URLSearchParams(location.search);
@@ -161,8 +197,33 @@
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (!data.ok || !data.report) throw new Error(data.error || 'not found');
+                    var rep = data.report.report || data.report;
                     detailTitle.textContent = 'Report ' + id;
-                    detailBody.textContent = JSON.stringify(data.report, null, 2);
+                    var nur = rep.nur_discovery || {};
+                    var nurHtml = '';
+                    if (nur.candidates || nur.best_path) {
+                        nurHtml = '<div style="margin-bottom:12px;padding:10px;background:#1e293b;border-radius:8px;font-size:12px">'
+                            + '<strong>NUR DLL discovery</strong><br>'
+                            + '.NET ready: ' + (nur.dotnet_ready ? 'yes' : 'no') + '<br>';
+                        if (nur.best_path) nurHtml += 'Best path: <code>' + esc(nur.best_path) + '</code><br>';
+                        if (nur.installed_beside_app) nurHtml += 'Copied to app: <code>' + esc(nur.installed_beside_app) + '</code><br>';
+                        if (nur.server_fetch_error) nurHtml += 'Server fetch: ' + esc(nur.server_fetch_error) + '<br>';
+                        nurHtml += '<br>Upload to server from PC:<br>'
+                            + '<code>scripts\\upload-nur-dll.ps1 -DllPath \"...\\NurApiDotNet.dll\"</code><br><br>';
+                        if (Array.isArray(nur.candidates) && nur.candidates.length) {
+                            nurHtml += '<strong>Candidates</strong><ul style="margin:4px 0;padding-left:18px">';
+                            nur.candidates.forEach(function (c) {
+                                nurHtml += '<li>' + esc(c.name) + ' — ' + esc(c.path)
+                                    + (c.dotnet_loadable ? ' <span class="pill ok">.NET OK</span>' : '')
+                                    + (c.note ? ' <span style="color:#94a3b8">' + esc(c.note) + '</span>' : '')
+                                    + '</li>';
+                            });
+                            nurHtml += '</ul>';
+                        }
+                        nurHtml += '</div>';
+                    }
+                    detailBody.innerHTML = nurHtml + '<pre id="detail-json"></pre>';
+                    document.getElementById('detail-json').textContent = JSON.stringify(rep, null, 2);
                     detailEl.style.display = 'block';
                     detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 })
@@ -178,9 +239,89 @@
             else u.searchParams.delete('scanner_id');
             history.replaceState(null, '', u.pathname + u.search);
             loadList();
+            loadErrors();
+        });
+
+        function loadErrors() {
+            var sid = qsScanner();
+            var url = '/api/handheld/audit-error?limit=50';
+            if (sid) url += '&scanner_id=' + encodeURIComponent(sid);
+            fetch(url)
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok) throw new Error(data.error || 'load failed');
+                    var errors = data.errors || [];
+                    if (!errors.length) {
+                        errorRowsEl.innerHTML = '<tr><td colspan="5">No errors logged yet.</td></tr>';
+                        return;
+                    }
+                    errorRowsEl.innerHTML = errors.map(function (row) {
+                        return '<tr>'
+                            + '<td>' + esc(fmtTime(row.captured_at)) + '</td>'
+                            + '<td>' + esc(row.scanner_id) + '</td>'
+                            + '<td>' + esc(row.context) + '</td>'
+                            + '<td>' + esc(row.message) + '</td>'
+                            + '<td><button type="button" class="btn btn-view-err" data-id="'
+                            + esc(row.id) + '">View</button></td>'
+                            + '</tr>';
+                    }).join('');
+                    errorRowsEl.querySelectorAll('.btn-view-err').forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            viewError(btn.getAttribute('data-id'));
+                        });
+                    });
+                    var openId = qsParam('error_id');
+                    if (openId) viewError(openId);
+                })
+                .catch(function (err) {
+                    errorRowsEl.innerHTML = '<tr><td colspan="5">' + esc(err.message) + '</td></tr>';
+                });
+        }
+
+        function viewError(id) {
+            fetch('/api/handheld/audit-error/' + encodeURIComponent(id))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok || !data.error) throw new Error(data.error || 'not found');
+                    var e = data.error;
+                    errorDetailTitle.textContent = 'Error ' + id;
+                    lastErrorText = 'context: ' + (e.context || '') + '\n'
+                        + 'message: ' + (e.message || '') + '\n'
+                        + 'app: ' + (e.app_version || '') + '\n'
+                        + 'scanner: ' + (e.scanner_id || '') + '\n\n'
+                        + (e.detail || '');
+                    errorDetailBody.textContent = lastErrorText;
+                    errorDownload.href = '/api/handheld/audit-error/' + encodeURIComponent(id) + '?download=1';
+                    errorDetailEl.style.display = 'block';
+                    errorDetailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                })
+                .catch(function (err) { alert(err.message); });
+        }
+
+        document.getElementById('btn-copy-error').addEventListener('click', function () {
+            if (!lastErrorText) return;
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(lastErrorText);
+                    alert('Copied to clipboard');
+                    return;
+                }
+            } catch (e) { /* fall through */ }
+            var range = document.createRange();
+            range.selectNodeContents(errorDetailBody);
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            try {
+                document.execCommand('copy');
+                alert('Copied (select)');
+            } catch (e2) {
+                alert('Select the text in the box and copy manually');
+            }
         });
 
         loadList();
+        loadErrors();
     </script>
 </body>
 </html>
