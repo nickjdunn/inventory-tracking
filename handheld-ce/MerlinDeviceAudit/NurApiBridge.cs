@@ -34,6 +34,7 @@ namespace MerlinAudit
         private const long LiveRssiMaxAgeTicks = 500 * 10000L;
         private Hashtable _pileSampleByEpc;
         private bool _pileSampleOpen;
+        private int _pileSampleTickCounter;
 
         /// <summary>RSSI track form: no BeginInvoke per trigger pulse (timer polls instead).</summary>
         public bool PollOnlyMode;
@@ -75,6 +76,12 @@ namespace MerlinAudit
         public event EventHandler<NurTagReadingsEventArgs> TagReadingsReady;
 
         public void Start()
+        {
+            Start(true);
+        }
+
+        /// <param name="applySavedRfPreset">False on RF bench open — leave reader settings unchanged.</param>
+        public void Start(bool applySavedRfPreset)
         {
             if (_api != null) return;
             if (!_cfg.HardwareNurEnabled)
@@ -123,12 +130,15 @@ namespace MerlinAudit
 
                 if (_connected)
                 {
-                    NurRfPreset preset = NurRfPresets.Get(
-                        NurRfPresets.NormalizeIndex(_cfg.RfPresetIndex));
-                    ReaderProfile = NurReaderProfile.ApplyRfPreset(_api, preset);
                     ReaderProfile.EpcSelectMethodFound =
                         NurReaderProfile.HasInventorySelectByEpc(_api);
-                    _status = "NUR: ready";
+                    if (applySavedRfPreset)
+                    {
+                        NurRfPreset preset = NurRfPresets.Get(
+                            NurRfPresets.NormalizeIndex(_cfg.RfPresetIndex));
+                        ReaderProfile = NurReaderProfile.ApplyRfPreset(_api, preset);
+                    }
+                    _status = applySavedRfPreset ? "NUR: ready" : "NUR: ready (RF unchanged)";
                 }
                 else
                 {
@@ -271,6 +281,7 @@ namespace MerlinAudit
                 if (_api == null || !_connected) return;
                 _pileSampleByEpc = new Hashtable();
                 _pileSampleOpen = true;
+                _pileSampleTickCounter = 0;
                 PollOnlyMode = false;
                 EnsureInventoryStream();
                 InvalidateTagCache();
@@ -279,7 +290,7 @@ namespace MerlinAudit
                     TryClearTagStorageInstance();
                 }
                 TryRunInventoryPulse();
-                MergePileSampleReadingsUnlocked(ReadTagsFromApiUncached(null));
+                MergePileSampleReadingsUnlocked(ReadTagsCurrentRoundUnlocked(null));
             }
         }
 
@@ -290,9 +301,21 @@ namespace MerlinAudit
             {
                 if (_api == null || !_connected || !_pileSampleOpen) return;
                 PollOnlyMode = false;
+                _pileSampleTickCounter++;
+                if ((_pileSampleTickCounter & 1) == 0)
+                {
+                    TryRunInventoryPulse();
+                }
                 TryFetchTagsWithMeta(_api);
-                MergePileSampleReadingsUnlocked(ReadTagsFromApiUncached(null));
+                MergePileSampleReadingsUnlocked(ReadTagsCurrentRoundUnlocked(null));
             }
+        }
+
+        private NurTagReading[] ReadTagsCurrentRoundUnlocked(EventArgs streamEvent)
+        {
+            if (_api == null || !_connected) return new NurTagReading[0];
+            TryFetchTagsWithMeta(_api);
+            return BuildCurrentRoundReadings(streamEvent);
         }
 
         public void MergePileSampleReadings(NurTagReading[] batch)

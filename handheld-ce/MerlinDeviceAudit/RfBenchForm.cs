@@ -17,7 +17,11 @@ namespace MerlinAudit
         private const int StateDiag = 4;
         private const int StateDone = 5;
         private const int StateCountdown = 6;
+        private const int StateWaitForGo = 7;
+        private const int StateStreamWarmup = 8;
         private const int BenchCountdownSeconds = 3;
+        private const int StreamWarmupTicks = 10;
+        private const int BaselinePulseCount = 1;
 
         private readonly AuditConfig _cfg;
         private readonly AuditClient _client;
@@ -50,7 +54,13 @@ namespace MerlinAudit
         private bool _pileAccumActive;
         private int _accumulateTicks;
         private bool _idleTestAccumActive;
+        private bool _sweepArmed;
+        private bool _clearNextPileSample;
         private NurModuleSetupSnapshot _baselineSetup;
+        private bool _atBaselinePhase;
+        private int[] _sweepOrder = new int[0];
+        private const int RfApplySettleTicks = 18;
+        private int _activePulsesPerPreset;
 
         public RfBenchForm(AuditConfig cfg)
         {
@@ -76,7 +86,7 @@ namespace MerlinAudit
             _nur.TagReadingsReady += OnBenchTagReadings;
 
             _hint = UiTheme.MakeHint(
-                "Miller sweep — 6=stack · 1=run · 3=test · 7=RF");
+                "F1=scan · 1=arm · 8=GO · 3=test · 7=RF");
             CfLayout.Place(_hint, 6, 4, 228, 24);
 
             _stackSetup = new RfBenchStackSetup();
@@ -93,7 +103,7 @@ namespace MerlinAudit
             _targetBox = UiTheme.MakeField("");
             CfLayout.Place(_targetBox, 6, 86, 228, 18);
 
-            _progress = UiTheme.MakeHint("1=run · 3=test · 7=read RF · 4=upload");
+            _progress = UiTheme.MakeHint("1=arm · 8=GO sweep · 3=test · 4=upload");
             CfLayout.Place(_progress, 6, 106, 228, 12);
 
             _status = UiTheme.MakeHeader("NUR starting…");
@@ -136,14 +146,13 @@ namespace MerlinAudit
             KeyUp += RfBenchForm_KeyUp;
             Load += delegate
             {
-                _nur.Start();
-                _nur.EnsureInventoryStream();
-                _status.Text = _nur.Status;
+                _nur.Start(false);
+                _status.Text = "F1=scan · 1=arm bench · 8=GO";
                 if (_targetBox.Text.Length == 0 && RssiTraceRecorder.TargetEpc.Length > 0)
                 {
                     _targetBox.Text = RssiTraceRecorder.TargetEpc;
                 }
-                RefreshModuleSetupDisplay(true);
+                RefreshModuleSetupDisplay(false);
                 TestSessionLog.Add("rf_bench", "opened", _nur.Status);
             };
             Closed += delegate
@@ -164,9 +173,10 @@ namespace MerlinAudit
                 return;
             }
             if (e.KeyCode == Keys.D0 || e.KeyCode == Keys.NumPad0) { Close(); e.Handled = true; return; }
-            if (e.KeyCode == Keys.D1 || e.KeyCode == Keys.NumPad1) { StartBench(); e.Handled = true; return; }
+            if (e.KeyCode == Keys.D1 || e.KeyCode == Keys.NumPad1) { ArmBench(); e.Handled = true; return; }
             if (e.KeyCode == Keys.D2 || e.KeyCode == Keys.NumPad2) { StopBench(); e.Handled = true; return; }
             if (e.KeyCode == Keys.D3 || e.KeyCode == Keys.NumPad3) { QuickScanPile(); e.Handled = true; return; }
+            if (e.KeyCode == Keys.D8 || e.KeyCode == Keys.NumPad8) { BeginSweepIfArmed(); e.Handled = true; return; }
             if (e.KeyCode == Keys.D4 || e.KeyCode == Keys.NumPad4) { UploadResults(); e.Handled = true; return; }
             if (e.KeyCode == Keys.D5 || e.KeyCode == Keys.NumPad5) { SaveLocal(); e.Handled = true; return; }
             if (e.KeyCode == Keys.D6 || e.KeyCode == Keys.NumPad6) { EditStackSetup(); e.Handled = true; return; }
@@ -253,7 +263,8 @@ namespace MerlinAudit
                 _progress.Text = "Scan… " + _nur.PileSampleTagCount() + " tags";
                 return;
             }
-            if (_running || _idleTestAccumActive) return;
+            if (_idleTestAccumActive) return;
+            if (_running) return;
             ShowPileScanStatus(e.Readings);
         }
 
@@ -289,7 +300,7 @@ namespace MerlinAudit
                 _stackSetup.SaveToConfig(_cfg);
                 RefreshStackLabel();
                 TestSessionLog.Add("rf_bench_stack", _stackSetup.SummaryLine(), "");
-                _status.Text = "Stack OK — 1=run (3-2-1)";
+                _status.Text = "Stack OK — 1=arm · 8=GO";
                 return true;
             }
             finally
@@ -303,7 +314,7 @@ namespace MerlinAudit
             get { return RssiTraceRecorder.NormalizeEpc(_targetBox.Text); }
         }
 
-        private void StartBench()
+        private void ArmBench()
         {
             if (_running) return;
             if (_stackSetup == null)
@@ -319,10 +330,37 @@ namespace MerlinAudit
                 return;
             }
 
+            _sweepArmed = false;
+            _pileAccumActive = false;
+            _idleTestAccumActive = false;
+            _countdownSeconds = BenchCountdownSeconds;
+            _benchState = StateCountdown;
+            _countdownBanner.Visible = true;
+            _countdownBanner.Text = _countdownSeconds.ToString();
+            _countdownBanner.BringToFront();
+            _benchTimer.Interval = 1000;
+            _benchTimer.Enabled = true;
+            _status.Text = "Set stack — start in " + _countdownSeconds;
+            CeAudio.Click();
+        }
+
+        private void BeginSweepIfArmed()
+        {
+            if (_running) return;
+            if (!_sweepArmed)
+            {
+                _status.Text = "Press 1 to arm first";
+                return;
+            }
+            BeginSweep();
+        }
+
+        private void BeginSweep()
+        {
             _nur.PollOnlyMode = false;
-            _nur.EnsureInventoryStream();
             _pileAccumActive = false;
             _baselineSetup = _nur.ReadModuleSetup();
+            _sweepOrder = NurRfPresets.BuildSweepOrder(_baselineSetup);
             RefreshModuleSetupDisplay(true);
 
             _presetResults.Clear();
@@ -332,24 +370,63 @@ namespace MerlinAudit
             _pulseIndex = 0;
             _waitTicks = 0;
             _bestPreset = null;
+            _clearNextPileSample = false;
+            _atBaselinePhase = true;
             _running = true;
-            _countdownSeconds = BenchCountdownSeconds;
-            _benchState = StateCountdown;
-            _countdownBanner.Visible = true;
-            _countdownBanner.Text = _countdownSeconds.ToString();
-            _countdownBanner.BringToFront();
-            _benchTimer.Interval = 1000;
+            _sweepArmed = false;
+
+            _currentPreset = NurRfPresets.FromBaseline(_baselineSetup);
+            _currentResult = NewPresetResult(_currentPreset);
+            _currentResult.Pulses = BaselinePulseCount;
+            CapturePresetModuleSetup(_currentPreset, _currentResult);
+            _activePulsesPerPreset = BaselinePulseCount;
+            _nur.EnsureInventoryStream();
+
+            _waitTicks = 0;
+            _benchState = StateStreamWarmup;
+            _benchTimer.Interval = 200;
             _benchTimer.Enabled = true;
-            _status.Text = "Set stack — start in " + _countdownSeconds;
+            _countdownBanner.Visible = false;
+            _status.Text = "Stream warmup…";
+            _progress.Text = "Then 1 pulse (= key 3)";
             string targetNote = TargetEpc;
             TestSessionLog.Add("rf_bench_run", _stackSetup.SummaryLine(),
                 targetNote.Length > 0 ? targetNote : "pile");
             CeAudio.Click();
         }
 
+        private RfBenchPresetResult NewPresetResult(NurRfPreset preset)
+        {
+            var r = new RfBenchPresetResult();
+            r.PresetId = preset.Id;
+            r.Label = preset.Label;
+            r.LinkFreqHz = preset.LinkFreqHz;
+            r.TxLevel = preset.TxLevel;
+            r.UseEpcSelect = preset.UseEpcSelect;
+            r.Pulses = _pulsesPerPreset;
+            r.ApplyOk = true;
+            return r;
+        }
+
+        private void StartPileAccumulate(bool clearStorage)
+        {
+            _nur.PollOnlyMode = false;
+            _nur.EnsureInventoryStream();
+            _nur.OpenPileSample(clearStorage);
+            _pileAccumActive = true;
+            _pulseCooldownTicks = _accumulateTicks;
+        }
+
+        private void StartBench()
+        {
+            ArmBench();
+        }
+
         private void StopBench()
         {
             _running = false;
+            _sweepArmed = false;
+            _atBaselinePhase = false;
             _pileAccumActive = false;
             _idleTestAccumActive = false;
             _nur.PollOnlyMode = false;
@@ -357,20 +434,17 @@ namespace MerlinAudit
             _benchTimer.Enabled = false;
             _benchTimer.Interval = 200;
             _countdownBanner.Visible = false;
-            _status.Text = "Stopped";
+            _status.Text = "Stopped — F1=scan · 1=arm";
         }
 
         private void QuickScanPile()
         {
             if (!_nur.IsAvailable || _running) return;
             _status.Text = "Test scan…";
-            _nur.PollOnlyMode = false;
-            _nur.OpenPileSample(true);
-            _pileAccumActive = true;
-            _idleTestAccumActive = true;
-            _pulseCooldownTicks = _accumulateTicks;
             _benchTimer.Interval = 200;
             _benchTimer.Enabled = true;
+            StartPileAccumulate(false);
+            _idleTestAccumActive = true;
         }
 
         private void ShowPileScanStatus(NurTagReading[] tags)
@@ -412,12 +486,18 @@ namespace MerlinAudit
                 TickIdleTestAccumulate();
                 return;
             }
+            if (_benchState == StateCountdown)
+            {
+                TickCountdown();
+                return;
+            }
+            if (_benchState == StateWaitForGo) return;
             if (!_running) return;
 
             switch (_benchState)
             {
-                case StateCountdown:
-                    TickCountdown();
+                case StateStreamWarmup:
+                    TickStreamWarmup();
                     break;
                 case StateApplyWait:
                     TickApplyPreset();
@@ -437,6 +517,23 @@ namespace MerlinAudit
             }
         }
 
+        private void TickStreamWarmup()
+        {
+            _waitTicks++;
+            _progress.Text = "Warmup " + _waitTicks + "/" + StreamWarmupTicks;
+            if (_waitTicks < StreamWarmupTicks) return;
+
+            _nur.EnsureInventoryStream();
+            _nur.OpenPileSample(false);
+            _nur.ClosePileSample();
+            _waitTicks = 0;
+            _benchState = StatePulseWait;
+            _status.Text = _atBaselinePhase
+                ? "Baseline (key 3 path)…"
+                : ("Scan " + (_currentPreset != null ? _currentPreset.ShortLabel() : "") + "…");
+            _progress.Text = "Pulse 0/" + _activePulsesPerPreset;
+        }
+
         private void TickCountdown()
         {
             CeAudio.Click();
@@ -444,9 +541,11 @@ namespace MerlinAudit
             {
                 _countdownBanner.Visible = false;
                 _benchTimer.Interval = 200;
-                _benchState = StateApplyWait;
-                _waitTicks = 0;
-                _status.Text = "Bench: " + _stackSetup.SummaryLine();
+                _benchTimer.Enabled = false;
+                _benchState = StateWaitForGo;
+                _sweepArmed = true;
+                _status.Text = "Ready — 8=GO · 3=test · F1=scan";
+                _progress.Text = "8=GO sweep when ready";
                 return;
             }
             _countdownSeconds--;
@@ -458,38 +557,63 @@ namespace MerlinAudit
         {
             if (_waitTicks == 0)
             {
-                if (_presetIndex >= NurRfPresets.Count)
+                if (_presetIndex >= _sweepOrder.Length)
                 {
                     _benchState = StateDiag;
                     _waitTicks = 0;
                     PickBestPreset();
                     return;
                 }
-                _currentPreset = NurRfPresets.Get(_presetIndex);
-                _currentResult = new RfBenchPresetResult();
-                _currentResult.PresetId = _currentPreset.Id;
-                _currentResult.Label = _currentPreset.Label;
-                _currentResult.LinkFreqHz = _currentPreset.LinkFreqHz;
-                _currentResult.TxLevel = _currentPreset.TxLevel;
-                _currentResult.UseEpcSelect = _currentPreset.UseEpcSelect;
-                _currentResult.Pulses = _pulsesPerPreset;
-                NurProfileStatus prof = _nur.ApplyRfPreset(_currentPreset);
-                _nur.EnsureInventoryStream();
+                int benchIdx = _sweepOrder[_presetIndex];
+                _currentPreset = NurRfPresets.GetByBenchIndex(benchIdx);
+                _currentResult = NewPresetResult(_currentPreset);
+                NurModuleSetupSnapshot cur = _nur.ReadModuleSetup();
+                bool needApply = !PresetMatchesCurrent(_currentPreset, cur);
+                NurProfileStatus prof;
+                if (needApply)
+                {
+                    _nur.StopInventoryStreamSafe();
+                    prof = _nur.ApplyRfPreset(_currentPreset);
+                    _currentResult.ApplyOk = prof.ApplyOk;
+                    _currentResult.ReadLinkFreqHz = prof.ReadLinkFreqHz;
+                    _currentResult.ReadTxLevel = prof.ReadTxLevel;
+                }
+                else
+                {
+                    _currentResult.ApplyOk = true;
+                    _currentResult.ReadLinkFreqHz = cur.LinkFreqHz;
+                    _currentResult.ReadTxLevel = cur.TxLevel;
+                }
                 CapturePresetModuleSetup(_currentPreset, _currentResult);
-                _currentResult.ApplyOk = prof.ApplyOk;
-                _currentResult.ReadLinkFreqHz = prof.ReadLinkFreqHz;
-                _currentResult.ReadTxLevel = prof.ReadTxLevel;
+                _activePulsesPerPreset = _pulsesPerPreset;
+                _currentResult.Pulses = _pulsesPerPreset;
                 _pulseIndex = 0;
-                _status.Text = "Apply " + (_presetIndex + 1) + "/" + NurRfPresets.Count
-                    + " " + _currentPreset.ShortLabel();
+                _clearNextPileSample = true;
+                int total = _sweepOrder.Length + 1;
+                _status.Text = "Apply " + (_presetIndex + 2) + "/" + total
+                    + " " + _currentPreset.ShortLabel()
+                    + (needApply ? "" : " (held)");
             }
             _waitTicks++;
-            if (_waitTicks >= 12)
+            if (_waitTicks >= RfApplySettleTicks)
             {
+                _nur.EnsureInventoryStream();
+                _nur.OpenPileSample(false);
+                _nur.ClosePileSample();
                 _waitTicks = 0;
                 _pulseCooldownTicks = 0;
-                _benchState = StatePulseWait;
+                _benchState = StateStreamWarmup;
             }
+        }
+
+        private static bool PresetMatchesCurrent(NurRfPreset preset, NurModuleSetupSnapshot cur)
+        {
+            if (preset == null || cur == null || !cur.ReadOk) return false;
+            if (preset.LinkFreqHz != cur.LinkFreqHz) return false;
+            if (preset.TxLevel != cur.TxLevel) return false;
+            if (preset.RxDecoding >= 0 && preset.RxDecoding != cur.RxDecoding) return false;
+            if (preset.TxModulation >= 0 && preset.TxModulation != cur.TxModulation) return false;
+            return true;
         }
 
         private void TickPulse()
@@ -516,25 +640,36 @@ namespace MerlinAudit
             }
             else
             {
-                _nur.OpenPileSample(true);
-                _pileAccumActive = true;
-                _pulseCooldownTicks = _accumulateTicks;
-                _status.Text = "Scan " + (_pulseIndex + 1) + "/" + _pulsesPerPreset;
+                bool clearStorage = _clearNextPileSample || _pulseIndex > 0;
+                _clearNextPileSample = false;
+                StartPileAccumulate(clearStorage);
+                _status.Text = (_atBaselinePhase ? "Base " : "Scan ")
+                    + (_pulseIndex + 1) + "/" + _activePulsesPerPreset;
                 return;
             }
 
             _pulseIndex++;
-            if (_pulseIndex >= _pulsesPerPreset)
+            if (_pulseIndex >= _activePulsesPerPreset)
             {
                 _currentResult.RecomputeScore();
                 _presetResults.Add(_currentResult);
                 AppendRankLine(_currentResult);
+                if (_atBaselinePhase)
+                {
+                    _atBaselinePhase = false;
+                    _presetIndex = 0;
+                    _waitTicks = 0;
+                    _benchState = StateApplyWait;
+                    _status.Text = "Baseline done — RF sweep…";
+                    return;
+                }
                 _presetIndex++;
+                _clearNextPileSample = true;
                 _benchState = StatePresetGap;
                 return;
             }
 
-            _progress.Text = "Pulse " + _pulseIndex + "/" + _pulsesPerPreset
+            _progress.Text = "Pulse " + _pulseIndex + "/" + _activePulsesPerPreset
                 + " last=" + (all != null ? all.Length : 0) + " tags";
             _pulseCooldownTicks = 3;
         }
@@ -701,7 +836,7 @@ namespace MerlinAudit
         private void AppendRankLine(RfBenchPresetResult r)
         {
             r.RecomputeScore();
-            string line = r.AvgTagsPerPulse + " tags/p sc=" + r.Score + " " + r.PresetId;
+            string line = "tags=" + MaxTagsForResult(r) + " sc=" + r.Score + " " + r.PresetId;
             if (r.ReadRxDecoding >= 0)
             {
                 line += " " + NurModuleSetupSnapshot.RxDecodingLabel(r.ReadRxDecoding);
@@ -709,6 +844,21 @@ namespace MerlinAudit
             if (r.AvgRssi > -900) line += " rssi=" + r.AvgRssi;
             if (r.TargetHits > 0) line += " tgt=" + r.TargetHits;
             _rankList.Items.Add(line);
+        }
+
+        private static int MaxTagsForResult(RfBenchPresetResult r)
+        {
+            if (r == null || r.PulseLog == null || r.PulseLog.Count == 0)
+            {
+                return r != null ? r.AvgTagsPerPulse : 0;
+            }
+            int max = 0;
+            for (int i = 0; i < r.PulseLog.Count; i++)
+            {
+                RfBenchPulseSample s = r.PulseLog[i] as RfBenchPulseSample;
+                if (s != null && s.TagCount > max) max = s.TagCount;
+            }
+            return max;
         }
 
         private string RankSummaryLine()

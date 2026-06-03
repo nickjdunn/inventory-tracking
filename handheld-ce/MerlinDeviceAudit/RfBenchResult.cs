@@ -237,12 +237,45 @@ namespace MerlinAudit
                 sb.Append(",\"hit_pct\":").Append(r.HitPercent);
                 sb.Append(",\"tags_read_total\":").Append(r.TagsReadTotal);
                 sb.Append(",\"avg_tags_per_pulse\":").Append(r.AvgTagsPerPulse);
+                sb.Append(",\"max_tags_per_pulse\":").Append(MaxTagsPerPulse(r));
+                AppendPulseLog(sb, r);
                 sb.Append(",\"target_hits\":").Append(r.TargetHits);
                 sb.Append(",\"best_rssi\":").Append(r.BestRssi);
                 sb.Append(",\"avg_rssi\":").Append(r.AvgRssi);
                 sb.Append(",\"score\":").Append(r.Score);
                 sb.Append('}');
             }
+        }
+
+        private static int MaxTagsPerPulse(RfBenchPresetResult r)
+        {
+            if (r == null || r.PulseLog == null || r.PulseLog.Count == 0) return 0;
+            int max = 0;
+            for (int i = 0; i < r.PulseLog.Count; i++)
+            {
+                RfBenchPulseSample s = r.PulseLog[i] as RfBenchPulseSample;
+                if (s != null && s.TagCount > max) max = s.TagCount;
+            }
+            return max;
+        }
+
+        private static void AppendPulseLog(StringBuilder sb, RfBenchPresetResult r)
+        {
+            if (r == null || r.PulseLog == null || r.PulseLog.Count == 0) return;
+            sb.Append(",\"pulse_log\":[");
+            for (int i = 0; i < r.PulseLog.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                RfBenchPulseSample s = r.PulseLog[i] as RfBenchPulseSample;
+                if (s == null) continue;
+                sb.Append('{');
+                sb.Append("\"pulse\":").Append(s.Pulse);
+                sb.Append(",\"tag_count\":").Append(s.TagCount);
+                sb.Append(",\"best_rssi\":").Append(s.BestRssi);
+                sb.Append(",\"avg_rssi\":").Append(s.AvgRssi);
+                sb.Append('}');
+            }
+            sb.Append(']');
         }
 
         private static void AppendDiagResults(StringBuilder sb, ArrayList results)

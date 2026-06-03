@@ -126,5 +126,84 @@ namespace MerlinAudit
                 return 0;
             }
         }
+
+        public static NurRfPreset FromBaseline(NurModuleSetupSnapshot snap)
+        {
+            int link = snap != null && snap.LinkFreqHz > 0 ? snap.LinkFreqHz : 256000;
+            int tx = snap != null && snap.TxLevel >= 0 ? snap.TxLevel : 0;
+            int rx = snap != null && snap.RxDecoding >= 0 ? snap.RxDecoding : -1;
+            int mod = snap != null && snap.TxModulation >= 0 ? snap.TxModulation : -1;
+            string rxLabel = rx >= 0
+                ? NurModuleSetupSnapshot.RxDecodingLabel(rx)
+                : "current";
+            string label = "Current RF · " + (link / 1000) + " kHz · " + rxLabel + " (same as key 3)";
+            return new NurRfPreset(
+                "baseline_current", label, link, tx, false, rx, mod);
+        }
+
+        /// <summary>Order sweep: exact baseline match first, FM-0 last when using Miller.</summary>
+        public static int[] BuildSweepOrder(NurModuleSetupSnapshot baseline)
+        {
+            int baseLink = baseline != null ? baseline.LinkFreqHz : -1;
+            int baseRx = baseline != null ? baseline.RxDecoding : -1;
+            var exact = new System.Collections.ArrayList();
+            var sameLink = new System.Collections.ArrayList();
+            var other = new System.Collections.ArrayList();
+            var fm0 = new System.Collections.ArrayList();
+
+            for (int i = 0; i < BenchSweep.Length; i++)
+            {
+                NurRfPreset p = BenchSweep[i];
+                bool isFm0 = p.RxDecoding == 0;
+                bool exactMatch = baseLink > 0 && p.LinkFreqHz == baseLink
+                    && baseRx >= 0 && p.RxDecoding == baseRx;
+                bool linkMatch = baseLink > 0 && p.LinkFreqHz == baseLink && !exactMatch;
+
+                if (exactMatch)
+                {
+                    exact.Add(i);
+                }
+                else if (isFm0 && baseRx > 0)
+                {
+                    fm0.Add(i);
+                }
+                else if (linkMatch)
+                {
+                    sameLink.Add(i);
+                }
+                else
+                {
+                    other.Add(i);
+                }
+            }
+
+            var order = new System.Collections.ArrayList();
+            AppendIndices(order, exact);
+            AppendIndices(order, sameLink);
+            AppendIndices(order, other);
+            AppendIndices(order, fm0);
+
+            var arr = new int[order.Count];
+            for (int i = 0; i < order.Count; i++)
+            {
+                arr[i] = (int)order[i];
+            }
+            return arr;
+        }
+
+        private static void AppendIndices(System.Collections.ArrayList dest, System.Collections.ArrayList src)
+        {
+            for (int i = 0; i < src.Count; i++)
+            {
+                dest.Add(src[i]);
+            }
+        }
+
+        public static NurRfPreset GetByBenchIndex(int benchIndex)
+        {
+            if (benchIndex < 0) benchIndex = 0;
+            if (benchIndex >= BenchSweep.Length) benchIndex = BenchSweep.Length - 1;
+            return BenchSweep[benchIndex];
+        }
     }
 }

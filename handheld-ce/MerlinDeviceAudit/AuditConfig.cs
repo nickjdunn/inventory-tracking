@@ -6,7 +6,7 @@ namespace MerlinAudit
 {
     public sealed class AuditConfig
     {
-        public const string AppVersion = "audit-1.9.0";
+        public const string AppVersion = "audit-1.9.4";
         private const string FileName = "merlin-audit.cfg";
 
         public string ServerUrl = "http://10.17.17.17:3000";
