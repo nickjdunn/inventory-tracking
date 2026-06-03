@@ -25,6 +25,12 @@ namespace MerlinAudit
         public bool ApplyOk;
         public int ReadLinkFreqHz = -1;
         public int ReadTxLevel = -1;
+        public int RequestedRxDecoding = -1;
+        public int RequestedTxModulation = -1;
+        public int ReadRxDecoding = -1;
+        public int ReadTxModulation = -1;
+        public NurModuleSetupSnapshot ModuleSetupRequested;
+        public NurModuleSetupSnapshot ModuleSetupReadBack;
         public int Pulses;
         /// <summary>Pulses that read at least one tag in the pile.</summary>
         public int Hits;
@@ -155,7 +161,8 @@ namespace MerlinAudit
             RfBenchStackSetup stackSetup,
             ArrayList presetResults,
             ArrayList diagResults,
-            string notes)
+            string notes,
+            NurModuleSetupSnapshot baselineSetup)
         {
             long now = DateTime.UtcNow.Ticks / 10000L;
             var sb = new StringBuilder(4096);
@@ -166,6 +173,11 @@ namespace MerlinAudit
             sb.Append(",\"captured_at\":").Append(now);
             sb.Append(",\"app_version\":\"").Append(SimpleJson.Escape(AuditConfig.AppVersion)).Append('"');
             sb.Append(",\"notes\":\"").Append(SimpleJson.Escape(notes ?? "")).Append('"');
+            if (baselineSetup != null)
+            {
+                sb.Append(',');
+                baselineSetup.AppendJson(sb, "baseline_module_setup");
+            }
             if (stackSetup != null)
             {
                 sb.Append(',');
@@ -199,6 +211,26 @@ namespace MerlinAudit
                 sb.Append(",\"apply_ok\":").Append(r.ApplyOk ? "true" : "false");
                 sb.Append(",\"read_link_freq_hz\":").Append(r.ReadLinkFreqHz);
                 sb.Append(",\"read_tx_level\":").Append(r.ReadTxLevel);
+                sb.Append(",\"requested_rx_decoding\":").Append(r.RequestedRxDecoding);
+                sb.Append(",\"read_rx_decoding\":").Append(r.ReadRxDecoding);
+                if (r.ReadRxDecoding >= 0)
+                {
+                    sb.Append(",\"read_rx_decoding_label\":\"")
+                        .Append(SimpleJson.Escape(NurModuleSetupSnapshot.RxDecodingLabel(r.ReadRxDecoding)))
+                        .Append('"');
+                }
+                sb.Append(",\"requested_tx_modulation\":").Append(r.RequestedTxModulation);
+                sb.Append(",\"read_tx_modulation\":").Append(r.ReadTxModulation);
+                if (r.ModuleSetupRequested != null)
+                {
+                    sb.Append(',');
+                    r.ModuleSetupRequested.AppendJson(sb, "module_setup_requested");
+                }
+                if (r.ModuleSetupReadBack != null)
+                {
+                    sb.Append(',');
+                    r.ModuleSetupReadBack.AppendJson(sb, "module_setup_readback");
+                }
                 sb.Append(",\"pulses\":").Append(r.Pulses);
                 sb.Append(",\"round_hits\":").Append(r.Hits);
                 sb.Append(",\"misses\":").Append(r.Misses);

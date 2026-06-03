@@ -9,8 +9,10 @@ namespace MerlinAudit
 
         public int ReadLinkFreqHz = -1;
         public int ReadTxLevel = -1;
+        public int ReadRxDecoding = -1;
         public bool LinkFreqOk;
         public bool TxLevelOk;
+        public bool RxDecodingOk;
 
         public bool EpcSelectMethodFound;
         public bool LastEpcSelectOk;
@@ -35,8 +37,14 @@ namespace MerlinAudit
             string tx = TxLevelOk
                 ? "TX max OK"
                 : (ReadTxLevel >= 0 ? "TX lvl " + ReadTxLevel : "TX ?");
+            string rx = ReadRxDecoding >= 0
+                ? NurModuleSetupSnapshot.RxDecodingLabel(ReadRxDecoding)
+                : "";
             string sel = EpcSelectMethodFound ? "EPC-filter" : "no EPC-filter";
-            return "RF: " + lf + " · " + tx + " · " + sel;
+            string line = "RF: " + lf + " · " + tx;
+            if (rx.Length > 0) line += " · " + rx;
+            line += " · " + sel;
+            return line;
         }
     }
 }

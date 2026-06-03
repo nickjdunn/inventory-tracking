@@ -6,7 +6,7 @@ namespace MerlinAudit
 {
     public sealed class AuditConfig
     {
-        public const string AppVersion = "audit-1.8.6";
+        public const string AppVersion = "audit-1.9.0";
         private const string FileName = "merlin-audit.cfg";
 
         public string ServerUrl = "http://10.17.17.17:3000";
@@ -15,6 +15,8 @@ namespace MerlinAudit
         public string NurAssemblyPath = "";
         public int RfPresetIndex;
         public int BenchPulsesPerPreset = 8;
+        /// <summary>Bench timer ticks (200 ms each) to let inventory stream fill tag storage.</summary>
+        public int BenchAccumulateTicks = 15;
         public decimal BenchStackDistanceIn = 12m;
         public int BenchStackTagCount = 100;
         public decimal BenchStackSpacingIn = 0.02m;
@@ -55,6 +57,7 @@ namespace MerlinAudit
                     else if (key == "nur_dll") cfg.NurAssemblyPath = val;
                     else if (key == "rf_preset") cfg.RfPresetIndex = ParseInt(val, 0);
                     else if (key == "bench_pulses") cfg.BenchPulsesPerPreset = ParseInt(val, 8);
+                    else if (key == "bench_accum_ticks") cfg.BenchAccumulateTicks = ParseInt(val, 10);
                     else if (key == "bench_dist_in") cfg.BenchStackDistanceIn = ParseDecimal(val, 12m);
                     else if (key == "bench_tag_count") cfg.BenchStackTagCount = ParseInt(val, 100);
                     else if (key == "bench_spacing_in") cfg.BenchStackSpacingIn = ParseDecimal(val, 0.02m);
@@ -76,6 +79,7 @@ namespace MerlinAudit
             }
             sb.Append("rf_preset=").Append(RfPresetIndex).Append("\r\n");
             sb.Append("bench_pulses=").Append(BenchPulsesPerPreset).Append("\r\n");
+            sb.Append("bench_accum_ticks=").Append(BenchAccumulateTicks).Append("\r\n");
             sb.Append("bench_dist_in=").Append(RfBenchStackSetup.FormatDecimal(BenchStackDistanceIn)).Append("\r\n");
             sb.Append("bench_tag_count=").Append(BenchStackTagCount).Append("\r\n");
             sb.Append("bench_spacing_in=").Append(RfBenchStackSetup.FormatDecimal(BenchStackSpacingIn)).Append("\r\n");

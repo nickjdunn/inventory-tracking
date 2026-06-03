@@ -46,6 +46,7 @@
     <Compile Include="CeAudio.cs" />
     <Compile Include="RssiGeigerAudio.cs" />
     <Compile Include="NurProfileStatus.cs" />
+    <Compile Include="NurModuleSetupSnapshot.cs" />
     <Compile Include="NurRfPreset.cs" />
     <Compile Include="NurReaderProfile.cs" />
     <Compile Include="RfBenchResult.cs" />

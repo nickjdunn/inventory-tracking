@@ -18,11 +18,26 @@ namespace MerlinAudit
 
         public static NurProfileStatus ApplyAndVerify(object api)
         {
+            return ApplyRfPreset(api, NurRfPresets.Get(NurRfPresets.DefaultPresetIndex));
+        }
+
+        public static NurProfileStatus ApplyRfPreset(object api, NurRfPreset preset)
+        {
+            if (preset == null)
+            {
+                return ApplyRfSettings(api, NurProfileStatus.TargetLinkFreqHz, NurProfileStatus.TargetTxLevel);
+            }
             return ApplyRfSettings(
-                api, NurProfileStatus.TargetLinkFreqHz, NurProfileStatus.TargetTxLevel);
+                api, preset.LinkFreqHz, preset.TxLevel, preset.RxDecoding, preset.TxModulation);
         }
 
         public static NurProfileStatus ApplyRfSettings(object api, int linkFreqHz, int txLevel)
+        {
+            return ApplyRfSettings(api, linkFreqHz, txLevel, -1, -1);
+        }
+
+        public static NurProfileStatus ApplyRfSettings(
+            object api, int linkFreqHz, int txLevel, int rxDecoding, int txModulation)
         {
             var st = new NurProfileStatus();
             if (api == null) return st;
@@ -35,7 +50,8 @@ namespace MerlinAudit
                 Type apiType = api.GetType();
                 Assembly asm = apiType.Assembly;
 
-                if (TryApplyViaModuleSetup(api, apiType, asm, st, linkFreqHz, txLevel))
+                if (TryApplyViaModuleSetup(
+                        api, apiType, asm, st, linkFreqHz, txLevel, rxDecoding, txModulation))
                 {
                     return st;
                 }
@@ -154,9 +170,84 @@ namespace MerlinAudit
 
 
 
+        public static NurModuleSetupSnapshot ReadModuleSetupSnapshot(object api)
+        {
+            var snap = new NurModuleSetupSnapshot();
+            if (api == null)
+            {
+                snap.ReadError = "NUR not connected";
+                return snap;
+            }
+            try
+            {
+                Type apiType = api.GetType();
+                Assembly asm = apiType.Assembly;
+                Type setupType = FindSetupType(asm, apiType, api);
+                if (setupType == null)
+                {
+                    snap.ReadError = "setup type missing";
+                    return snap;
+                }
+
+                int flags = ResolveSetupFlagsAll(asm, setupType);
+                if (flags == 0) flags = -1;
+
+                object setup = TryGetModuleSetupObject(api, apiType, setupType, flags);
+                if (setup == null)
+                {
+                    snap.ReadError = "GetModuleSetup failed";
+                    return snap;
+                }
+
+                FillSnapshotFromSetup(setup, setupType, snap);
+                snap.ReadOk = true;
+            }
+            catch (Exception ex)
+            {
+                snap.ReadError = ex.Message;
+            }
+            return snap;
+        }
+
+        private static void FillSnapshotFromSetup(
+            object setup, Type setupType, NurModuleSetupSnapshot snap)
+        {
+            snap.LinkFreqHz = ReadIntField(setup, setupType, "linkFreq", "LinkFreq", "link_freq");
+            snap.RxDecoding = ReadIntField(setup, setupType, "rxDecoding", "RxDecoding", "rx_decoding");
+            snap.TxLevel = ReadIntField(setup, setupType, "txLevel", "TxLevel", "tx_level");
+            snap.TxModulation = ReadIntField(setup, setupType, "txModulation", "TxModulation", "tx_modulation");
+            snap.RegionId = ReadIntField(setup, setupType, "regionId", "RegionId", "region_id");
+            snap.InventoryQ = ReadIntField(setup, setupType, "inventoryQ", "InventoryQ", "inventory_q");
+            snap.InventorySession = ReadIntField(
+                setup, setupType, "inventorySession", "InventorySession", "inventory_session");
+            snap.InventoryRounds = ReadIntField(
+                setup, setupType, "inventoryRounds", "InventoryRounds", "inventory_rounds");
+            snap.AntennaMask = ReadIntField(setup, setupType, "antennaMask", "AntennaMask", "antenna_mask");
+            snap.AntennaMaskEx = ReadLongField(
+                setup, setupType, "antennaMaskEx", "AntennaMaskEx", "antenna_mask_ex");
+            snap.SelectedAntenna = ReadIntField(
+                setup, setupType, "selectedAntenna", "SelectedAntenna", "selected_antenna");
+            snap.InventoryTarget = ReadIntField(
+                setup, setupType, "inventoryTarget", "InventoryTarget", "inventory_target");
+            snap.InventoryEpcLength = ReadIntField(
+                setup, setupType, "inventoryEpcLength", "InventoryEpcLength", "inventory_epc_length");
+            snap.RxSensitivity = ReadIntField(
+                setup, setupType, "rxSensitivity", "RxSensitivity", "rx_sensitivity");
+            snap.RfProfile = ReadIntField(setup, setupType, "rfProfile", "RfProfile", "rf_profile");
+            snap.OpFlags = ReadLongField(setup, setupType, "opFlags", "OpFlags", "op_flags");
+        }
+
+        private static long ReadLongField(
+            object setup, Type setupType, string name1, string name2, string name3)
+        {
+            int v = ReadIntField(setup, setupType, name1, name2, name3);
+            if (v >= 0) return v;
+            return -1;
+        }
+
         private static bool TryApplyViaModuleSetup(
             object api, Type apiType, Assembly asm, NurProfileStatus st,
-            int linkFreqHz, int txLevel)
+            int linkFreqHz, int txLevel, int rxDecoding, int txModulation)
         {
             Type setupType = FindSetupType(asm, apiType, api);
             if (setupType == null) return false;
@@ -175,9 +266,20 @@ namespace MerlinAudit
             SetIntField(setup, setupType, "TxLevel", txLevel);
             SetIntField(setup, setupType, "tx_level", txLevel);
 
+            if (rxDecoding >= 0)
+            {
+                SetIntField(setup, setupType, "rxDecoding", rxDecoding);
+                SetIntField(setup, setupType, "RxDecoding", rxDecoding);
+                SetIntField(setup, setupType, "rx_decoding", rxDecoding);
+            }
+            if (txModulation >= 0)
+            {
+                SetIntField(setup, setupType, "txModulation", txModulation);
+                SetIntField(setup, setupType, "TxModulation", txModulation);
+                SetIntField(setup, setupType, "tx_modulation", txModulation);
+            }
 
-
-            int flags = ResolveSetupFlags(asm, setupType);
+            int flags = ResolveApplySetupFlags(asm, setupType, rxDecoding >= 0, txModulation >= 0);
 
             if (flags == 0) flags = 0x00000003;
 
@@ -199,7 +301,7 @@ namespace MerlinAudit
 
             InvokeSetModuleSetup(api, set, setupType, setup, flags);
             st.ApplyOk = true;
-            ReadBackSetup(api, apiType, setupType, st, linkFreqHz, txLevel);
+            ReadBackSetup(api, apiType, setupType, st, linkFreqHz, txLevel, rxDecoding, txModulation);
             return true;
         }
 
@@ -372,13 +474,12 @@ namespace MerlinAudit
 
         private static void ReadBackSetup(
             object api, Type apiType, Type setupType, NurProfileStatus st,
-            int linkFreqHz, int txLevel)
+            int linkFreqHz, int txLevel, int rxDecoding, int txModulation)
 
         {
 
-            int flags = ResolveSetupFlags(apiType.Assembly, setupType);
-
-            if (flags == 0) flags = 0x00000003;
+            int flags = ResolveSetupFlagsAll(apiType.Assembly, setupType);
+            if (flags == 0) flags = -1;
 
 
 
@@ -428,8 +529,11 @@ namespace MerlinAudit
 
             st.ReadTxLevel = ReadIntField(setup, setupType, "txLevel", "TxLevel", "tx_level");
 
+            st.ReadRxDecoding = ReadIntField(setup, setupType, "rxDecoding", "RxDecoding", "rx_decoding");
+
             st.LinkFreqOk = st.ReadLinkFreqHz == linkFreqHz;
             st.TxLevelOk = st.ReadTxLevel == txLevel;
+            st.RxDecodingOk = rxDecoding < 0 || st.ReadRxDecoding == rxDecoding;
         }
 
 
@@ -1039,23 +1143,46 @@ namespace MerlinAudit
 
 
         private static int ResolveSetupFlags(Assembly asm, Type setupType)
-
         {
+            return ResolveApplySetupFlags(asm, setupType, false, false);
+        }
 
+        private static int ResolveSetupFlagsAll(Assembly asm, Type setupType)
+        {
+            int all = ReadEnumFlagFromAssembly(asm, "NUR_SETUP_ALL");
+            if (all != 0) return all;
+            all = ReadEnumFlag(setupType, "NUR_SETUP_ALL");
+            if (all != 0) return all;
+            return ResolveApplySetupFlags(asm, setupType, true, true);
+        }
+
+        private static int ResolveApplySetupFlags(
+            Assembly asm, Type setupType, bool includeRx, bool includeTxMod)
+        {
             int v = ReadEnumFlagFromAssembly(asm, "NUR_SETUP_LINKFREQ");
-
             v |= ReadEnumFlagFromAssembly(asm, "NUR_SETUP_TXLEVEL");
-
+            if (includeRx)
+            {
+                v |= ReadEnumFlagFromAssembly(asm, "NUR_SETUP_RXDEC");
+            }
+            if (includeTxMod)
+            {
+                v |= ReadEnumFlagFromAssembly(asm, "NUR_SETUP_TXMODULATION");
+            }
             if (v != 0) return v;
 
-
-
             v = ReadEnumFlag(setupType, "NUR_SETUP_LINKFREQ");
-
             v |= ReadEnumFlag(setupType, "NUR_SETUP_TXLEVEL");
-
-            return v;
-
+            if (includeRx)
+            {
+                v |= ReadEnumFlag(setupType, "NUR_SETUP_RXDEC");
+            }
+            if (includeTxMod)
+            {
+                v |= ReadEnumFlag(setupType, "NUR_SETUP_TXMODULATION");
+            }
+            if (v != 0) return v;
+            return 0x00000003;
         }
 
 
